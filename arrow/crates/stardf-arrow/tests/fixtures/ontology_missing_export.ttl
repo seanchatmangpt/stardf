@@ -1,0 +1,162 @@
+# stardf-arrow ontology — LANE 14 (v26.10.31 stardf reconstitution, wave 2)
+#
+# Vocabulary for the stardf/arrow surface, grounded in this crate's disk truth:
+#   crates/stardf-arrow-capi/src/lib.rs  — 13 #[no_mangle] extern "C" exports
+#     (no_mangle sites at lib.rs:51,63,73,91,118,275,306,323,363,384,390,396,410;
+#     all outside the #[cfg(test)] mod tests, which spans lib.rs:139-267).
+#   crates/stardf-arrow-capi/src/stream_c.rs — ArrowArrayStream repr(C) struct,
+#     export_stream/stream_free.
+#   crates/stardf-arrow-core/src/stream.rs — ArrowArrayStream (:264),
+#     export_stream (:276), CursorProducer (:85).
+#
+# The lane-7 contract names 7 C exports; the crate carries 13. stardf_last_error
+# is the auxiliary error-surface export (role "auxiliary"); the other 12 are
+# matched individuals below (7 contract exports + 5 landed-by-W7 additions:
+# stardf_i32_batch, stardf_array_addr, stardf_batch_rows, stardf_pending_tags,
+# stardf_release).
+
+@prefix stardf-arrow: <https://ggen.io/ontology/stardf-arrow#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# --- Classes ---
+
+stardf-arrow:Arena a rdfs:Class ;
+    rdfs:label "Arena" ;
+    rdfs:comment "Term-id arena (StardfArena, term.rs): budgeted intern/lookup substrate." .
+
+stardf-arrow:Batch a rdfs:Class ;
+    rdfs:label "Batch" ;
+    rdfs:comment "Append-only quad batch (StardfBatch, lib.rs): (s,p,o,g) u32 term-id rows." .
+
+stardf-arrow:Stream a rdfs:Class ;
+    rdfs:label "Stream" ;
+    rdfs:comment "Arrow C Data Interface stream surface. GROUNDED: ArrowArrayStream exists in this crate (core/src/stream.rs:264; capi/src/stream_c.rs repr(C), 4 fn pointers get_schema/get_next/get_last_error/release)." .
+
+stardf-arrow:CabiExport a rdfs:Class ;
+    rdfs:label "CabiExport" ;
+    rdfs:comment "A #[no_mangle] pub extern \"C\" export of stardf-arrow-capi." .
+
+# --- Individuals: C exports (13 on disk = 7 contract + 5 landed additions + 1 auxiliary) ---
+
+stardf-arrow:export-arena-new a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_arena_new" ;
+    stardf-arrow:targetSymbol "stardf_arena_new" ;
+    stardf-arrow:subsystem "Arena" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+stardf-arrow:export-arena-intern a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_arena_intern" ;
+    stardf-arrow:targetSymbol "stardf_arena_intern" ;
+    stardf-arrow:subsystem "Arena" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+stardf-arrow:export-arena-free a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_arena_free" ;
+    stardf-arrow:targetSymbol "stardf_arena_free" ;
+    stardf-arrow:subsystem "Arena" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+stardf-arrow:export-batch-append-quad a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_batch_append_quad" ;
+    stardf-arrow:targetSymbol "stardf_batch_append_quad" ;
+    stardf-arrow:subsystem "Batch" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+stardf-arrow:export-avec-export-stream a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_avec_export_stream" ;
+    stardf-arrow:targetSymbol "stardf_avec_export_stream" ;
+    stardf-arrow:subsystem "Stream" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+
+stardf-arrow:export-arrow-version a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_arrow_version" ;
+    stardf-arrow:targetSymbol "stardf_arrow_version" ;
+    stardf-arrow:subsystem "Version" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+stardf-arrow:export-last-error a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_last_error" ;
+    stardf-arrow:targetSymbol "stardf_last_error" ;
+    stardf-arrow:subsystem "Version" ;
+    stardf-arrow:crate "capi" ;
+    stardf-arrow:role "auxiliary" .
+
+stardf-arrow:export-i32-batch a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_i32_batch" ;
+    stardf-arrow:targetSymbol "stardf_i32_batch" ;
+    stardf-arrow:subsystem "Batch" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+stardf-arrow:export-array-addr a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_array_addr" ;
+    stardf-arrow:targetSymbol "stardf_array_addr" ;
+    stardf-arrow:subsystem "Inspection" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+stardf-arrow:export-batch-rows a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_batch_rows" ;
+    stardf-arrow:targetSymbol "stardf_batch_rows" ;
+    stardf-arrow:subsystem "Inspection" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+stardf-arrow:export-pending-tags a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_pending_tags" ;
+    stardf-arrow:targetSymbol "stardf_pending_tags" ;
+    stardf-arrow:subsystem "Inspection" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+stardf-arrow:export-release a stardf-arrow:CabiExport ;
+    rdfs:label "stardf_release" ;
+    stardf-arrow:targetSymbol "stardf_release" ;
+    stardf-arrow:subsystem "Batch" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi" .
+
+# --- ReleaseOutcome typed C ABI surface ---
+#
+# GROUNDED: crates/stardf-arrow-capi/src/lib.rs:349 — `#[repr(i32)] pub enum
+# ReleaseOutcome { Released, ReleasedViaForeign }` (no explicit discriminants,
+# so Released = 0, ReleasedViaForeign = 1 by Rust repr(i32) rules); it is the
+# return type of stardf_release (lib.rs:410). NOTE: stardf-arrow-core's
+# ReleaseOutcome (core/src/release.rs:29) adds DoubleRelease, but that enum is
+# a core-internal type with no #[repr(i32)] C ABI surface — it is NOT part of
+# the capi wire contract and is deliberately not modeled here.
+
+stardf-arrow:ReleaseOutcome a rdfs:Class ;
+    rdfs:label "ReleaseOutcome" ;
+    rdfs:comment "Typed C ABI result of stardf_release. GROUNDED: capi/src/lib.rs:349 #[repr(i32)] enum { Released = 0, ReleasedViaForeign = 1 } (implicit discriminants)." .
+
+stardf-arrow:release-outcome-released a stardf-arrow:ReleaseOutcome ;
+    rdfs:label "Released" ;
+    stardf-arrow:discriminant "0"^^xsd:int ;
+    rdfs:comment "Freed through stardf's tagged release chain (lib.rs:438)." .
+
+stardf-arrow:release-outcome-released-via-foreign a stardf-arrow:ReleaseOutcome ;
+    rdfs:label "ReleasedViaForeign" ;
+    stardf-arrow:discriminant "1"^^xsd:int ;
+    rdfs:comment "Freed (leaked) through the untagged foreign path — mutant posture, or null-array input (lib.rs:416,423)." .
+
+stardf-arrow:returnsOutcome a rdfs:Property ;
+    rdfs:label "returnsOutcome" ;
+    rdfs:comment "Links a CabiExport to its typed ReleaseOutcome C ABI result." .
+
+stardf-arrow:export-release stardf-arrow:returnsOutcome stardf-arrow:ReleaseOutcome .
+
+# --- Grounded interop-surface individual ---
+
+stardf-arrow:arrow-array-stream a stardf-arrow:Stream ;
+    rdfs:label "ArrowArrayStream" ;
+    stardf-arrow:interopSurface "ArrowArrayStream" ;
+    stardf-arrow:crate "capi+core" .

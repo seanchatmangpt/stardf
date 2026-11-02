@@ -1,0 +1,156 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "kind": "suite-receipt-n3",
+  "date": "2026-10-31",
+  "lane": "publish-lane-4 (n3 log-standing -> receipted)",
+  "subject": {
+    "crate": "stardf-n3 v26.11.1 (lib name purrdf_n3, vendored from purrdf crates/n3)",
+    "upstream_pin": {
+      "rev": "0da0578306983da851a9073337d57e2e2c41ab3a",
+      "note": "purrdf HEAD == pinned rev at receipt time (zero commits touching crates/n3 after it; witnessed via git log REV..HEAD -- crates/n3, empty)."
+    },
+    "upstream_archive_sha256": {
+      "value": "6f01513390ed71b65808037da8612c17784d2be7ba19e16550f7fbd14af3b6e2",
+      "command": "git -C /Users/sac/purrdf archive 0da0578306983da851a9073337d57e2e2c41ab3a crates/n3 | shasum -a 256",
+      "match": true,
+      "note": "Re-computed by this lane at receipt time; equals the VENDOR-PROVENANCE.md upstream identity receipt."
+    },
+    "head": "724d542540b497f2928a63b5aece9b37aef4019b",
+    "branch": "fix/v26.9.29-ci-gates",
+    "identity_note": "Head/branch carried from evidence/v26.11.1-manufacturing-receipt.json (c4r); a read-only `git rev-parse HEAD` probe this session returned the identical value. NO git state commands executed by this lane (dispatch law); the only git invocations were read-only upstream purrdf `git show`/`git archive` at the pinned rev (the vendoring law's own verification commands).",
+    "tree_digest": {
+      "value": "57b1066ca5c0067a470debb1bc8e43ac1f90e673960d1c4e5f0844e351a1e598",
+      "files": 12270,
+      "computed": "2026-11-01T06:07:48Z",
+      "method": "find . -path '*/target*' -prune -o -type f -print | sort | xargs shasum -a 256 | shasum -a 256 (house method, executed verbatim)",
+      "note": "Computed at receipt time from stardf/arrow (target dirs pruned). Covers the lane-09 decouple landings (22:43-22:54 -0700). The receipt write POSTDATES the digest - mid-campaign as-of disclosure."
+    }
+  },
+  "checks": [
+    {
+      "id": "h02-first-suite-run-receipted",
+      "passed": true,
+      "count": 89,
+      "comment": "H02's fresh witness: cargo test -p stardf-n3 --locked -> exit 0, 89 passed / 0 failed across 5 targets (unittests src/lib.rs 28/0 in 5.77s; n3_forgery 13/0; n3_parse 28/0; n3_proofs 4/0; n3_reason 16/0; doc-tests 0/0). /tmp/h02_n3_full.log @21:44 -0700 on disk (12,712 bytes, EXIT=0 line). Recorded as LOG-STANDING in evidence/v26.11.1-manufacturing-receipt.json and docs/RECEIPTS.md row H02 ('evidence/ receipt file still owed') - receipted by this file."
+    },
+    {
+      "id": "doc15-second-suite-run-receipted",
+      "passed": true,
+      "count": 89,
+      "comment": "DOC-15's independent re-run: cargo test -p stardf-n3 --locked -> exit 0, same 89/0 across 5 targets. /tmp/lane15_doc_n3.log @22:07 -0700 on disk. Together with H02's run this is the 'exit 0 x2' pair cited by the dispatch; RECEIPTS.md row H02 names both logs."
+    },
+    {
+      "id": "lane4-fresh-same-session-witness",
+      "passed": true,
+      "count": 89,
+      "comment": "This lane's own run, this session: cargo test -p stardf-n3 --locked -> exit 0, 89 passed / 0 failed across the same 5 targets (lib 28/0 in 5.76s, forgery 13/0, parse 28/0, proofs 4/0, reason 16/0, doc-tests 0/0). Log /tmp/l4_n3_witness.log. Third independent green run of the suite (21:44, 22:07, ~23:05)."
+    },
+    {
+      "id": "g01-copy-fidelity-confirmation-cited",
+      "passed": true,
+      "count": 26,
+      "count_basis": "26 non-manifest files",
+      "comment": "G01's independent confirmation (per dispatch contract), receipted on disk: crates/stardf-n3/VENDOR-PROVENANCE.md records census parity 27/27 + byte parity 26/26 non-manifest files cmp-identical to `git show REV:crates/n3/<file>` at COPY time, re-run twice (pre- and post-manifest-edit), plus the upstream archive sha256 (re-computed by this lane: match). Copy-time claim only - see the honest drift row below for the current tree."
+    },
+    {
+      "id": "current-tree-byte-parity-drift",
+      "passed": false,
+      "count": 19,
+      "count_basis": "19/26 non-manifest files byte-identical to the pinned rev NOW",
+      "comment": "Honest drift row, machine-checked this session: 7 of 26 non-manifest files are NOT byte-identical to the pinned rev on the current tree - src/parser.rs, src/printing.rs, src/proof_check_n3.rs, src/proof_writer.rs, src/reasoner.rs, src/wasm.rs, tests/n3_parse.rs - all with mtime 2026-10-31 20:00 (post-copy integration formatting, D16 phase-3 window), while the copy-time parity receipt (VENDOR-PROVENANCE.md, 26/26 re-run twice) predates them. Semantic content is intact - see the semantic-parity row."
+    },
+    {
+      "id": "current-tree-semantic-parity",
+      "passed": true,
+      "count": 26,
+      "count_basis": "26/26 non-manifest files whitespace-normalized identical to the pinned rev",
+      "comment": "Each of the 7 drifted files compares equal to `git show REV:crates/n3/<file>` after tr -s ' \\t\\n' ' ' normalization (FMT-ONLY verdict, machine-checked per file this session): the deltas are rustfmt signature line-joining, zero semantic lines. purrdf HEAD == pinned rev, so the drift is session-introduced formatting, not upstream movement."
+    },
+    {
+      "id": "termid-agnostic-p13-seam-not-biting",
+      "passed": true,
+      "count": 0,
+      "count_basis": "0 TermId hits across 17 src+test files",
+      "comment": "Zero occurrences of `TermId` in stardf-n3 (grep -c over all 17 files: 13 src/*.rs + 4 tests/*.rs; every file reports 0, grep exits 1 = no matches). The P13 probe-plan seam lives in the rdf-core kernel lane (docs/jira/v26.10.31/12-full-parity-campaign.md W2), not in n3; VENDOR-PROVENANCE.md already discloses 'stardf-n3 touches no probe plan'. The seam does not bite: stardf-n3 is TermId-agnostic."
+    },
+    {
+      "id": "wasm-feature-gate-note",
+      "passed": true,
+      "count": 1,
+      "comment": "The wasm surface is feature-gated: Cargo.toml [features] wasm = [\"dep:wasm-bindgen\"] with wasm-bindgen =0.2.129 optional; src/wasm.rs compiles only under cfg(feature = \"wasm\") (lib.rs:45-46). The default suite (cargo test -p stardf-n3) exercises the NATIVE surface only; no wasm32 build or test was run by any of the three witnessed runs, and the four custom [[test]] targets are harness = false (no libtest runtime assumed on wasm32)."
+    },
+    {
+      "id": "census-parity",
+      "passed": true,
+      "count": 27,
+      "count_basis": "27/27 upstream files present; +1 file added (VENDOR-PROVENANCE.md)",
+      "comment": "Sorted path census vs the pinned rev matches for all 27 upstream files; the only tree delta is the added VENDOR-PROVENANCE.md provenance receipt."
+    }
+  ],
+  "errors": [
+    {
+      "code": "N3_BYTE_PARITY_DRIFT_POSTCOPY_FMT",
+      "message": "current tree 19/26 byte-identical vs pinned rev 0da05783 (7 files: src/parser.rs, src/printing.rs, src/proof_check_n3.rs, src/proof_writer.rs, src/reasoner.rs, src/wasm.rs, tests/n3_parse.rs, mtimes 2026-10-31 20:00); whitespace-normalized parity 26/26 (formatting-only, machine-verified). Copy-time 26/26 (VENDOR-PROVENANCE.md) predates the formatting. Whether the post-copy rustfmt is an admitted D16 phase-3 edit is a vendoring-law question adjudicated OUTSIDE this receipt lane's lease - not fixed, not waived here."
+    },
+    {
+      "code": "N3_FIRST_WITNESS_ATTEMPT_LANE09_LOCK_SKEW",
+      "message": "This lane's first fresh-run attempt (~22:55 -0700) exited 101 - NOT an n3 defect: lane 09's mid-flight cgap-arrow decouple left a dangling `cgap-arrow.workspace = true` inheritance in stardf-process (root manifest 22:52 / lock 22:12 skew), so workspace resolution failed before any compile ('no matching package named cgap-arrow found', required by stardf-process). Lane 09 completed the decouple at 22:53:57-22:54:18 (disclosed cross-lane unblock comment landed in crates/stardf-process/Cargo.toml); re-run on the settled tree: exit 0. Disclosed per receipt law - not erased."
+    }
+  ],
+  "commands": [
+    {
+      "cmd": "cargo test -p stardf-n3 --locked  (attempt 1, ~22:55 -0700)",
+      "exit": 101,
+      "comment": "lane-09 mid-flight lock skew; no n3 compile attempted; see errors[] N3_FIRST_WITNESS_ATTEMPT_LANE09_LOCK_SKEW"
+    },
+    {
+      "cmd": "cargo test -p stardf-n3 --locked  (attempt 2, this session ~23:05 -0700)",
+      "exit": 0,
+      "comment": "89 passed / 0 failed across 5 targets (lib 28, forgery 13, parse 28, proofs 4, reason 16) + doc-tests 0/0; log /tmp/l4_n3_witness.log"
+    },
+    {
+      "cmd": "git -C /Users/sac/purrdf archive 0da0578306983da851a9073337d57e2e2c41ab3a crates/n3 | shasum -a 256",
+      "exit": 0,
+      "comment": "6f01513390ed71b65808037da8612c17784d2be7ba19e16550f7fbd14af3b6e2 - match vs VENDOR-PROVENANCE.md"
+    },
+    {
+      "cmd": "per-file byte-parity loop: git -C /Users/sac/purrdf show REV:crates/n3/<file> | cmp - <stardf file> over 26 non-manifest files",
+      "exit": 0,
+      "comment": "19/26 identical; 7 mismatches all FMT-ONLY (tr -s ' \\t\\n' ' ' normalized compare == upstream); census diff shows only +VENDOR-PROVENANCE.md"
+    },
+    {
+      "cmd": "grep -c TermId over crates/stardf-n3/src/*.rs and tests/*.rs",
+      "exit": 1,
+      "comment": "exit 1 = zero matches; every file 0 hits (TermId-agnostic; P13 seam does not bite)"
+    },
+    {
+      "cmd": "tree_digest house pipeline (from stardf/arrow)",
+      "exit": 0,
+      "comment": "57b1066ca5c0067a470debb1bc8e43ac1f90e673960d1c4e5f0844e351a1e598 over 12,270 files at 2026-11-01T06:07:48Z"
+    },
+    {
+      "cmd": "git rev-parse HEAD (read-only identity probe, disclosed)",
+      "exit": 0,
+      "value": "724d542540b497f2928a63b5aece9b37aef4019b",
+      "comment": "matches the carried head; no git state commands executed by this lane"
+    }
+  ],
+  "replay": {
+    "status": "NOT_RUN",
+    "comment": "No verify.py byte-identical replay pair run by this lane. The suite's three green runs (H02 21:44, DOC-15 22:07, this lane ~23:05) are three independent executions of the same command, NOT a byte-identical-output replay pair under the receipt law; the verify.py replay pair is a separate gate not exercised here."
+  },
+  "standing": "PARTIAL_ALIVE",
+  "standing_note": "PARTIAL_ALIVE by the house rule (>=1 honest failed check row present). The receipted claim - the stardf-n3 suite gate - is green x3 including a same-session exit 0 (suite slice ALIVE locally); the false row is upstream byte-parity drift (provenance, not the suite).",
+  "nonclaims": [
+    "no git state commands by this lane: head/branch carried (a read-only rev-parse probe is disclosed in commands[]); upstream purrdf git show/archive are read-only at the pinned rev",
+    "no current-tree upstream byte-parity claim: 19/26 witnessed (7 files formatting-drifted post-copy); only copy-time 26/26 (receipted) and whitespace-normalized 26/26 (re-measured) are claimed",
+    "the post-copy rustfmt on 7 files is NOT adjudicated by this receipt: vendoring-law escalation belongs to the D16 phase-3 owner, not this lane",
+    "no wasm32 build or test exercised: the wasm feature gate is described from the manifest/sources, never built or run",
+    "no D17 parity claims beyond the suite gate; no ABI surface, no courts beyond the witnessed suite",
+    "no verify.py replay pair, no R1 license-gate re-run, no CI standing, no crates.io publish (D20 publish BLOCKED at the G8 operator gate)",
+    "stardf-process is loudly non-compiling on the settled tree (lane 09 decouple mid-work) - outside stardf-n3's dependency closure, witnessed as not affecting this suite; that repair is lane 09's lease",
+    "the first fresh-run attempt's exit 101 is disclosed in commands[]/errors[], not erased",
+    "cited /tmp logs (h02_n3_full.log, lane15_doc_n3.log, l4_n3_witness.log) are ephemeral; the counts cited from them are re-transcribed into this receipt, which is the durable record",
+    "no merge, no landing list changes, no register edits: this lane owns exactly one file - evidence/stardf-n3-suite-receipt-2026-10-31.json"
+  ]
+}

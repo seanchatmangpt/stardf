@@ -1,0 +1,94 @@
+{
+  "identity": {
+    "tool": "scripts/publish_stardf.py",
+    "workspace_root": "/Users/sac/ggen-legacy/stardf/arrow",
+    "generated_at": "2026-11-01T04:40:00+00:00",
+    "mode": "dry-run",
+    "git_head": "724d542540b497f2928a63b5aece9b37aef4019b"
+  },
+  "gates": [
+    {
+      "id": "G1-closure-present",
+      "class": "hard",
+      "standing": "PASS",
+      "detail": "clean"
+    },
+    {
+      "id": "G2-tiers-strict-topo",
+      "class": "hard",
+      "standing": "PASS",
+      "detail": "clean"
+    },
+    {
+      "id": "G3-publish-flag",
+      "class": "hard",
+      "standing": "FAIL",
+      "detail": "stardf-sparql-algebra: publish = false (metadata publish==[]); stardf-core: publish = false (metadata publish==[]); stardf-sparql-results: publish = false (metadata publish==[]); stardf-rdf: publish = false (metadata publish==[])"
+    },
+    {
+      "id": "G4-metadata-fields",
+      "class": "hard",
+      "standing": "PASS",
+      "detail": "clean"
+    },
+    {
+      "id": "G5-dep-hygiene",
+      "class": "hard",
+      "standing": "FAIL",
+      "detail": "stardf-columnar [dev-dependencies] stardf-arrow-core: path-only dependency -- dual key (version+path) required; stardf-stack [dev-dependencies] stardf-testkit: path-only dependency -- dual key (version+path) required; stardf-iri [dev-dependencies] stardf-testkit: path-only dependency -- dual key (version+path) required; stardf-xsd [dev-dependencies] purrdf-testkit: path-only dependency -- dual key (version+path) required; stardf-xsd [dev-dependencies] purrdf-alloc-probe: path-only dependency -- dual key (version+path) required; stardf-arrow-capi [dev-dependencies] stardf-columnar: path-only dependency -- dual key (version+path) required; stardf-cdt [dev-dependencies] stardf-stack: path-only dependency -- dual key (version+path) required; stardf-cdt [dev-dependencies] stardf-testkit: path-only dependency -- dual key (version+path) required; stardf-cdt [dev-dependencies] stardf-alloc-probe: path-only dependency -- dual key (version+path) required; stardf-core [dependencies] stardf-branchless: path-only dependency -- dual key (version+path) required; stardf-core [dependencies] stardf-lex: path-only dependency -- dual key (version+path) required; stardf-core [dependencies] stardf-iri: path-only dependency -- dual key (version+path) required (+43 more)"
+    },
+    {
+      "id": "G6-frozen-duckdb-pin",
+      "class": "hard",
+      "standing": "PASS",
+      "detail": "clean"
+    },
+    {
+      "id": "G7-patch-tables",
+      "class": "hard",
+      "standing": "PASS",
+      "detail": "clean"
+    },
+    {
+      "id": "G8-nonclosure-hard-deps",
+      "class": "hard",
+      "standing": "FAIL",
+      "detail": "stardf-rdf: hard normal dep on non-closure workspace member stardf-ed25519 -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-rdf: hard normal dep on non-closure workspace member stardf-gts -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-rdf: hard normal dep on non-closure workspace member stardf-sparql-eval -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-rdf: hard dev dep on non-closure workspace member stardf-gts -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-sql: hard normal dep on non-closure workspace member stardf-shapes -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-rs: hard normal dep on non-closure workspace member stardf-datalog -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-rs: optional normal dep on non-closure workspace member stardf-duckdb -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-rs: hard normal dep on non-closure workspace member stardf-entail -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-rs: hard normal dep on non-closure workspace member stardf-geo -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-rs: hard normal dep on non-closure workspace member stardf-glob -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-rs: hard normal dep on non-closure workspace member stardf-gts -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload; stardf-rs: hard normal dep on non-closure workspace member stardf-hnsw -- target crate must join the closure or the dep must be dropped/re-routed (D17); registry 404 at upload (+12 more)"
+    },
+    {
+      "id": "R1-license-gate",
+      "class": "hard",
+      "standing": "PASS",
+      "detail": "python3 /Users/sac/ggen-legacy/stardf/arrow/scripts/verify_stardf_licenses.py -> exit 0"
+    },
+    {
+      "id": "avec-ffi-court",
+      "class": "hard",
+      "standing": "FAIL",
+      "detail": "cargo test -p avec-ffi --test stardf_consumer_court -> exit 101:   stardf-arrow-core@26.11.1 requires rustc 1.98"
+    },
+    {
+      "id": "G9-cargo-check-workspace",
+      "class": "hard",
+      "standing": "PASS",
+      "detail": "cargo check --workspace -> exit 0"
+    }
+  ],
+  "ladder": [],
+  "landing_list": [
+    "G3-publish-flag",
+    "G5-dep-hygiene",
+    "G8-nonclosure-hard-deps",
+    "avec-ffi-court"
+  ],
+  "verdict": "BLOCKED",
+  "nonclaims": [
+    "cargo package --list does not resolve registry dependencies; the structural gates (G5/G6/G8) carry publishability, not the listing ladder",
+    "this receipt was produced without any live cargo publish unless mode == live",
+    "a SKIP gate row is not a PASS; live publish refuses on SKIP rows without --accept-skips",
+    "per-crate readiness FAIL rows are landing-list items for the manifest lanes, not evidence the ladder script itself is broken",
+    "the script never mutates git state; commits/tags belong to the coordinator",
+    "dry-run listings pass --allow-dirty (concurrent finisher lanes own uncommitted edits; coordinator owns git); live publish never passes --allow-dirty",
+    "G5 enforces the version+path dual key on normal AND dev AND build deps (cargo's packaging version-requirement check witnessed on stardf-iri: 'all dependencies must have a version requirement specified when packaging'); if a witnessed cargo package receipt later proves dev-deps exempt, relax G5 with that receipt, not by assumption"
+  ]
+}

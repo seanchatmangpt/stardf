@@ -1,0 +1,122 @@
+<!--
+SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+-->
+
+<p align="center">
+  <a href="https://github.com/Blackcat-Informatics/purrdf">
+    <img src="https://raw.githubusercontent.com/Blackcat-Informatics/purrdf/main/docs/purrdf-logo.svg" alt="PurRDF logo" width="120" height="120">
+  </a>
+</p>
+
+# `purrdf-shex` — ShEx 2.1 Schemas & Validation
+
+[![crates.io](https://img.shields.io/crates/v/purrdf-shex.svg)](https://crates.io/crates/purrdf-shex)
+[![docs.rs](https://docs.rs/purrdf-shex/badge.svg)](https://docs.rs/purrdf-shex)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0%20OR%20MulanPSL--2.0-blue.svg)](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MIT)
+[![Repository](https://img.shields.io/badge/repo-Blackcat--Informatics%2Fpurrdf-181717.svg)](https://github.com/Blackcat-Informatics/purrdf)
+
+PurRDF's native **ShEx 2.1** engine: the schema layer and the shape-map
+validator.
+
+A pure-Rust, wasm-clean leaf crate implementing the
+[Shape Expressions Language 2.1](https://shex.io/shex-semantics/):
+
+- **ShExC** (compact syntax, spec §6): hand-rolled lexer +
+  recursive-descent parser covering the full grammar — directives,
+  `start`, the `AND`/`OR`/`NOT` shape algebra, node constraints and the
+  facet table, value sets with stems/ranges/exclusions, triple
+  expressions with all cardinality forms, `$`/`&` labels and inclusions,
+  `^` inverse, annotations and `%…{ … %}` semantic actions, with
+  relative-IRI resolution against `BASE` via `purrdf-iri`.
+- **ShExJ** (JSON wire format, spec Appendix A): strict, round-tripping
+  reader and writer over `purrdf_lex::json` matching the shexTest ground
+  truth; a document that repeats an object member name is refused.
+- **Structural checks** (spec §5.7): dangling references, label
+  collisions, reference-only cycles, and the negation-stratification
+  requirement (over `purrdf_core::graph::tarjan_scc`, the workspace's one
+  iterative Tarjan SCC).
+- **`validate`** (spec §5.2–§5.5): fixed shape-map validation over the
+  frozen `purrdf-core` dataset IR in interned `TermId` space — node
+  constraints (node kind, datatype with lexical-validity checking,
+  string/numeric facets, value sets with stems and exclusions),
+  `EXTRA`/`CLOSED` triple-expression matching with `EachOf`/`OneOf`
+  partitioning and group cardinalities, inverse constraints, typing-based
+  recursion, and an `EXTERNAL` resolver hook.
+- **RDF 1.2 statement layer** (beyond ShEx 2.1, which predates RDF 1.2):
+  reifier bindings and statement annotations live in side-tables outside
+  the quad table, and both the validator and the shape-map resolver read
+  them. A focus node that *is* a reifier has a real neighbourhood — an
+  `rdf:reifies` arc to the triple term plus one arc per statement
+  annotation — inverse arcs reach it (`^rdf:reifies`,
+  `^<annotationPredicate>`), and shape-map selectors resolve through it in
+  both directions. Ordinary subjects are unaffected, since both
+  side-tables key on the reifier. (RDF 1.2 *statement* annotations are
+  unrelated to ShEx *schema* annotations, the `// predicate object`
+  syntax.)
+
+Gated against the vendored [shexTest](https://github.com/shexSpec/shexTest)
+v2.1.0 conformance suite (`vectors/shexTest`): `negativeSyntax/`,
+`negativeStructure/`, the `schemas/` ShExC/ShExJ pairs, ShExJ round-trips,
+and the full `validation/` manifest (every attempted entry passes; only the
+`Import` and `SemanticAction` trait families are skipped).
+
+```rust
+use purrdf_shex::{check_structure, parse_shexc, to_shexj};
+
+let schema = parse_shexc(
+    "PREFIX ex: <http://example.org/>\n\
+     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>\n\
+     ex:S { ex:p xsd:integer? }",
+    None,
+)?;
+check_structure(&schema).expect("well-formed");
+let json = to_shexj(&schema);
+```
+
+Hard-fail discipline: every malformed schema is a typed `ShexError`;
+no lenient mode, no panics on any input.
+
+## Explicit XPath pattern laws
+
+`validate_with_xpath` and `validate_shape_map_with_xpath` select the native
+XPath F&O 2.0 Second Edition (2010-12-14) or 3.1 (2017-03-21) law explicitly,
+with `purrdf_core::xsd_regex::xpath::{Profile, Limits}`. Both admit
+backreferences; only 3.1 admits non-capturing groups and `q`. ShExJ supplies
+pattern and flag text directly. ShExC retains its concrete-syntax escape and
+flag grammar.
+
+An invalid pattern or flag produces an ordinary facet finding. Source,
+compiler, program-storage or matching exhaustion returns the typed native
+`xpath::Error` and aborts the whole shape map. Negation, alternative branches,
+triple assignment and previously computed entries cannot turn that refusal
+into a finding or a partial map. The textual shape-map door wraps its actual
+map error or native cause in `XPathValidationError`.
+
+Keep `XPathValidator::new(&schema)` for repeated fixed-map validations. Each
+call still supplies its dated profile and current limits; the product retains
+at most one successful native program, never a finding, failed compilation or
+spent execution budget. Cache hits recheck source/program/storage admission,
+and matching receives fresh current fuel. The existing `validate`,
+`validate_with` and `validate_shape_map` retain their compatibility behavior.
+
+## Part of PurRDF
+
+This crate is one member of the [PurRDF](https://github.com/Blackcat-Informatics/purrdf)
+workspace — an RDF 1.2 toolkit with native codecs, SPARQL, SHACL, ShEx,
+entailment, and the GTS graph transport, carried into Python, WebAssembly, and
+C (the GTS container itself reaches Python and C, not the wasm package). Most applications should depend on the umbrella
+[`purrdf`](https://crates.io/crates/purrdf) crate, which re-exports this crate
+as `purrdf::shex`; depend on `purrdf-shex` directly only when you want the ShEx
+engine alone.
+
+There are deliberately no Cargo feature flags anywhere in the workspace. MSRV
+follows the workspace `rust-version` (currently 1.98, stable toolchain only).
+
+## License
+
+Licensed under any one of the following, at your option:
+
+- [MIT license](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MIT)
+- [Apache License, Version 2.0](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-APACHE)
+- [Mulan Permissive Software License, Version 2 (MulanPSL-2.0)](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MULAN)

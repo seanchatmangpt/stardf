@@ -1,0 +1,118 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "lane": "H03 gate-closure",
+  "subject": {
+    "workspace_root": "/Users/sac/ggen-legacy/stardf/arrow",
+    "head_at_lane_start": "724d542540b497f2928a63b5aece9b37aef4019b",
+    "head_at_lane_end": "724d542540b497f2928a63b5aece9b37aef4019b",
+    "git": "NO git operations by this lane (coordinator owns transitions); all edits are uncommitted deltas on HEAD 724d5425 (c4r)",
+    "cargo_lock_sha256_prefix": "6d96fbf664a3c9ae"
+  },
+  "task": "Close the 21:05 package-audit landing list [G3-publish-flag, G5-dep-hygiene, G8-nonclosure-hard-deps] by fix-forward manifest work or precise owner registration; gate = real cargo package --allow-dirty --no-verify on the previously-blocked crates with under-10MB + LICENSE-in-package witnessed.",
+  "checks": [
+    {
+      "id": "G3-publish-flag-closed",
+      "passed": true,
+      "count": 4,
+      "comment": "publish=false -> publish=true on the 4 tier-expected manifests the 21:05 receipt named: stardf-sparql-algebra, stardf-core (crates/stardf-rdf-core), stardf-sparql-results, stardf-rdf. Final gate suite row: G3 PASS clean (receipt 20261101T051252Z)."
+    },
+    {
+      "id": "G5-dep-hygiene-closed",
+      "passed": true,
+ "count": 55,
+      "comment": "55 path-only rows dual-keyed (version+path) at each member's real version: 31 member-direct rows across 9 manifests (columnar/stack/iri/xsd/capi/cdt/rdf-core/algebra/n3) + 19 root [workspace.dependencies] entries covering the 24 workspace=true rows (rdf: gts/ed25519/sparql-eval; sql: shapes; toml: sparql-eval; rs: 16 members). 4 members run 26.9.29 and are pinned =26.9.29 (datalog/ed25519/shapes/slice); the rest =26.11.1. The receipt's avec-arrow git rows were already closed by lane 09's decouple (disclosed in the capi/arrow-core manifests) -- zero git-source rows remained at lane start (re-read manifests first, as dispatched). Final gate suite row: G5 PASS clean."
+    },
+    {
+      "id": "G8-nonclosure-hard-deps-registered-with-owner",
+      "passed": false,
+      "count": 24,
+      "comment": "G8 is NOT closed and is NOT closeable by manifest-only fixes: the gate counts optional rows too (crates.io 404 at upload), and every G8 dep is source-woven (ed25519 signing in rdf gts_compose/gts_dict_vectors; sparql-eval in rdf projections + capture bin; shapes in sql compiler.rs SHACL path; 18 umbrella re-exports). Fix classes per the gate: target joins closure (D17 operator re-ratification) or dep dropped/re-routed (source surgery). Registered with owner: docs/OPERATOR-DECISIONS.md 80/20 block, H03 row; precise rows + witnessed blast radius below."
+    },
+    {
+      "id": "g8-precise-rows",
+      "passed": false,
+      "count": 24,
+      "comment": "stardf-rdf: normal deps stardf-ed25519 + stardf-gts + stardf-sparql-eval, dev dep stardf-gts (4 rows). stardf-sql: normal dep stardf-shapes (1). stardf-toml: dev dep stardf-sparql-eval (1). stardf-rs: normal deps datalog, duckdb(optional), entail, geo, glob, gts, hnsw, json, markdown, mime, process, retrieval, shapes, shex, slice, sparql-eval, text, validate (18). 17 of the 24 rows resolve to members at =26.9.29 (datalog/ed25519/shapes/slice); the rest 26.11.1."
+    },
+    {
+      "id": "task-gate-bootstrap-simulation",
+      "passed": true,
+      "count": 20,
+      "comment": "Tier-order publish-bootstrap simulation (scripts/h03_bootstrap_sim.sh; results evidence/h03-bootstrap-sim-2026-10-31.txt): real `cargo package --offline --allow-dirty --no-verify` per closure crate in publish_stardf.py tier order, publish-shaped resolution against a local directory source (cargo vendor output + each packaged crate re-seeded). 20/25 closure crates produced REAL .crate tarballs, every one <10MB uncompressed and carrying LICENSE rows inside the tarball. 5 FAIL rows are the G8 blast radius with cargo's own missing-package errors: stardf-rdf (stardf-ed25519 direct), stardf-rs (stardf-datalog direct), stardf-sql + stardf-toml + stardf-n3 (blocked transitively via stardf-rdf's unresolvable row). Naive per-crate packaging without the simulation fails the whole non-leaf class on the same registry-absence wall (verdict blocker 7, bottom-up bootstrap law) -- the simulation is the strongest pre-publish witness available without a registry touch."
+    },
+    {
+      "id": "ten-mb-ceiling",
+      "passed": true,
+      "count": 20,
+      "comment": "All 20 real tarballs under the 10MB ceiling, uncompressed per-crate sums (largest: stardf-sparql-algebra 4,515,400 B; stardf-core 9,256,102 B). One violation found and fixed: stardf-core (rdf-core) first packaged at 10,760,224 B uncompressed -- exclude class fix landed: exclude = [\"tests/csv_differential_vectors.txt\"] (1,504,576 B; stays in-tree for cargo test); re-packaged at 9,256,102 B."
+    },
+    {
+      "id": "license-in-package",
+      "passed": true,
+      "count": 20,
+      "comment": "All 20 real tarballs carry LICENSE/NOTICE rows inside the tarball (4-5 rows each, licenses/ dir per the lane-11 carriage law)."
+    },
+    {
+      "id": "cargo-lock-preservation",
+      "passed": true,
+      "count": 1,
+      "comment": "The simulation's source-replacement runs churn Cargo.lock (dir-source ids); snapshotted before (sha256 6d96fbf664a3c9ae...), byte-restored after each run, cmp-gated: byte-identical. No net repo mutation from the simulation."
+    },
+    {
+      "id": "gate-suite-final",
+      "passed": false,
+      "count": 1,
+      "comment": "python3 scripts/publish_stardf.py --dry-run on the finished tree (receipt evidence/publish_stardf-receipt-20261101T051252Z.json): G1-G7 PASS, R1 PASS, avec-ffi-court PASS (exit 0 -- the avec lane's toolchain repair landed mid-lane and this suite witnessed it green), G9 cargo check --workspace PASS; G8 FAIL sole blocker; verdict BLOCKED with landing_list=[G8-nonclosure-hard-deps]. Landing list shrunk 3 -> 1 by this lane."
+    }
+  ],
+  "errors": [
+    {
+      "code": "G8_REMAINING_BLOCKER",
+      "message": "G8-nonclosure-hard-deps: 24 rows over 4 crates (stardf-rdf 4, stardf-sql 1, stardf-toml 1, stardf-rs 18); witnessed publish blast radius 5 crates incl. transitive stardf-n3; owner: operator (D17 closure re-ratification) -- fix-forward not manifest-reachable"
+    },
+    {
+      "code": "H03_LANE_ERRORS_OWNED",
+      "message": "Lane self-errors during the work, disclosed: (1) introduced a duplicate [dev-dependencies] table in stardf-stack's manifest on the first dual-key edit; caught by tomllib parse check, reverted, fixed in the existing table. (2) First sim runs poisoned by my own seeding bugs (missing .cargo-checksum.json on seeds; wrong .crate filename mapping for stardf-arrow-rs/stardf-core/stardf-rs) -- produced 3 false-cascade FAIL sets before the clean run; the recorded sim receipt is the clean run only."
+    }
+  ],
+  "commands": [
+    {"cmd": "python3 scripts/publish_stardf.py --dry-run (gate suite, tree with all H03 edits)", "exit": 1, "comment": "verdict BLOCKED on G8 alone; receipt evidence/publish_stardf-receipt-20261101T051252Z.json; exit 1 is the script's BLOCKED code, all other gates PASS"},
+    {"cmd": "python3 scripts/publish_stardf.py --dry-run (first H03 run, pre-exclude tree)", "exit": 0, "comment": "receipt evidence/publish_stardf-receipt-20261101T045124Z.json -- first witnessing of G3 PASS + G5 PASS post-fix; also witnessed avec-ffi-court PASS (exit 0)"},
+    {"cmd": "bash scripts/h03_bootstrap_sim.sh", "exit": 0, "comment": "20 OK + 5 G8-blast-radius FAIL rows; results evidence/h03-bootstrap-sim-2026-10-31.txt"},
+    {"cmd": "cargo package --offline --allow-dirty --no-verify -p <crate> (naive, per previously-blocked crate)", "exit": 101, "comment": "non-leaf crates fail on publish-shaped resolution ('no matching package named stardf-...' at crates.io index) -- the documented bottom-up bootstrap wall, not a manifest defect; leaves (arrow-core/hash/alloc-probe) pass standalone"},
+    {"cmd": "cargo vendor /tmp/stardf-vendor", "exit": 0, "comment": "simulation substrate; vendor dir + scratch CARGO_HOME=/tmp/h03-ch (config.toml with crates-io and avec-git source replacement); avec git db copied into the scratch home for offline rev canonicalization"},
+    {"cmd": "cmp Cargo.lock /tmp/h03-cargo.lock.bak (after every sim run + gate suite)", "exit": 0, "comment": "byte-identical restore each time"},
+    {"cmd": "cargo metadata --offline --format-version 1 (post-edit parse/resolve validation)", "exit": 0, "comment": "all 13 edited member manifests + root: TOML-parse sweep clean, version reqs satisfied"}
+  ],
+  "replay": {
+    "status": "REPLAYABLE",
+    "comment": "bash scripts/h03_bootstrap_sim.sh from the committed tree reproduces the 20-OK/5-FAIL table (requires: cargo vendor /tmp/stardf-vendor first; scratch CARGO_HOME per script header; Cargo.lock snapshot/restore). Gate suite replay: python3 scripts/publish_stardf.py --dry-run -> BLOCKED on G8 alone."
+  },
+  "standing": "PARTIAL_ALIVE",
+  "edits": {
+    "root": "Cargo.toml: 19 [workspace.dependencies] entries dual-keyed (4 at =26.9.29: datalog/ed25519/shapes/slice; 15 at =26.11.1); superseded stale lane-08 comment on stardf-duckdb (the published umbrella's sql feature DOES consume it)",
+    "members": [
+      "crates/stardf-rdf-core/Cargo.toml (publish=true; 11 dual-key rows; exclude tests/csv_differential_vectors.txt)",
+      "crates/stardf-sparql-algebra/Cargo.toml (publish=true; 8 dual-key rows)",
+      "crates/stardf-sparql-results/Cargo.toml (publish=true)",
+      "crates/stardf-rdf/Cargo.toml (publish=true; G8 note added)",
+      "crates/stardf-columnar/Cargo.toml (1 dual-key row)",
+      "crates/stardf-stack/Cargo.toml (1 dual-key row)",
+      "crates/stardf-iri/Cargo.toml (1 dual-key row)",
+      "crates/stardf-xsd/Cargo.toml (2 dual-key rows)",
+      "crates/stardf-arrow-capi/Cargo.toml (1 dual-key row)",
+      "crates/stardf-cdt/Cargo.toml (3 dual-key rows)",
+      "crates/stardf-n3/Cargo.toml (3 dual-key rows)",
+      "crates/stardf-purrdf/Cargo.toml (stale lane-08 comment updated with H03 disclosure; G8 note)"
+    ],
+    "count": 13
+  },
+  "nonclaims": [
+    "NO live publish, no registry touch, no git operations by this lane; every receipt on this tree binds to SHA 724d5425 only after the coordinator commits",
+    "the bootstrap simulation is a local directory-source simulation of the crates.io bottom-up bootstrap; it does NOT prove registry behavior (index, rate limits, upload validation) -- it proves publish-shaped manifests resolve and assemble into real tarballs",
+    "G8 is NOT closed: it is registered with the operator (D17). The publish footprint stays BLOCKED at 1 hard gate; 5 of 25 closure crates cannot publish-shaped-resolve until the operator re-ratifies the closure or the deps are dropped/re-routed",
+    "the avec-ffi-court PASS is a concurrent-lane witness (the avec toolchain repair landed during this lane); the avec lane owns that receipt",
+    "target/package/*.crate artifacts were refreshed by this lane's runs and overwrite earlier same-name artifacts (lane-11's receipted sizes were as-of their run; target/package is scratch)",
+    "the 22 one-entry .crate stubs in target/package/tmp-crate/ predate this lane (20:59-21:52, unreceipted scratch of other lanes); this lane did not touch tmp-crate"
+  ]
+}

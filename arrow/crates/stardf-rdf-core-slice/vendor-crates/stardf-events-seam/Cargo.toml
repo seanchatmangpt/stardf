@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics(R) Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+# Seam placeholder: verbatim surfaces from purrdf rev 0da05783 pending W1 full vendoring (see ../../PROVENANCE.md).
+name = "stardf-events-seam"
+version = "26.9.29"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+rust-version = "1.98"
+
+[lib]
+name = "purrdf_events"
+path = "src/lib.rs"

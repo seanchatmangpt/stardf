@@ -1,0 +1,129 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+# Vendoring lane (2026-10-31): copy-and-rename of purrdf rev
+# 0da0578306983da851a9073337d57e2e2c41ab3a `crates/iri` -> `stardf-iri`; lib
+# name `purrdf_iri` stays VERBATIM per the vendoring law. Only the package
+# name, workspace-inherited scalars (version/edition/license/repository/
+# rust-version), first-party dep keys (path deps) and external pin RHS values
+# were touched. Upstream `homepage`/`documentation` fields dropped (disclosed):
+# the homepage field does not exist in the stardf workspace.package and the
+# docs.rs path names the upstream package. Same posture as stardf-lex.
+
+[package]
+name = "stardf-iri"
+# Lane 07-publish-metadata (2026-10-31): v26.11.1 first-class closure —
+# description/keywords/categories/repository workspace-inherited; homepage
+# restored as a workspace inherit (vendoring posture dropped it while the
+# crate was path-only unpublished; publishability restores it).
+description.workspace = true
+# Lane 08-dual-key (2026-10-31): closure version inherits the workspace 26.11.1.
+version.workspace = true
+# Vendoring-lane divergence (disclosed): upstream inherits edition 2024 from the
+# purrdf workspace; the stardf/arrow root carries edition 2021. The edition is
+# pinned 2024 here concretely (upstream-equal), matching the stardf-lex
+# vendor's posture; the nightly toolchain (rust-toolchain.toml) supports 2024.
+edition = "2024"
+publish = true
+repository.workspace = true
+homepage.workspace = true
+license = "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0"
+rust-version = "1.98"
+keywords.workspace = true
+categories.workspace = true
+# Lane 10 (2026-10-31): crates.io 10MB tarball ceiling — the UCD text corpora
+# (unicode/16.0.0 + unicode/17.0.0, 13MB) stay in-tree, excluded from the
+# packaged crate; unicode/LICENSES + REUSE.toml + PROVENANCE.md still ride for
+# attribution. No src/build.rs consumer in this crate (witnessed: only the lex
+# `upstream-tests` feature's include_str names a unicode/ path, and that
+# feature is declared inert in stardf-lex's own manifest).
+exclude = ["unicode/16.0.0", "unicode/17.0.0"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+# rlib-only foundation whose runtime dependencies are the lexical layer
+# `purrdf-lex` and the zero-dependency root `purrdf-hash` (layers.toml). It must stay wasm-clean. It does NOT depend on
+# `purrdf-core` — the dependency points the other way.
+crate-type = ["rlib"]
+path = "src/lib.rs"
+# LIB NAME VERBATIM per the vendoring law (lib names, LICENSE files, in-file
+# notices unchanged): this crate's own code and sibling vendors `use
+# purrdf_iri::...` in the stardf tree. Only the PACKAGE name was renamed
+# (purrdf-iri -> stardf-iri). Same posture as stardf-hash's `purrdf_hash` and
+# stardf-lex's `purrdf_lex`.
+name = "purrdf_iri"
+
+[dependencies]
+# The grammar terminals, the byte-class scanners and the JSON string escaper,
+# re-exported as `purrdf_iri::{terminals, scan, json_escape}`.
+# Upstream key `purrdf-lex` renamed per the vendoring law; resolves to package
+# stardf-lex (vendored this workspace; lib name stays `purrdf_lex`).
+stardf-lex = { workspace = true }
+# Runtime use is the structured-error machinery (StructuredError/error_visit!).
+# The base16/percent codecs and the fixed-key table hashers are test-only.
+# Upstream key `purrdf-hash` renamed per the vendoring law; resolves to package
+# stardf-hash (vendored this workspace; lib name stays `purrdf_hash`).
+stardf-hash = { workspace = true }
+
+[dev-dependencies]
+# Round-trip / idempotency property tests (parse -> serialize, normalize twice)
+# on the shared property harness. Lane H03 gate-closure (2026-10-31):
+# dual-keyed per the G5 version+path law — the packaged manifest now carries
+# the version-only key (the 21:05 ladder receipt named this row).
+# Upstream key `purrdf-testkit` renamed per the vendoring law; resolves to
+# package stardf-testkit (vendored this workspace; lib name stays
+# `purrdf_testkit`). The upstream test files and bench that require it are
+# ACTIVE (unparked 2026-10-31 once stardf-testkit landed: see
+# VENDOR-PROVENANCE.md for the park -> unpark sequence).
+stardf-testkit = { version = "=26.11.1", path = "../stardf-testkit" }
+
+[[bench]]
+name = "parse"
+harness = false
+
+# Upstream `[lints] workspace = true` inlined VERBATIM from purrdf root
+# [workspace.lints] at the vendored rev (same posture, zero drift; same
+# posture as stardf-hash and stardf-lex).
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+# Underscore spelling, not `rust-2018-idioms`: cargo deprecated the dashed form
+# and will stop honouring it in a future edition, at which point the whole lint
+# GROUP would silently stop applying. Nightly cargo already warns about it.
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Pedantic/nursery opt-outs, each with a reason. Keep this list short and
+# justified; prefer fixing code over widening it.
+module_name_repetitions = "allow"     # purrdf_core::RdfDataset-style names are deliberate
+missing_errors_doc = "allow"          # error semantics live on the error types themselves
+missing_panics_doc = "allow"          # panics are programming errors, documented at the assert
+must_use_candidate = "allow"          # blanket #[must_use] adds noise; applied by hand where it guards bugs
+option_if_let_else = "allow"          # nursery: frequently less readable than the match it replaces
+redundant_pub_crate = "allow"         # nursery: conflicts with unreachable_pub on binary/test targets
+doc_markdown = "allow"                # 500+ backtick nits on spec terms (RDF/XML, JSON-LD); revisit with doc-valid-idents
+missing_const_for_fn = "allow"        # nursery: noisy and often wrong about intentionally non-const APIs
+too_long_first_doc_paragraph = "allow" # cosmetic doc layout only
+cast_possible_truncation = "allow"    # u32 id/offset space is asserted at construction; casts are deliberate
+cast_possible_wrap = "allow"          # ditto
+cast_sign_loss = "allow"              # ditto
+cast_precision_loss = "allow"         # XSD numeric promotion is spec-defined; losses are intentional
+unnecessary_wraps = "allow"           # Result-shaped codec seams are kept uniform even where infallible today
+unused_self = "allow"                 # method-shaped APIs kept uniform across backends
+many_single_char_names = "allow"      # s/p/o/g is the canonical RDF idiom
+similar_names = "allow"               # subject/predicate/object families trip this constantly
+too_many_lines = "allow"              # refactors are planned work, not lint chores
+single_match_else = "allow"           # stylistic; match reads better at codec branch points
+match_same_arms = "allow"             # duplicate arms often document distinct spec cases
+if_not_else = "allow"                 # stylistic
+items_after_statements = "allow"      # test-local helpers read better in place
+zero_sized_map_values = "allow"       # HashMap<K, ()> is used deliberately for entry-API patterns
+unnecessary_debug_formatting = "allow" # {:?} in diagnostics is deliberate; message text is golden-locked
+float_cmp = "allow"                   # XSD value-space equality is spec-exact by design

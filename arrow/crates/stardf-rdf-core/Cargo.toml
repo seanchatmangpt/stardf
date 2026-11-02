@@ -1,0 +1,381 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+# Copy-sweep lane w2-l01 (2026-10-31): full straight copy of purrdf rev
+# 0da0578306983da851a9073337d57e2e2c41ab3a `crates/rdf-core` -> `stardf-rdf-core`,
+# landed via `git -C /Users/sac/purrdf archive <rev> crates/rdf-core` (the dirty
+# working tree was never read). All 315 files byte-verified against the rev
+# (per-file cmp, 315/315 exit 0). Rename scope: `[package] name`, first-party
+# dep keys (path deps to arrow-workspace siblings), materialized
+# workspace-inherited scalars + external dep RHS + [lints] table (upstream root
+# values verbatim). Lib name `purrdf_core` stays VERBATIM per the vendoring law.
+# Package name `stardf-rdf-core` (not the vendoring plan's `stardf-core`
+# mapping) per this lane's explicit task; the arrow workspace carries the full
+# dep closure (branchless/deflate included) so this crate builds green today.
+# Gates + receipts: crates/stardf-rdf-core/VENDOR-PROVENANCE.md.
+
+[package]
+name = "stardf-core"
+description = "PurRDF RDF 1.2 kernel: model, diagnostics, IR, store traits, and event ingestion"
+version.workspace = true
+edition = "2024"
+# Lane H03 gate-closure (2026-10-31): G3 fix — tier-4 closure member joins the
+# publish set (was publish=false; the 21:05 ladder receipt named it).
+publish = true
+license = "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0"
+repository = "https://github.com/seanchatmangpt/ggen-legacy"
+documentation = "https://docs.rs/purrdf-core"
+rust-version = "1.98"
+keywords = ["rdf", "rdf-12", "ir", "diagnostics", "linked-data"]
+categories = ["parser-implementations", "encoding", "data-structures"]
+# Lane 10 / H03 (2026-10-31): crates.io 10MB tarball ceiling — witnessed
+# packaged at 10,760,224 B uncompressed (H03 bootstrap simulation, 22:09):
+# tests/csv_differential_vectors.txt (1,504,576 B) alone crosses it. The
+# vector corpus stays in-tree for `cargo test` (csv_scan_wasm + csv
+# differential gates read it), excluded from the packaged crate.
+exclude = ["tests/csv_differential_vectors.txt"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+# rlib-only PyO3-free kernel. Python bindings live under
+# `bindings/python`; this crate is the ring-fenced core that MUST NOT pull
+# PyO3 into its dependency tree.
+crate-type = ["rlib"]
+path = "src/lib.rs"
+name = "purrdf_core"
+
+[dependencies]
+# Branchless kernel primitives (no_std leaf, zero deps). The Eytzinger search
+# module's single home: this crate re-exports it instead of carrying its own
+# copy. wasm-clean.
+stardf-branchless = { version = "=26.11.1", path = "../stardf-branchless" }
+# The lexical layer: the one `TextOut` append target, the `IRIREF` and literal
+# escapers, the RDF 1.2 term syntax and the XML reader. A leaf over
+# `purrdf-hash` only, with no edge back to the core, and wasm-clean.
+stardf-lex = { version = "=26.11.1", path = "../stardf-lex" }
+# Zero-dependency RFC 3987 validation for canonical RDF-term targets. The IRI
+# leaf has no edge back to the core, remains wasm-clean, and prevents malformed
+# or relative identifiers from entering persistent PURREMB target identity.
+stardf-iri = { version = "=26.11.1", path = "../stardf-iri" }
+# The SEP-0009 composite-datatype value space. Blank-node labels inside a
+# `cdt:List`/`cdt:Map` lexical form denote blank nodes in the enclosing
+# document's scope, so the IR kernel must read that grammar to bind them (see
+# `crate::cdt_blank`). The crate is a closed leaf over `purrdf-iri`/`purrdf-xsd`
+# with no edge back to the core, and stays wasm-clean.
+stardf-cdt = { version = "=26.11.1", path = "../stardf-cdt" }
+# The correctly rounded binary64 operation layer (`purrdf_xsd::ieee`): the distance
+# kernels, the PURREMB norm and the float-environment probe compute through it, so the
+# workspace has one implementation of binary floating-point arithmetic, the x87's
+# precision guard and subnormal scaling included. A zero-dependency leaf already in this
+# crate's graph through `purrdf-cdt`, and wasm-clean.
+stardf-xsd = { version = "=26.11.1", path = "../stardf-xsd" }
+# Strict BCP 47 validation for canonical RDF language-tag target identities.
+# The permissive RDF 1.2 ingestion protocol: this crate provides
+# the `DatasetSink` adapter that folds an `RdfEventSink` event stream into a frozen
+# `RdfDataset`, plus the frozen-IR-replay `FrozenDatasetSource`. The protocol crate
+# is dependency-free and uses the same `MIT OR Apache-2.0 OR MulanPSL-2.0` license as this crate.
+stardf-events = { version = "=26.11.1", path = "../stardf-events" }
+# Fixed-key, non-cryptographic hashing for in-memory IR lookup tables
+# (`purrdf_hash::fixed::FixedHasher`, re-exported as `FastHasher`). The tables
+# never persist hash values and equality still resolves collisions; this replaces
+# SipHash on hot value-index paths without introducing runtime randomness. A
+# zero-dependency leaf, so the kernel's graph gains no third-party package.
+stardf-hash = { version = "=26.11.1", path = "../stardf-hash" }
+# The workspace's one first-mismatch index (`purrdf_deflate::common_prefix_len`),
+# the word-parallel compare behind the pack dictionary's front coding. It is
+# `#[inline]` with no dispatch, so each short record compare compiles into the
+# encoder's loop. A leaf over `purrdf-hash` only, with no edge back to the
+# core, and wasm-clean.
+stardf-deflate = { version = "=26.11.1", path = "../stardf-deflate" }
+# Raw `HashTable` for the store-once builder interner/dedup: each term/
+# row is owned ONCE by its `Vec`, the table holds only indices. (`HashTable` was
+# introduced in hashbrown 0.14.2; the workspace tracks 0.17.)
+hashbrown = { version = "0.17", default-features = false }
+# Content-addressed blob digest for the content store. Same version as the
+# sibling kernel crates (logic/validate/slice). Default features (std) re-enabled;
+# the workspace-level entry is default-features = false for the wasm-clean eval path.
+sha2 = { version = "0.11", default-features = true }
+# The execution engine `xsd_regex::compile` translates XSD/XPath regex source
+# into: a DFA-based, backtracking-free, pure-Rust, wasm32-clean engine already
+# proven elsewhere in this workspace (`purrdf-rdf`, `purrdf-shapes`,
+# `purrdf-shex`, `purrdf-slice`, `purrdf-sparql-{algebra,eval}`). See
+# `crate::xsd_regex`'s module doc for the dialect-translation rationale.
+regex = { version = "1", default-features = false, features = ["std", "unicode", "perf-cache", "perf-dfa", "perf-onepass", "perf-backtrack", "perf-inline"] }
+# Normalized regex IR for faithful Unicode ECMA-262 pattern emission.
+regex-syntax = "0.8.11"
+
+[dev-dependencies]
+# Runs the deep-structure tests on a stack of a stated size: a fresh thread
+# natively, the running stack under a fresh floor on wasm32.
+stardf-stack = { version = "=26.11.1", path = "../stardf-stack" }
+# The workspace's shared counting allocator, for `tests/ir_zero_alloc.rs`.
+# Lane H03 gate-closure (2026-10-31): dual-keyed per the G5 version+path law
+# (the packaged manifest carries the version-only key). Std-only and
+# dependency-free, so it needs no target gate.
+stardf-alloc-probe = { version = "=26.11.1", path = "../stardf-alloc-probe" }
+# Writes the built pack bytes to a real temporary file for `pack_mmap.rs` to
+# read back, scratch directories for the other integration tests, and the property
+# harness. Lane H03 gate-closure (2026-10-31): dual-keyed per the G5
+# version+path law (the packaged manifest carries the version-only key).
+stardf-testkit = { version = "=26.11.1", path = "../stardf-testkit" }
+
+[[test]]
+name = "segmented_stack"
+harness = false
+
+[[test]]
+name = "structured_inspection"
+harness = false
+
+[[test]]
+name = "loss_profiles"
+harness = false
+
+[[test]]
+name = "pack_certify"
+harness = false
+
+[[test]]
+name = "segmented"
+harness = false
+
+[[test]]
+name = "model_traits"
+harness = false
+
+[[bench]]
+name = "model_traits"
+harness = false
+
+[[test]]
+name = "dataset_state_digest"
+harness = false
+
+[[bench]]
+# IR layout / operational-metrics harness: AoS-vs-SoA(-vs-predicate-adjacency)
+# iteration + allocated-bytes/count/peak reporting. Satisfies the RFC gate
+# "Layout is chosen by benchmark, not asserted". `make bench` lane only — excluded
+# from `make check`.
+name = "ir_layout"
+harness = false
+
+[[bench]]
+# Complete-state identity construction over fixed native shapes. Report-only;
+# it does not alter or compare any preexisting identity's hot path.
+name = "dataset_state_digest"
+harness = false
+
+[[bench]]
+# COW `MutableDataset` measured-hypothesis harness: the shipped copy-on-
+# write suppression-delta dataset benched head-to-head against a simple hash-indexed
+# value-quad store, on a build/mutate/query workload. Reports both; asserts no winner.
+# `make bench` lane only — excluded from `make check`.
+name = "mutable"
+harness = false
+
+[[bench]]
+# Succinct `pack` primitives: `IntVector::get` and `RankSelect`'s
+# `rank1`/`select1`, each at a few sizes.
+# Report-only — no timing/speedup assertions. `make bench` lane only — excluded
+# from `make check`.
+name = "pack_bits"
+harness = false
+
+[[bench]]
+# Intern-time content-id overhead harness: three groups measuring
+# ordinary-IRI interning with content addressing inactive vs active (prefix-miss
+# cost) and genuine `blake3:<64hex>` content-id interning (prefix-hit + decode +
+# side-table insert). Report-only — no timing/speedup assertions. `make bench`
+# lane only — excluded from `make check`.
+name = "intern_content_id"
+harness = false
+
+[[bench]]
+# IR-boundary absoluteness invariant: the intern-time cost of proving every IRI
+# term is absolute, split so the store-once claim is readable — all-misses
+# (one parse per distinct IRI) vs all-hits (no parse at all) vs a realistic
+# reused-vocabulary mix, plus the same worst case on the `GlobalDictionary`
+# table. Report-only — no timing/speedup assertions. `make bench` lane only —
+# excluded from `make check`.
+name = "intern_absoluteness"
+harness = false
+
+[[bench]]
+# `purrdf_core::csv` read/write throughput over 1 MiB SSSOM-shaped and
+# CSVW-shaped inputs. Report-only; no timing threshold is asserted.
+name = "csv"
+harness = false
+
+[[bench]]
+# SSSOM document-layout hot paths: validated column construction and sparse
+# deterministic serialization over a retained source layout. Report-only; no
+# timing threshold is asserted.
+name = "sssom"
+harness = false
+
+[[bench]]
+# Succinct `pack` codec end-to-end harness: `PackBuilder::build_bytes`
+# (encode), `PackView::from_bytes` (open), `quads_for_pattern` over a
+# `PackView` for subject/predicate/object-bound and full-scan shapes, and
+# `verify_pack` (the certified-projection RDFC-1.0 recompute). Report-only —
+# no timing/speedup assertions. `make bench` lane only — excluded from
+# `make check`.
+name = "pack_query"
+harness = false
+
+[[bench]]
+# Internal, non-shipped comparison of the pack codec's FoQ posting indexes with
+# a pointerless bitmap wavelet-matrix candidate over the existing Sp/So
+# sequences. Measures bytes, deterministic build cost, and the three
+# unbound-subject query shapes; no winner is asserted.
+name = "pack_index_compare"
+harness = false
+
+[[bench]]
+# Deterministic `.purremb` substantial-fixture harness: full validation and
+# resident reopen, target/relation and prefix access, exact/coarse+rerank
+# retrieval, bounded-memory streaming output, f64 access, and a one-million-
+# chunk catalog. Report-only — no latency or recall threshold is asserted.
+name = "purremb"
+harness = false
+
+[[bench]]
+# One-shot allocation/count/high-water probes over the same deterministic
+# `.purremb` fixtures. Kept in a separate process so allocator atomics cannot
+# distort the timings above.
+name = "purremb_alloc"
+harness = false
+
+[[bench]]
+# One-shot allocation/count/high-water probes over the pack RESTORE path
+# (`PackView::from_bytes`, `dataset_from_view`, and `restore_pack` over both), on an
+# RDF 1.1 and an RDF 1.2 fixture. Separate from the `pack_query` timed target so
+# the allocator atomics cannot distort its timings, and separate from that target's
+# concerns because a decoder that quietly returns to one allocation per term reads as
+# noise in a latency measurement and as a scaling count here. Report-only — no
+# allocation or timing threshold is asserted. `make bench` lane only — excluded from
+# `make check`.
+name = "pack_restore_alloc"
+harness = false
+
+[[bench]]
+# Kernel-level harness (A4 audit): ns/op rows for the four
+# `primitives.rs` register kernels over seeded LCG fixtures, plus GB/s
+# rows for the CSV field scanner's live dispatch vs the portable SWAR
+# kernel over a 1 MiB seeded haystack (full scan, no early exit).
+# Report-only -- no timing/speedup assertions. `make bench` lane only --
+# excluded from `make check`.
+name = "primitives_table"
+harness = false
+
+[[bench]]
+name = "shared_views"
+harness = false
+
+[[bench]]
+# COLD cost of the shared XSD/XPath `regExp` translator (`xsd_regex::compile`):
+# translation + regex build across structurally distinct shapes (plain ASCII,
+# Unicode category, XML-name escapes with and without `i`, first/last Unicode
+# block, class subtraction, `x`/`q`). Report-only; `make bench` lane only —
+# excluded from `make check`.
+name = "xsd_regex"
+harness = false
+
+[[bench]]
+# The `purrdf_core::distance` kernels -- batch (`distances`), indexed
+# (`distances_indexed`), pair (`distance`) and bounded (`distance_bounded`) -- under
+# `Exact` and `Reassociated`, over f64xf64 / f64xf32 / f32xf32 width pairs at 384, 768
+# and 1536 dimensions. Report-only -- no timing/speedup assertions; the two arithmetics
+# are reported side by side. `make bench` lane only -- excluded from `make check`.
+name = "distance"
+harness = false
+
+[[bench]]
+# The two core paths that reach a shared home: the Turtle literal escape scan
+# (`turtle::emit_term` over 1 MiB of clean, dense-escape and sparse-escape text)
+# and the pack dictionary's front-coding prefix (`EncodedDict::encode`/`decode`
+# over 100,000 sorted IRIs, and the `common_prefix_len` kernel). Report-only --
+# no timing/speedup assertions. `make bench` lane only -- excluded from `make check`.
+name = "shared_homes"
+harness = false
+
+[[bench]]
+# `purrdf_core::SmallVec` on the workspace's row shapes: `IdVec` push /
+# from_slice / collect / clone / into_iter inline and spilled, and dense
+# `Option<TermId>` rows built by `smallvec![None; w]`. Report-only -- no
+# timing/speedup assertions. `make bench` lane only -- excluded from `make check`.
+name = "small"
+harness = false
+
+# The CSV field scanner's kernel differential -- the portable oracle, the live
+# dispatch and every explicit vector kernel this build compiles -- run through
+# the doc-hidden `purrdf_core::csv::backend` module on `purrdf_testkit`'s
+# `harness = false` runner. Native Rust runs the full target; `make wasm-test`
+# selects the explicit simd128 kernel comparisons and dispatch assertion.
+[[test]]
+name = "csv_scan_wasm"
+harness = false
+
+[[test]]
+name = "byte_cover"
+harness = false
+
+[[test]]
+name = "triple_carrier"
+harness = false
+
+[lints]
+# Materialized from upstream workspace root [workspace.lints] at the vendored
+# rev (the stardf/arrow workspace defines no [workspace.lints] table).
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+option_if_let_else = "allow"
+redundant_pub_crate = "allow"
+doc_markdown = "allow"
+missing_const_for_fn = "allow"
+too_long_first_doc_paragraph = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+unnecessary_wraps = "allow"
+unused_self = "allow"
+many_single_char_names = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+single_match_else = "allow"
+match_same_arms = "allow"
+if_not_else = "allow"
+items_after_statements = "allow"
+zero_sized_map_values = "allow"
+unnecessary_debug_formatting = "allow"
+float_cmp = "allow"
+
+# (repair lane 2026-10-31) Standalone-root table REMOVED: the registered
+# premise (avoiding dragging 13 [[test]] + 15 [[bench]] targets into every
+# lane's test ladder) is a test-ladder concern, not a check concern, and the
+# coordinator-owned membership decision is executed by this repair lane's
+# green-loop lease (root members list carries the crate). The crate joins the
+# shared workspace.
+#
+# (repair lane 2026-10-31) The standalone-root profile overrides ([profile.dev]
+# opt-level 3 / debug 1, [profile.test], [profile.dev.package."*"],
+# [profile.dev.build-override]) are removed with the root table: profiles in a
+# member manifest are ignored by cargo (only the workspace-root [profile.*]
+# applies) and a table cargo silently ignores is a silent skip. The root
+# profiles govern.

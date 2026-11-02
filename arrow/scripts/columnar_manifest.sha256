@@ -1,0 +1,27 @@
+# StarDF columnar golden-byte manifest (F4b-class) — PHASE-2 LANE 10.
+#
+# Mirrors the `PINNED` table in
+# crates/stardf-columnar/tests/golden_bytes.rs one-for-one, in order:
+# `<blake3-hex>  Compression::<mode>/Table::<name>`.
+#
+# Regenerate ONLY on an intentional, reviewed format change, via:
+#   cargo test -p stardf-columnar --test golden_bytes regenerate_pinned_digests -- --nocapture
+# and record the reason with the format change. Fixture: splitmix64,
+# state=0x6012 (F2a-safe by construction).
+#
+# Initial-pin reason (recorded, W1 lane 12 verification, 2026-10-31): these
+# pins were minted for THIS crate's vendored encoder, not carried from
+# upstream purrdf-columnar (e.g. upstream Terms/Uncompressed f55714a0…): the
+# shim kernel's plain-literal marker is the empty datatype IRI and the
+# canonical dictionary follows the shim TermValue order, so upstream pins
+# cannot transfer byte-for-byte. Minted via the `--ignored` regenerate court.
+6e59d6c66d9e5fae087f7004176b219a80091ff30c1a20512ec1ebef60e9f118  Compression::Uncompressed/Table::Terms
+7c08d9ef2671fdbf52d81c80d6553c79892c0a052193905342b0ead4381a636d  Compression::Uncompressed/Table::Quads
+bd7c9d82c76c5878d08e747220ecc947ea0383c8aa3682bf0bf8418055b1bbca  Compression::Uncompressed/Table::Reifiers
+c3f9c85ee714ea2f4a7ff89efea74bcc40c6ae1c557e05b0a58d7fc376ef23de  Compression::Uncompressed/Table::Annotations
+d6346d625c68920b209cb494ec39f21ee30b01a4ea81ff177c363602a0e49a45  Compression::Uncompressed/Table::Blobs
+fc777d0fa94ac58c50e43b29f5773df46d5c7d8257b2d42f4b4fe66dd4006245  Compression::Zstd/Table::Terms
+af45ab2092653f6776dd95dc42f223ec47cd6c582d34d6ab99f72d342e0d5996  Compression::Zstd/Table::Quads
+d681b748b10c695d501fa350edb08253c4f7af939fffa9a304219c4deca5a8af  Compression::Zstd/Table::Reifiers
+a2dd1f708678f5b2d4ec39abbf3b407f682d86da99ffd51b56fa12ec47c947ff  Compression::Zstd/Table::Annotations
+152bf4086732a3fde2710cf6bad7c47c7cbf59aacdda57436119f7c36f4e2ef7  Compression::Zstd/Table::Blobs

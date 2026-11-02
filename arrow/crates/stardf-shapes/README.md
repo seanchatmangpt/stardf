@@ -1,0 +1,1349 @@
+<p align="center">
+  <a href="https://github.com/Blackcat-Informatics/purrdf">
+    <img src="https://raw.githubusercontent.com/Blackcat-Informatics/purrdf/main/docs/purrdf-logo.svg" alt="PurRDF logo" width="120" height="120">
+  </a>
+</p>
+
+<!-- SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca> -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0 -->
+
+# `purrdf-shapes` — Rust SHACL Validator
+
+[![crates.io](https://img.shields.io/crates/v/purrdf-shapes.svg)](https://crates.io/crates/purrdf-shapes)
+[![docs.rs](https://docs.rs/purrdf-shapes/badge.svg)](https://docs.rs/purrdf-shapes)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0%20OR%20MulanPSL--2.0-blue.svg)](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MIT)
+[![Repository](https://img.shields.io/badge/repo-Blackcat--Informatics%2Fpurrdf-181717.svg)](https://github.com/Blackcat-Informatics/purrdf)
+
+> **An LLM output is a claim, not a truth.**
+
+`purrdf-shapes` is the native SHACL validator and rules engine of the PurRDF
+toolkit. It implements SHACL 1.2 Core, SHACL 1.2 SPARQL Extensions, SHACL 1.2
+Node Expressions, SHACL 1.2 Inference Rules and the SPARQL 1.2 RL rule
+language, running entirely on PurRDF's own interned IR and native SPARQL
+engine. The `shnex:` spelling of a node expression and the older SHACL-AF
+`sh:` spelling parse to one representation, and SHACL rules and SPARQL 1.2 RL
+rule sets lower to one rule-set representation that runs on `purrdf-datalog`.
+Every IRI it implements is defined by a W3C document; it mints none. It
+validates an RDF 1.2 data graph against a SHACL shapes graph without general
+RDFS or OWL entailment. SHACL class membership follows asserted
+`rdfs:subClassOf` edges transitively, and the native and SHACL-SPARQL paths see
+the same validation-scoped membership relation.
+
+In four-box terms, the data graph is usually the ABox, the shapes graph is a
+TBox/RBox validation surface, and RDF 1.2 reifier metadata is the CBox. The
+crate preserves existing report keys while adding optional box-role metadata for
+callers that want richer diagnostics.
+
+The Python SHACL surface is exposed from `bindings/python` as part of the
+`purrdf_native` extension. The engine core (`engine.rs`, `shapes.rs`,
+`constraints.rs`, `path.rs`, `report.rs`, `model.rs`) is deliberately
+**PyO3-free** — it links as a plain `rlib` into any Rust consumer without
+any Python dependency.
+
+## SHACL 1.2 support
+
+Every constraint component the SHACL 1.2 vocabulary declares is evaluated
+natively, including the list components, `sh:singleLine`, `sh:rootClass`,
+`sh:someValue`, path-valued property pairs and `sh:subsetOf`,
+`sh:uniqueValuesFor`, `sh:closed sh:ByTypes`, `sh:reifierShape` and
+`sh:reificationRequired`. So are the SHACL 1.2 targets (implicit class targets,
+`sh:shape`, `sh:targetWhere`, node-expression `sh:targetNode`), computed values
+(`sh:values`, `sh:defaultValue`), per-constraint reifier annotations, the
+`sh:Debug` and `sh:Trace` severities with the conformance-disallow set, and
+every `sh:message` with its language tag and direction. Node expressions keep
+the order and multiplicity their evaluation clauses define. Rules follow SHACL
+1.2 Inference Rules: layers, orders, run-once rules, rule sets, templates,
+temporary triples and expected predicates. `purrdf_shapes::srl` parses,
+checks, stratifies and evaluates SPARQL 1.2 RL rule sets.
+
+Its public `srl::infer` entry retains the quad carrier and return type.
+For an explicit graph-free source, open `TripleDataset::read` and call
+`srl::infer_triples`; both the full inference dataset and
+`Inference<TripleDataset>::inferred_dataset` retain compact triple, reifier
+and annotation tables. The shared rule engine compiles three-position atoms
+and predicate-only keys for this carrier. Immutable `WHERE DATA` reads retain
+the input source independently of inferred growth, and an empty legal rule
+head publishes no fact. A latched read failure is returned as the original
+typed `SrlError::TripleSource`; opening a new read on the same frozen source
+starts a fresh operation.
+
+Rule inference retains `RuleCoordinates` on success and typed execution failure.
+The receipt binds the typed program, source and shapes snapshots, the rule
+contract, and its ordered nested query receipts. Nested receipts record actual
+clock values and initial seeds, including sampled defaults; capturing them does
+not draw another seed or read the clock again. A rule set that executes no query
+still has program and snapshot identities without inventing a sampled context.
+The existing program contract hash keeps its separate meaning.
+
+For cooperative cancellation, pass a borrowed `StopSignal` to
+`srl::infer_until` or `srl::infer_triples_until`. Both take
+`Option<&dyn StopSignal>` after the inference options. `Inference::usage()`
+exposes the original deterministic `BudgetReport`, and a limit error retains
+that same complete report through `RuleLimitExceeded::usage()`. A stopped run
+returns `SrlError::Stopped { cause }`, carrying the original native stopped
+error and usage, before publishing an unfinished inference graph. Cancellation
+is checked within scheduled candidate and scan work and around synchronous
+callbacks; it does not preempt a callback or enter the program identity.
+
+A shapes graph is loaded faithfully or refused. An unknown term, an ill-typed
+parameter value, or a term the engine does not evaluate fails the load with
+its name, rather than dropping the constraint. The terms the SHACL
+vocabularies define and the engine refuses by name are the SHACL JavaScript
+Extensions, which are not part of SHACL 1.2, and `sh:describe` and `sh:update`
+on a shape, node expression, SPARQL-based constraint, validator or rule. No
+SHACL specification executes the DESCRIBE or UPDATE executable classes they
+belong to, so those terms would otherwise be silently ignored. SHACL-SPARQL
+result annotations (`sh:resultAnnotation`) are copied into every result their
+query produces (`ValidationResult::annotations`), and the SHACL-AF 1.1
+`sh:minus` node expression evaluates as `shnex:remove`.
+
+**Built-in declarations.** The W3C vocabularies `shacl.ttl`, `shnex.ttl` and
+`shnex-sparql.ttl` declare every built-in component and function without a
+body. Loading resolves each declaration against the table of what the engine
+implements (`purrdf_shapes::spec`): a bare declaration of a built-in binds to
+the native implementation and registers nothing, a built-in redefined with a
+body, or a component given `sh:ask` or `sh:select` of its own, is a
+duplicate-definition load error, and a declaration under the wrong class or
+with a contradicting signature is a mismatch. Validators declared for a
+built-in component (vocabularies such as DASH give SHACL Core components SPARQL
+validators) bind as alternatives the native implementation supersedes: SHACL
+1.2 SPARQL Extensions selects "one of the values" of a component's validators,
+so each is an implementation of the same component. An alternative must be a
+well-formed SPARQL validator of its attachment and is never executed;
+`validator_alternatives` and `lint::lint` list every one. Any other `sh:`
+statement on a built-in's declaration, beyond `sh:message`, `sh:labelTemplate`
+and the non-validating characteristics, is refused. A bodiless function the
+engine does not implement is refused in any namespace.
+Merging the W3C vocabularies into a shapes graph is therefore a no-op, and
+`tests/vocabulary_import_invariance.rs` holds every report of three corpora
+byte-identical with and without the merge.
+`FunctionResolution` and `lint::lint` say, per call site, whether a
+node-expression function bound natively, to a custom body, to a SPARQL
+registration or to a host extension.
+
+**Ill-formed declarations and pre-binding.** A SHACL-SPARQL or SHACL-AF
+declaration that violates a syntax rule refuses the load whether or not any
+shape reaches it, because SHACL 1.2 Core says "A SHACL processor SHOULD produce
+a failure in this case" with no reachability qualifier: a non-SELECT value of
+`sh:nodeValidator` or `sh:propertyValidator` and a non-ASK value of
+`sh:validator` (`nodeValidator-class`, `propertyValidator-class`,
+`validator-class`), on a built-in or a custom component; a malformed validator
+query (`ask-count`, `ask-sparql`, `select-query-valid`, …); a component
+parameter named `this`, `path`, `PATH` or `value` (`parameter-name-not-in`);
+a `sh:SPARQLFunction` parameter with one of those names or `shapesGraph` or
+`currentShape`; a `sh:SPARQLFunction` without exactly one `sh:ask` or
+`sh:select` (`SPARQLFunction-query`). The refusal is `ShapesError::IllFormed`,
+and it lists every violation in the graph, each with its declaration and rule
+id. A pre-binding violation — a `MINUS`, a `VALUES`, an `AS ?var` for a
+pre-bound variable — is not a syntax violation: SHACL 1.2 SPARQL Extensions,
+Appendix A, requires a failure for a query "executed with pre-bound
+variables". So it refuses the load, as `ShapesError::Prebinding`, only where a
+query executes: the validator a use of a custom component selects, or a
+`sh:SPARQLFunction` a node expression or reachable SPARQL calls. A validator of
+a built-in component never executes, and neither does a validator no use
+selects or a function nothing calls; those load, and `lint::lint` lists each in
+its `unexecuted` section as a finding.
+
+**SHACL-JS.** SHACL JavaScript Extensions are not part of SHACL 1.2 and the
+engine has no JavaScript engine. A shape that reaches SHACL-JS is refused with
+`ShapesError::ShaclJs`: `sh:js` or a SHACL-JS type on the shape, a `sh:JSTarget`
+or an instance of a `sh:JSTargetType` as its target, a `sh:JSRule` among its
+rules, and a call to a `sh:JSFunction` from a node expression or from SPARQL the
+shape runs. A `sh:JSLibrary` or a `sh:JSFunction` nothing calls is declared
+vocabulary and loads inert. A `sh:JSValidator` attached to a constraint
+component is not: "The values of sh:validator must be ASK-based validators", and
+the values of `sh:nodeValidator` and `sh:propertyValidator` "must be SELECT-based
+validators" (SHACL 1.2 SPARQL Extensions), so a graph that attaches one is
+ill-formed and fails the load with `ShapesError::IllFormed`, naming the rule,
+whether or not a shape uses the component.
+
+**Conformance.** The whole W3C `shacl12-test-suite` (592 tests: 213
+`sht:Validate`, 143 `sht:EvalNodeExpr`, 27 `sht:Infer` and 209 SPARQL 1.2 RL
+tests) runs, and of the 591 an upstream manifest lists, 590 pass as approved,
+with an empty expected-failure ledger; the one other, `node-expr/shnex-sparql/hasLang-example`,
+is reported failed because it calls `sparql:hasLang` with two arguments where the SPARQL 1.2
+grammar's `hasLANG` takes one:
+
+```bash
+cargo test -p purrdf-shapes --test w3c12_conformance -- --nocapture
+```
+
+Three vendored files that no upstream manifest includes are graded and
+reported apart from the approved suite, never counted among its passes; one of
+them, `core/node/xone-003`, is graded with one amendment that quotes its clause
+(6.7.2.2: a property shape's result carries its `sh:path` as `sh:resultPath`). `sh:reifierShape` and `sh:reificationRequired`
+results carry the value node as `sh:value`, as the approved
+`core/property/reifierShape-001` and `-002` state (7.8.5's textual definition
+names both the triple term and the reifier `t`); a non-conforming reifier's own
+results ride along as `sh:detail`. In six node-expression tests the approved
+result spells a computed `xsd:decimal` as `"4.0"`, `"3.0"`, `"42.0"` and `"00"`;
+the specifications leave the lexical form of a computed literal to the processor,
+so PurRDF computes a decimal with a point and a fractional digit and `SECONDS` as
+the seconds part of its argument's lexical form, and all six pass term for term.
+`sparql/component/validator-001` passes by
+name with no import supplied: its `owl:imports <http://datashapes.org/dash>` sits
+on a node that is neither the document's own IRI nor an `owl:Ontology` nor a
+`sh:ShapesGraph`, so under OWL 2's mapping to RDF (§3.1.2) and SHACL 1.2 Core the
+triple is data, not an import. SPARQL 1.2 RL grammar rule [2] is implemented as written. The W3C SHACL 1.0
+`data-shapes` suite and a 73-case first-party frozen corpus gate the crate as
+well; `docs/CONFORMANCE.md` has the live numbers.
+
+---
+
+## Build
+
+> **Toolchain:** the MSRV floor is `rust-version` in the workspace `Cargo.toml`
+> (currently 1.98, stable channel), and the source uses zero nightly features. The repo's
+> `rust-toolchain.toml` names a *floating nightly* for development and CI lints;
+> `cargo` and `rustup` pick it up automatically, and building on stable 1.98
+> works exactly as the MSRV job proves.
+
+```bash
+cargo build -p purrdf-shapes
+```
+
+## Test
+
+```bash
+cargo test -p purrdf-shapes
+```
+
+## Reusing shape preparation
+
+`engine::PreparedShapes::new(Arc<Shapes>)` analyzes the parsed shape tree once.
+Keep it for a batch and call `bind_projected_dataset(Arc<RdfDataset>)` for each
+already-projected snapshot, or `bind_dataset(&RdfDataset)` when projection is
+still required. Each binding returns a `PreparedValidator` that shares the
+class-reference catalog and its input dataset. It resolves fresh dataset-local
+IDs, class membership and SPARQL targets before validation.
+
+`bind_shared_dataset` projects a retained native dataset through borrowed reads;
+`bind_view` accepts a shared `data_view::ShaclDatasetView` adapter over native,
+composite or delta sources, and
+`bind_delta_with_shapes_graph` binds a mutation snapshot with its shapes graph.
+These paths read the original dictionaries and indexes through one SHACL adapter.
+They do not rebuild the base dataset to evaluate ordinary constraints, paths or
+SPARQL targets. Dataset-specific identities and target analysis are rebound for
+each immutable snapshot. Compatibility getters that require a concrete native
+dataset materialize it lazily once.
+
+When data and shapes are contributions from the same identity space,
+`bind_shared_dataset_with_shapes_graph` preserves their supplied blank scopes and
+places the shapes graph under its caller-provided name. Independently parsed
+documents must establish their separate blank scopes before shape preparation;
+retaining raw local IDs across datasets is never an identity rule.
+
+### Complete contextual reports
+
+`engine::validate_complete_dataset(Arc<RdfDataset>, Arc<Shapes>)` and
+`PreparedShapes::bind_complete_shared_dataset` retain the exact immutable data
+and shapes acquisitions alongside each report. Independently acquired graphs
+have separate blank identities even when their bytes and labels agree; passing
+the retained shapes dataset itself deliberately shares its identity. The
+projected-dataset and explicit shapes-graph binding doors preserve the same
+correspondence. Prepared complete bindings also accept bounded focus terms or
+their own `FocusId` values.
+
+`CompleteValidationReport::results()` preserves result multiplicity and exposes
+the actual `sh:sparql` source constraint, including recursive details. That
+evidence is captured at the evaluated parser occurrence. A changed public AST
+cannot inherit evidence merely because another query or result has equal text.
+`to_graph()` returns the emitted RDF graph, its report root, and correspondence
+from emitted blank nodes to their original scoped source identities. Report,
+path and query-minted blanks have no authored-source correspondence. Separate
+query acquisitions mint distinct blanks with deterministic execution identities.
+
+The complete doors use the shapes' current request law. Existing closed report types,
+default entry points and prepared-product bytes retain their contracts;
+`legacy()` projects a complete report to the existing closed value. A complete
+operation returns typed source-evidence or execution refusals rather than a
+partial conformance verdict. `validate_with_governors` shares one fresh budget
+among its queries and returns the actual tripped governor and consumption.
+
+Cold binding and warm validation costs are measured separately in the native
+`shared_views` benchmark's `shacl_complete_reports` group, using matched Core and
+SELECT fixtures.
+
+### Dated SHACL requests
+
+`ValidationOptions::with_profile` selects a `ShaclProfile` for parsing, binding
+and validation. `LEGACY` is the default. The named bundles pair their query
+admission law with the native XPath law required for `sh:pattern`, `REGEX` and
+`REPLACE`:
+
+| SHACL selector | Required XPath law |
+| --- | --- |
+| `REC_20170720` | [F&O 2.0 Second Edition, 2010-12-14](https://www.w3.org/TR/2010/REC-xpath-functions-20101214/), including incorporated errata |
+| `WD_20260918` | [F&O 3.1 Recommendation, 2017-03-21](https://www.w3.org/TR/2017/REC-xpath-functions-31-20170321/) |
+| `ED_20261016` | [F&O 3.1 Recommendation, 2017-03-21](https://www.w3.org/TR/2017/REC-xpath-functions-31-20170321/) |
+
+`ED_20261016` (`shacl-ed-2026-10-16`) names the `w3c/data-shapes` editor's drafts at
+commit `4cd469867a1cc6d2fff80e8a40723b26c695d67a`. It is `WD_20260918` plus the semantics
+first published after that working draft: a node expression as `sh:deactivated` on a
+SPARQL-based or `sh:expression` constraint, the `owl:versionIRI` steps of the `sh:prefixes`
+path, a blank node as a custom SPARQL function argument being an error, and rule sets as
+`sh:entailment` values. `WD_20260918` refuses or ignores each as the working draft's text
+says, and `REC_20170720` follows the 2017 text (`sh:prefixes/owl:imports*/sh:declare`).
+
+The Recommendation's recognized constraint/component declarations receive its
+graph-wide pre-binding checks. The draft's execution restrictions apply when
+the query is reached with potentially pre-bound variables; a deactivated
+constraint or empty focus set does not execute it. Functions, targets,
+expressions and rules carry their own actual query purpose and declared
+parameters, including optional parameters not supplied by an invocation.
+Original query algebra is checked before substitutions. Neither a function nor
+a global rule receives an invented focus binding.
+
+`engine::parse_shapes_with_options` and `shapes::from_dataset_with_options` admit
+the selected contract during parsing. An existing preparation can take new
+options through `with_validation_options`; its next bind re-admits the current
+law before targets. A bound validator keeps that admission. Every dated bind
+checks declared Core patterns even when they are untargeted or deactivated.
+Query expressions retain ordinary SPARQL lazy evaluation.
+
+`ValidationOptions::with_xpath_regex` may change finite limits for the required
+XPath law. An incompatible law returns `XPathProfileConflict` with the required
+and requested profiles. Native-wrapper bindings compose with the same dated
+request and preserve its typed source/admission errors. Successful warm programs
+still undergo current admission and fresh execution budgets.
+
+Prepared products retain their existing format and identity. The options-aware
+`admit_with_options`, `admit_expecting_with_options`, `rebuild_with_options` and
+`rebuild_expecting_with_options` restore source occurrences and declared
+functions under the requested dated law. Compatibility or different-law
+metadata cannot confer admission. The existing restoration methods select
+`LEGACY`.
+
+### Dated native XPath patterns
+
+Unselected validation retains its compatibility pattern behavior. Select
+`PreparedShapes::with_xpath_regex(profile, limits)` to obtain an
+`xpath::XPathPreparedShapes` using `purrdf_core::xsd_regex::xpath::Profile` and
+finite `Limits`. The available laws are XPath F&O 2.0 Second Edition
+(2010-12-14) and XPath F&O 3.1 (2017-03-21). Both support backreferences; only
+the 3.1 law admits non-capturing groups and the `q` flag.
+
+The selected preparation exposes the same data-binding routes, and each bind
+resolves its targets under that selection. Its bound validator retains the law
+and limits used for target acquisition. Pattern constraints, nested shapes,
+SPARQL targets and constraints, and SHACL-AF SPARQL functions use that same
+law. Changing the preparation's selection requires a fresh bind; an existing
+binding keeps its original selection.
+
+Ordinary validation reports a malformed pattern through the existing facet
+finding channel. `admit_declared_patterns()` instead checks every declared
+pattern before data targets are considered, including untargeted and
+deactivated shapes. It returns the actual compiler refusal. Resource and
+allocation failures return `XPathValidationError` with their typed cause and
+discard partial findings. Successful retained programs must still satisfy the
+current source and program-storage limits, and each match uses current execution
+limits. A failed admission leaves an earlier successful program reusable.
+
+`XPathPreparedShapes::validate_dataset_with_governors` and
+`validate_with_governors` put rule entailment, target acquisition and constraint
+evaluation under one shared SPARQL budget. The bound validator's
+`validate_with_governors` budgets constraint evaluation after rule entailment and
+target acquisition have already completed. A tripped
+governor returns `GovernedValidation::BudgetExhausted` without a report. Native
+Core pattern work uses its independent finite XPath limits and spends no SPARQL
+fuel. The free `xpath::validate_dataset` and
+`xpath::validate_dataset_with_governors` functions use these same preparation
+and binding paths. Selected execution preserves prepared-product bytes and
+their original provenance.
+
+The change path has a selected door too. Bind the mutation snapshot with
+`XPathPreparedShapes::bind_delta_with_shapes_graph`, then call
+`XPathPreparedValidator::validate_change(&delta)` or
+`validate_change_with_governors`. They run `engine::validate_change` and its
+governed twin inside the binding's selection. The expansion, the bounded
+re-validation and the unbounded full-validation fallback therefore all use one
+law and its limits, and the change loop still has a single implementation. A
+resource refusal returns `XPathValidationError` with no partial report.
+
+### The change path after a data change
+
+Paths, SPARQL and custom expressions can depend on nodes well beyond the changed
+triples, so the focus nodes a change can move are not the subjects of that
+change. Deriving them is `PreparedValidator::affected_focus_node_ids`'s job, not
+the caller's: it walks the dependency footprint the shapes-lowering walk emits —
+inverse paths, sequence prefixes, `sh:zeroOrMorePath`/`sh:oneOrMorePath`
+closures, `sh:targetSubjectsOf`/`sh:targetObjectsOf`, `sh:node` recursion,
+property-pair comparands and the `rdfs:subClassOf*` hierarchy — and returns a
+superset of the focus nodes whose verdict the change can alter, in either
+direction. Feed that answer to `validate_focus_node_ids` (or
+`validate_focus_nodes` for owned terms); use `term_id` to turn a `Term` into an
+id in the binding's own space.
+
+`engine::validate_change(&validator, &delta)` is that loop as one call, and
+`engine::validate_change_with_governors` is its governed twin — the same
+one-per-validation budget `validate_with_governors` installs, over the same scope
+guard. Both return the report beside a `ChangeScope`, because a report alone
+cannot say which question it answered, and both honour the `Everything` answer
+rather than leaving that to each caller. Every surface below drives one of those
+two functions; the halves are public for a caller that needs to interleave work
+between them.
+
+Those ids are `FocusId` values, and the type is the guard. A `TermId` is an
+index into one binding's term table: an index from another binding is very
+probably in range, so it resolves to a different term and validates the wrong
+node without any lookup failing — and two live id spaces is the designed
+situation the moment a delta binding sits beside a base one. A `FocusId` carries
+the binding that minted it, and `validate_focus_node_ids` refuses one that names
+a different binding, so the expand-then-validate loop is provenance-safe by type
+rather than by documentation.
+
+#### Reaching the change path without writing Rust
+
+The loop is wired on the shipped surfaces, so it is not a Rust-only API.
+
+On the **command line**, `purrdf validate --changes FILE` (and its retract half
+`--changes-removed FILE`) branches the data graph into a copy-on-write mutation,
+applies the change, and runs exactly the expand-then-validate loop above. Which
+arm it took is written to stderr as `shacl change-expansion bounded N` or
+`shacl change-expansion everything <reason>`, because the bounded report
+describes the affected focus nodes and the fallback report describes the whole
+graph, and a verdict whose scope has to be inferred is a verdict nobody can act
+on.
+
+In **Python**, a `Store` already holds a change: mutation edits its
+copy-on-write delta. `Store.checkpoint()` folds everything so far into the base
+so the delta is the mutation you are asking about, and
+`PreparedShapes.validate_store_changes(store)` runs the same loop, returning a
+`ChangeValidation` that carries the report beside the scope it describes
+(`bounded`, `focus_nodes`, `reason`).
+
+Over the **C ABI**, `purrdf_shacl_validate_changes_to_sarif` takes the data graph
+and both halves of the change as N-Triples and writes the SARIF 2.1.0 log to one
+buffer, the scope to `*out_scope` as a `PurrdfShaclChangeScopeKind`, the bounded
+focus-node count to `*out_focus_nodes`, and — only on the fallback — the reason
+to a second buffer. Branch on the kind, never on the count.
+
+In **JavaScript/WebAssembly**, `shaclValidateChangesToSarif(shapesTtl, dataNt,
+addedNt?, removedNt?, shapesBase?)` returns a `ShaclChangeValidation` whose
+`sarif`, `bounded`, `focusNodes` and `reason` getters carry the same four facts.
+
+All four are one implementation. A surface that wired only the bounded arm would
+pass every happy-path test and silently under-validate exactly the shapes graphs
+too complex to analyze, so the arm that cannot be bounded is not each caller's to
+remember.
+
+**API note.** `validate_focus_node_ids` shipped taking `&[TermId]` and now takes
+`&[FocusId]`. That is a deliberate signature break with no deprecated `&[TermId]`
+door left open beside it: the old door is the unguarded one. Callers holding a
+`TermId` re-mint it with `term_id`, which is the lookup they were already
+entitled to make. `FocusId::term_id` reads the dataset-local id back out for
+logging or for a lower-level view.
+
+Two obligations stay with the caller and both are visible rather than implied:
+bind through `bind_delta_with_shapes_graph` and hand the expansion the same
+mutation snapshot, and honour a `FocusExpansion::Everything` answer by calling
+`validate()` instead. A shapes graph that reads through query text the walk does
+not interpret — `sh:sparql`, a SPARQL target, a component's `sh:ask`/`sh:select`
+validator, a `sh:SPARQLFunction` call, a SPARQL node expression — has no
+footprint anyone can bound from the shapes graph alone, and that is reported
+rather than silently under-approximated. Target sets and validation answers
+belong to the exact bound snapshot.
+
+**Validating a conforming focus set through that path allocates a bounded
+amount, independent of the focus-node count — for every constraint kind and path
+form whose evaluation stays inside this crate.** Cost is proportional to the
+violations found, not to the focus nodes examined: a focus node is carried as its
+interned identity and materialized as an owned term only where a result is built.
+The bind in front of it is likewise independent of the data graph's size beyond
+the class catalog. `bind_dataset` is the deliberate exception — it projects the
+graph into an owned snapshot first, so it is linear in the graph by construction.
+The guarantee is executed in `tests/change_path_alloc.rs` as an equality between
+two conforming validations differing only in focus count, with a companion test
+that fails if validation ever gets cheaper by producing fewer results.
+
+### The SPARQL-bearing surfaces carry a per-focus-node term
+
+The qualification above is not a third party's cost; it is this crate's own. A
+shape that reads through query text — a `sh:sparql` constraint, a custom
+component's `sh:ask`/`sh:select` validator, a SHACL-AF `sh:expression` function
+call — runs one SPARQL query **per focus node** (per value node for an `ASK`
+validator, per argument tuple for an expression call), and a query evaluation is
+not allocation-free. Those surfaces therefore satisfy a closed form rather than
+zero growth:
+
+```text
+allocations(N) == CHANGE_PATH_CONSTANT + per_focus_node * N
+```
+
+`CHANGE_PATH_CONSTANT` is the same entry cost the zero-growth cases pin.
+`per_focus_node` is measured and asserted EXACTLY, at `N` and at `2N`, in
+`tests/sparql_path_alloc.rs`: **42** for a `sh:sparql` SELECT constraint, **97**
+for a custom `sh:ask` component over a two-valued path, **54** for a custom
+`sh:select` component, and **95** for a `sh:expression` function call over two
+argument tuples.
+
+Two properties of that term are worth separating from its size. It is **flat in
+the data graph** — a fixed focus count costs the same over 768 quads and over
+24,576 — so it is the price of executing a query, not of scanning a graph; the
+scan that used to be there is gone. And it splits, by measurement, into the
+SPARQL evaluator's per-execution setup (the larger share on three of the four
+surfaces) and the per-focus-node pre-binding rewrite, in which
+`purrdf_sparql_eval` clones the prepared algebra and rebuilds it and every
+pre-bound term crosses the boundary as an owned `TermValue` whose IRI is a fresh
+`String`. Neither share is currently zero, and this crate does not claim
+otherwise.
+
+## Ontology-complete developer schemas
+
+`compile_schema` makes the developer-schema surface an explicit choice.
+`SchemaSurfaceMode::ShapedOnly` preserves the existing active
+`sh:targetClass` union. `SchemaSurfaceMode::OntologyComplete` also emits
+caller-vocabulary classes and optional properties justified by a bounded,
+deterministic OWL/RDFS schema theory. Both modes return the same JSON Schema
+draft 2020-12 and OpenAPI 3.1 carrier, plus a coverage manifest and cache key.
+The resulting `CompiledSchema` can be passed unchanged to the LinkML 1.11,
+TypeScript 7.0, GraphQL September 2025, and Pydantic v2 emitters.
+
+The request binds parsed SHACL, the exact ontology dataset, caller-owned
+`Namespaces`, and the mode. The compiler never discovers or invents a
+vocabulary. Only IRIs under prefixes explicitly supplied to `Namespaces::new`
+are eligible for synthesized definitions and fields; builtin prefixes known for
+compaction do not become caller-owned implicitly.
+
+The supported schema theory is deliberately finite:
+
+- the property catalog is formed from direct IRI `sh:path` predicates,
+  `rdf:Property` and OWL property types, `rdfs:domain`/`rdfs:range`, and both
+  endpoints of `rdfs:subPropertyOf`, `owl:equivalentProperty`, and
+  `owl:inverseOf`; predicates seen only in instance assertions are not schema
+  declarations;
+- named classes come from class declarations, named domain/range members,
+  direct SHACL target classes, `rdfs:subClassOf`, and `owl:equivalentClass`;
+- subclass and equivalent-class closure drives domain membership. Multiple
+  effective domain axioms are conjunctive, while an `owl:unionOf` domain matches
+  any member and an `owl:intersectionOf` domain matches every member. A
+  domainless property applies to every eligible class;
+- subproperties inherit superproperty domains, ranges, and forward
+  functionality; equivalent properties propagate both ways; inverse properties
+  swap domain and range. Legal cycles are condensed before propagation;
+- multiple effective ranges are conjunctive. Union ranges become `anyOf`,
+  intersection ranges become `allOf`, and contradictory object/datatype
+  declarations fail with `SchemaCompileError`;
+- direct SHACL constraints remain authoritative. Unshaped ontology properties
+  are optional unless a class restriction requires them (below),
+  `owl:FunctionalProperty` is represented as a scalar and marked
+  as a representation approximation, and `owl:InverseFunctionalProperty` never
+  implies scalar cardinality. An active `sh:closed` shape excludes an unshaped
+  property unless the shape or its ignored-properties list admits it;
+- an ontology class without a target shape receives an open carrier definition.
+  It is never made closed merely because PurRDF synthesized it.
+
+Anonymous class expressions are part of the theory:
+
+- a restriction (`owl:someValuesFrom`, `owl:allValuesFrom`, `owl:hasValue`,
+  `owl:hasSelf`, and the unqualified and qualified cardinalities over
+  `owl:onClass` or `owl:onDataRange`) or a boolean form (`owl:unionOf`,
+  `owl:intersectionOf`, `owl:complementOf`, `owl:oneOf`) that a named class is
+  `rdfs:subClassOf` or `owl:equivalentClass` to is recorded with its source
+  axiom and inherited by every subclass; asserted of `owl:Thing`, it holds of
+  every class, and a universal restriction on `owl:Thing` is the property's
+  range (or, over an inverse, its domain). The property it names joins the
+  catalog and is emitted on every class that carries the restriction, whatever
+  its declared domain; the axiom is provenance on those classes' coverage rows
+  alone, so provenance stays linear in the class/property cells. The named
+  classes in it are admitted as classes, and a restriction on the inverse of a
+  property whose inverse is named (`owl:inverseOf`, a symmetric property) is a
+  restriction on that named property;
+- data ranges built with `owl:onDatatype` and `owl:withRestrictions`,
+  `owl:datatypeComplementOf`, or a literal `owl:oneOf` are read as fillers and
+  ranges, and `[ owl:inverseOf p ]` is read wherever a property expression may
+  stand, `rdfs:subPropertyOf`, `owl:equivalentProperty` and `owl:inverseOf`
+  included;
+- the OWL 2 datatype map and the RDF 1.2 datatypes outside XSD (`owl:real`,
+  `owl:rational`, `rdf:PlainLiteral`, `rdf:XMLLiteral`, `rdf:dirLangString`,
+  `rdf:HTML`, `rdf:JSON`) are datatypes wherever a datatype is decided;
+- an `owl:equivalentClass` between an IRI and a data range, or another
+  datatype, is a datatype definition (OWL 2 Structural Specification §9.4):
+  the IRI is a datatype, no class, and a value of it is held to the defining
+  range or typed with the datatype by name;
+- each named member of a union a class is equivalent to becomes its subclass,
+  an existential restriction places a class within the restricted property's
+  domain (and through an inverse, its range) as a superclass, so the domain's
+  other properties reach it, and a domain that is itself an anonymous expression matches the
+  classes asserted to be its subclasses.
+
+What a developer schema can state is projected onto the class's definition,
+and from there into every language emitter:
+
+| OWL component | JSON Schema projection |
+|---|---|
+| `owl:allValuesFrom F` | every value meets `F`'s value schema, as `rdfs:range` does (a class `F` is checked only as a node reference); `owl:Nothing` forbids the property |
+| `owl:someValuesFrom F`, `owl:hasValue v` | required; one value meets `F` or is `v` (`contains`) |
+| `owl:minCardinality n` (qualified: over `Q`) | required; `minItems n` (`contains Q`, `minContains n`) |
+| `owl:maxCardinality n` (qualified: over an exact `Q`) | `maxItems n` (`contains Q`, `maxContains n`); `0` forbids the property |
+| `owl:cardinality n` | both of the above |
+| datatype restriction | the base datatype and its numeric, temporal, length and pattern facets, through the SHACL value compiler (an XSD pattern anchored) |
+| `owl:datatypeComplementOf D` | a literal not tagged `D` (judged on the tag, not the value space: an approximation) |
+| `owl:oneOf` of individuals or literals | an `enum` of their projections; on a class, an `@id` enumeration |
+| `owl:complementOf C` (named) | `@type` excludes `C` |
+| `owl:unionOf` of restrictions | `anyOf` over the members' property constraints |
+
+Requiring a value and counting distinct terms are closed-world and
+unique-name readings of open-world axioms, so each coverage row they touch is
+marked `representation_approximation`. Direct SHACL property shapes stay
+authoritative over restrictions on the same property.
+
+An inherited restriction is referenced, not copied. The class that owns a
+restriction (the one that carries it, or the topmost caller-owned class that
+inherits it from a class outside the caller's vocabulary) holds it in a
+fragment definition, `<Class>.Restriction.<property>` in `$defs`. That
+fragment references the nearest owning ancestor's fragment for the same
+property. A subclass's property schema references its nearest owner's
+fragment through `allOf`, and disjunctions of restrictions are referenced the
+same way through `<Class>.Disjunctions`. Schema, coverage provenance and
+manifest therefore grow with the number of restrictions, not with
+restrictions times the depth of the hierarchy.
+
+A class constructor on an IRI (`ex:Day owl:oneOf ( … )`, `ex:BC owl:unionOf
+( … )`, `ex:NotB owl:complementOf ex:B`, an IRI typed `owl:Restriction`) is the
+equivalence OWL gives it: `ex:Day ≡ {…}`, and a subclass of an IRI-named
+restriction carries that restriction.
+
+What no schema keyword states is reported, never dropped: `owl:hasSelf`, a
+restriction on an unnamed inverse property or on several properties, a maximum
+over a class qualifier (counting needs the class membership of referenced
+nodes), the complement of an anonymous expression, a union with a named member
+that the class does not already entail, the sufficient-condition direction of
+`owl:equivalentClass`, a general class inclusion whose subclass expression is
+anonymous, anonymous classes in `owl:disjointWith`, `owl:AllDisjointClasses`,
+`owl:disjointUnionOf` and class assertions, and `owl:hasKey` on an anonymous
+class. `SchemaCompileRequest::class_expression_report` and
+`compile_schema_with_class_expressions` return `SchemaClassExpressionReport`:
+every such axiom once, with each component's `SchemaExpressionOutcome`
+(`projected`, `approximated`, `unrepresented` or `excluded`) and reason, on the
+axiom itself or on each class that owns it. A class below an owner has a row of
+its own only where its outcome differs from the owner's. A class definition
+names its unrepresented components in its `$comment`.
+
+This is schema projection, not ABox entailment or unrestricted OWL reasoning.
+Property chains and axioms outside the fragment do not drive fields. Nothing
+the surface accepted before anonymous expressions were read is refused now. An
+axiom it used to skip (one with an anonymous subject, disjointness, a class
+assertion, a constructor on an IRI, `owl:hasKey`) is reported as
+`unrepresented` when its anonymous part is malformed. An `owl:ObjectProperty`
+ranging over a datatype is refused only where the datatype is XSD,
+`rdfs:Literal`, `rdf:langString` or declared, as before.
+
+Typed errors remain for namespace/key collisions, incompatible property kinds
+or ranges, fixed limit breaches, and a malformed anonymous expression in an
+axiom the surface always read: the object of `rdfs:subClassOf`,
+`owl:equivalentClass`, `rdfs:subPropertyOf`, `owl:equivalentProperty` or
+`owl:inverseOf` with a named subject, or an `rdfs:domain`/`rdfs:range`. Such an
+expression is malformed when it has:
+- a restriction without `owl:onProperty` or `owl:onProperties`;
+- a cardinality that is not a non-negative integer literal;
+- a qualified cardinality without its qualifier, or a qualifier without a
+  qualified cardinality;
+- `owl:hasSelf` other than `true`;
+- `owl:onProperties` with anything but `owl:someValuesFrom` or
+  `owl:allValuesFrom`;
+- a blank node that declares no construct, or one that is both a class
+  expression and a data range (OWL 2 Mapping to RDF Graphs §3.2.1);
+- an `owl:oneOf` that mixes individuals and literals, or one with a
+  triple-term member;
+- an anonymous property expression that is not `owl:inverseOf` one named
+  property;
+- `owl:onDatatype` that is not an IRI, a
+  facet restriction that is not a blank node with exactly one literal facet, or
+  an `xsd:pattern` outside the XSD regular-expression language;
+- an ill-formed or cyclic RDF list, or an expression that contains itself;
+- a data range where a class expression is required.
+
+Every property's values are read by the OWL 2 RDF-Based Semantics (OWL 2
+Full, §5.3), with the OWL 2 datatype map, whatever the property's declared
+kind: a value is any node (an IRI may denote a data value) or any well-typed
+literal. A literal is well typed when its lexical form is in its datatype's
+lexical space, so `"abc"^^xsd:integer` is no value; a literal typed
+`rdf:XMLLiteral`, whose lexical space no pattern states, or typed with a
+datatype outside the map, is admitted with its lexical form unjudged. Every
+coverage cell that admits unchecked XML reports `representation_approximation`,
+including an authoritative SHACL property or a class outside the configured
+ontology vocabulary. A shape cell proven to exclude XML can still report
+`exact`. The one rule then narrows the values:
+
+- a property no range constrains admits every node and every well-typed
+  literal. Because an XML literal's lexical form remains unjudged, that
+  cell reports `representation_approximation`, including `∀p.owl:Thing`;
+- a data range (`xsd:string`, a facet restriction, a literal `owl:oneOf`)
+  holds literals to its value space and admits a node, whose data value is not
+  judged, so it is reported as an approximation;
+- a class range or filler admits its nodes and any well-typed literal, whose
+  membership in the class is not judged (an approximation), unless no literal
+  is in the class: a class declared `owl:disjointWith rdfs:Literal` (or in an
+  `owl:AllDisjointClasses` with it), one below `¬rdfs:Literal`, or a subclass
+  of either rejects every literal, and states that exactly;
+- a literal `owl:hasValue` on an object property is `∃p.{v}`, as an
+  individual one on a datatype property is, and `owl:hasSelf` on a datatype
+  property is the self restriction (unrepresented, as on an object property);
+- QUDT's `qudt:numericValue`, an `owl:DatatypeProperty` over the class
+  `qudt:NumericUnion`, takes literals and nodes, approximated.
+
+Every cell carrying an `owl:hasSelf` is reported as a representation
+approximation. `owl:Nothing`, and an expression that is empty by its form
+(`¬owl:Thing`, the empty enumeration, a union of empty members, the complement
+of a restriction every individual meets), admits no value in any range or
+filler position, and is reported exactly: a universal over it makes the
+property absent, and an existential or a qualified minimum over it, or a value
+required of a property whose range it is, leaves the class no instance. A class
+below `owl:Nothing` (`A ⊑ ⊔()`) admits no instance: its definition is
+`false`. The shared well-typed-literal schema is the reserved `$defs/Literal`
+definition, beside `Node` and `Annotation`.
+
+A blank node carrying several readings is read as their conjunction, since the
+OWL 2 RDF-Based Semantics gives each of them the node's class extension:
+several facets or values of one facet on a restriction node (`owl:minCardinality`
+beside `owl:maxCardinality`, `owl:someValuesFrom` beside `owl:allValuesFrom`,
+two `owl:someValuesFrom` values), several properties or qualifiers, or several
+class constructs on one node. A facet over a defined datatype restricts its
+definition's values (`ex:Percent ≡ xsd:integer[≥ 0]` restricted by
+`xsd:maxInclusive 100` admits the integers 0 to 100), and is reported as an
+approximation where it has no exact form over them. A union of no class is
+`owl:Nothing` and an intersection of none `owl:Thing` (of no data range, the
+empty range and `rdfs:Literal`); a union or intersection of one member is that
+member; `owl:oneOf ()` is `owl:Nothing`; an empty `owl:withRestrictions` is its
+base datatype. A cardinality beyond `u64::MAX` is read as `u64::MAX`, which no
+finite set of values tells apart from it. An IRI declared several property
+kinds (PROV-O's `prov:specializationOf`, an annotation and an object property)
+is read by the OWL 2 RDF-Based Semantics: a datatype declaration decides, then
+an object one.
+
+OWL ranges, fillers, data ranges, enumerations and `owl:hasValue` judge a
+literal by its value, as OWL 2 §4 reads a datatype, where SHACL's
+`sh:datatype` judges its tag. `xsd:decimal` admits the bare integer `1` and
+`"7"^^xsd:nonNegativeInteger`, `xsd:string` admits the string datatypes derived
+from it, a facet over `xsd:integer` admits every integer datatype within it, and
+an enumeration of `1` matches `"01"^^xsd:integer`. The value-space tables are
+in `src/owl_value_space.rs`. A literal typed `owl:rational` may denote a
+decimal or an integer, which no pattern decides, so a decimal or integer range
+admits it unjudged and is reported as an approximation; a maximum counted over
+such a qualifier, and a datatype complement of it, count and negate only the
+literals they judge. A length or pattern facet holds of a string's value,
+which for every string datatype is its lexical form (XSD 1.1 Part 2 §3.4), so
+it is stated on every string literal and projected exactly. The schema `$id` under a hash namespace drops the fragment
+(`http://purl.org/goodrelations/v1/schema/instance.schema.json`), as draft
+2020-12 requires.
+
+Class and property widths, hierarchy memberships, inherited expression
+references and class × property coverage cells are bounded by the current
+input with checked arithmetic. The TypeScript, GraphQL and Pydantic catalogs
+likewise derive their definition bounds from the source schema bytes. There is
+no fixed class, cell or definition count ceiling. OWL expression depth remains
+64, and the existing 1,048,576 expanded-expression occurrence guard remains at
+its separate home: it bounds exponential anonymous subtree expansion, rather
+than class or coverage width. A cached expression consumes its original expanded
+occurrence count and original depth before it is copied. A chain of
+inherited-restriction fragment references is at most 64 long: a deeper hierarchy
+restarts it with a fragment that states its ancestors' restrictions, so a
+validator that bounds reference chains can judge it.
+
+Every catalogued property appears exactly once in `SchemaCoverageReport`, with
+sorted class decisions, inclusion/exclusion reasons, precision, and source
+axiom provenance. `SchemaCompileRequest::coverage_report` computes that audit
+surface without serializing language artifacts. `compilation_key` hashes the
+RDFC-1.0 identities of both input graphs together with declared namespaces,
+mode, value-vocabulary marker, compiler/policy salts, and fixed limits, so the
+key can be computed before expensive emission and used directly for caching.
+
+The runnable example compares both modes, prints the report and cache key, and
+passes the complete result through all four language emitters:
+
+```bash
+cargo run -p purrdf-shapes --example ontology_schema_surface --locked
+```
+
+## Schema → SHACL imports
+
+The schema-projection family is bidirectional. `SchemaImportConfig` requires a
+caller-owned `Namespaces` table and a complete scalar-to-RDF-datatype map; it
+has no default and PurRDF never fabricates a vocabulary IRI. Every reader
+returns `ImportedShapes`, containing deterministically ordered SHACL shapes and
+an always-computed reverse `LossLedger`:
+
+| Source | Production reverse boundary |
+|---|---|
+| JSON Schema draft 2020-12 | `import_json_schema` or `import_compiled_schema` |
+| LinkML 1.11 | `parse_linkml` + `import_linkml` for native documents; `import_linkml_package` for a verified emitted package |
+| Pydantic v2 | `import_pydantic_package` over an intact PurRDF-emitted package |
+| TypeScript 7.0 | `import_typescript_package` over an intact PurRDF-emitted package |
+| GraphQL September 2025 | `import_graphql_package` over an intact PurRDF-emitted package |
+
+JSON Schema is the shared semantic pivot, so CURIE expansion, datatype
+selection, constraint lowering, fixed resource limits, and located losses have
+one implementation. Malformed structures, open/dangling references, ambiguous
+identities, and generated-package drift fail closed. Valid source semantics
+without an exact SHACL representation remain visible as closed-profile loss
+entries at native JSON Pointer paths.
+
+Arbitrary Python, TypeScript, and GraphQL SDL are not accepted as inverse
+formats: those languages do not determine one unique JSON validation relation.
+The three verified generated-package readers retain the exact source schema and
+re-emit the complete artifacts, maps, identity, dialect, and forward ledger
+before importing. LinkML is different: it has a native document reader, and
+carrier identity/documentation fields can be ledgered even when the
+validation-bearing SHACL recompiles byte-exactly.
+
+The runnable example exercises all five public reverse directions with only an
+`example.org` caller vocabulary (plus the standard XSD and LinkML namespaces):
+
+```bash
+cargo run -p purrdf-shapes --example schema_reverse --locked
+```
+
+## Pydantic v2 packages
+
+The Rust emitter consumes the same in-memory `CompiledSchema` produced by the
+SHACL-to-JSON-Schema compiler. It returns deterministic package bytes and never
+reads or writes the filesystem. Package identity and all module docstrings are
+required caller input:
+
+```rust,ignore
+use purrdf_shapes::{PydanticConfig, emit_pydantic};
+
+let config = PydanticConfig::new(
+    "example_models",
+    "Models for the caller's public package.",
+    "Generated validation models for the caller's schema.",
+)?;
+let package = emit_pydantic(&compiled_schema, &config)?;
+
+assert!(package.artifacts.contains_key("example_models/models.py"));
+assert_eq!(
+    package.model_paths.get("Person").map(String::as_str),
+    Some("example_models.models.Person"),
+);
+```
+
+Callers that need a distribution-ready package can supply a total topology,
+class documentation and arbitrary sorted JSON linkage metadata, plus an exact
+PEP 440 version. Every `$defs` key must occur exactly once and every declared
+leaf module must own a class:
+
+```rust,ignore
+use std::collections::BTreeMap;
+use purrdf_shapes::{
+    PydanticClassConfig, PydanticModuleConfig, PydanticPackageTopology,
+    PydanticVersionStamp,
+};
+use purrdf_lex::json::Value;
+
+let topology = PydanticPackageTopology::new(
+    [PydanticModuleConfig::new(
+        "domain.people",
+        "Caller-owned people module.",
+    )?],
+    [PydanticClassConfig::new(
+        "Person",
+        "domain.people",
+        "Caller-owned Person documentation.",
+        BTreeMap::from([
+            ("definitionDigest".to_owned(), Value::from("sha256:...")),
+            ("docs".to_owned(), Value::from("https://example.org/docs/person")),
+        ]),
+    )?],
+)?;
+let config = config
+    .with_topology(topology)?
+    .with_version_stamp(PydanticVersionStamp::new(
+        "1.2.3+portable.1",
+        "Caller-owned version module.",
+    )?)?;
+let package = emit_pydantic(&compiled_schema, &config)?;
+
+assert!(package.artifacts.contains_key("example_models/domain/people.py"));
+assert_eq!(
+    package.model_paths.get("Person").map(String::as_str),
+    Some("example_models.domain.people.Person"),
+);
+```
+
+Routed packages share one schema table and one runtime base, create required
+intermediate `__init__.py` files, rebuild cross-module references once at the
+package root, and export explicit symbol maps. Missing or stale routes,
+path/symbol collisions, malformed versions, and fixed schema/config/output
+resource-limit violations fail before any artifacts are returned. Omitting both
+the topology and version stamp retains the original flat package byte-for-byte.
+Version stamping is independently available in either layout; in the flat
+layout it adds `__about__.py` and updates the `__init__.py` exports.
+
+A JSON Schema `not` has no annotation equivalent. The generated package checks
+it with a before-validator that evaluates the negated schema over the raw JSON
+input. The check covers a closed keyword table, `$ref` included, with JSON
+Schema's semantics, and runs `pattern` through Pydantic's own regex engine. A
+negated schema outside that table stays a located `negation-validation-dropped`
+loss.
+
+Generated classes validate the representable JSON Schema subset and expose the
+originating definition through Pydantic v2's standard
+`model_json_schema(by_alias=True)` surface. Assertions without an exact
+Pydantic runtime annotation remain in that schema and are recorded, with JSON
+pointer locations, in `package.losses`; the source SHACL-to-JSON-Schema losses
+remain separately available on `CompiledSchema::losses`. The checked
+`json-schema` → `pydantic-v2` loss profile makes every widening auditable.
+
+The dev-only executable oracle imports both flat and routed packages, runs
+strict mypy over the routed package, compares live `model_json_schema()` output
+with the source definitions, and probes validation, metadata/version linkage,
+aliases, and verified reverse round trips:
+
+```bash
+make pydantic-oracle
+```
+
+Report-only timing and allocation instruments share the same deterministic
+32/1,024/16,384-definition fixture family across flat, rich single-module,
+40-module, and one-module-per-definition layouts:
+
+```bash
+cargo bench -p purrdf-shapes --bench pydantic_package --locked -- --noplot
+cargo run --release -p purrdf-shapes --example pydantic_allocations --locked
+```
+
+`import_pydantic_package` is the schema reverse API. It verifies the fixed
+`pydantic-v2` dialect, every generated file, the model-path map, and the forward
+loss ledger against deterministic re-emission before the retained source schema
+can enter the shared SHACL importer. Mutated or stale packages fail closed.
+
+## LinkML 1.11 schemas
+
+The LinkML emitter projects `CompiledSchema` directly to one fixed LinkML
+metamodel dialect (`metamodel_version: 1.11.0`). It is an in-memory Rust API:
+PurRDF does not shell out, select behavior with a feature flag, read a repository,
+or invent a schema identity. The caller supplies the schema IRI, name,
+description, default prefix, and complete prefix map; there is deliberately no
+`Default` configuration.
+
+```rust,ignore
+use std::collections::{BTreeMap, BTreeSet};
+use purrdf_shapes::{
+    LinkmlConfig, SanitizePolicy, emit_linkml, parse_linkml, write_linkml,
+};
+
+let config = LinkmlConfig::new(
+    "https://example.org/schema/linkml",
+    "Example-Schema",
+    "Schema documentation owned by the caller.",
+    "ex",
+    BTreeMap::from([
+        ("ex".into(), "https://example.org/".into()),
+        ("linkml".into(), "https://w3id.org/linkml/".into()),
+    ]),
+)?
+.with_sanitize_policy(SanitizePolicy::Rename)
+.with_slot_rehomes(BTreeSet::from([
+    // This exact undeclared token is caller-owned shorthand, not a custom IRI.
+    "skos:definition".to_owned(),
+]))?;
+let package = emit_linkml(&compiled_schema, &config)?;
+
+let parsed = parse_linkml(&package.yaml)?;
+assert_eq!(write_linkml(&parsed)?, package.yaml);
+assert_eq!(
+    package.element_names.get("Person").map(String::as_str),
+    Some("Person"),
+);
+for rename in &package.slot_renames {
+    let (class, old_slot_uri, new_slot_name) = rename.audit_tuple();
+    println!("{class}: {old_slot_uri:?} -> {new_slot_name}");
+}
+```
+
+`LinkmlPackage` returns the validated document tree, canonical YAML, a
+reversible source-`$defs`-key to LinkML-element map, ordered slot rename and
+skip-diagnostic reports, and the always-computed `json-schema` → `linkml-1.11`
+loss ledger. The YAML writer sorts every mapping and emits exactly one trailing
+newline. The reader preserves every
+JSON-compatible LinkML field, including metamodel extensions PurRDF does not
+author, while rejecting duplicate keys, YAML tags, non-string mapping keys,
+non-finite numbers, and resource-limit violations. Thus read → write and write
+→ read → write are stable without pretending YAML-only semantics can cross a
+language-neutral boundary.
+
+`import_linkml` interprets any validated native `LinkmlDocument` through the
+shared SHACL import model. `import_linkml_package` additionally verifies that an
+emitted package's canonical YAML, element map, slot reports, policy losses,
+aliases, and `slot_uri` values still agree. A declared CURIE or absolute IRI
+therefore reverses to its original predicate even when its LinkML attribute name
+was changed. Native metamodel annotations and schema identity are ledgered
+instead of being mistaken for SHACL validation terms.
+
+`LinkmlConfig::new` selects `SanitizePolicy::Rename`. The renderer plans every
+class before emitting it, so an unsafe property cannot consume an already-safe
+name and insertion order cannot change collision ownership:
+
+- `Rename` emits a deterministic caller-prefixed NCName, retains the exact
+  source spelling in `alias`, and appends a `LinkmlSlotRename`. For a declared
+  CURIE only the local spelling changes; its exact original CURIE remains in
+  `slot_uri`. Every parser-valid absolute IRI (`http`, `https`, `urn`, `did`,
+  `mailto`, or another scheme) likewise remains byte-exact in `slot_uri`.
+- `Skip` omits only the unsafe property, appends a located
+  `LinkmlSlotDiagnostic`, and records `slot-name-policy-dropped`.
+- `Fail` rejects the projection with the source class, emitted class, property,
+  and JSON Pointer.
+
+An unmatched absolute IRI uses its trailing local segment under the caller's
+default prefix only for the generated attribute name; its absolute semantic
+identity is preserved. An unsafe bare token has no pre-existing RDF identity
+and is explicitly assigned one under the caller's default prefix, recorded as
+`slot-identity-rehomed`. `with_slot_rehomes` provides the same explicit
+assignment for exact unresolved tokens such as an undeclared `skos:definition`.
+Valid custom-scheme IRIs are never guessed to be unresolved CURIEs. Hints that
+target declared prefixes or the five supported JSON-LD carriers (`@annotation`,
+`@id`, `@language`, `@type`, and `@value`) are rejected, and every configured
+hint must occur in the source.
+
+Generated-name collisions receive a fixed hash suffix and bounded ordinal
+fallback. Semantic `slot_uri` collisions fail unless the colliding identity is
+being explicitly re-homed, in which case allocation chooses another reported
+caller-default identity. Source schema bytes, source-key bytes, slots per class,
+total slots, report rows, generated-name bytes, and collision attempts all have
+fixed fail-closed limits.
+
+Code that previously rewrote `properties` and `required` keys before LinkML
+emission should remove that pre-pass. Pass the shared `CompiledSchema` unchanged,
+configure any exact semantic re-homes on `LinkmlConfig`, and use
+`package.slot_renames` as the reversible migration record. This keeps every
+other emitter on the same deterministic schema carrier.
+
+The projection grammar is:
+
+| JSON Schema input | LinkML 1.11 representation |
+|---|---|
+| object `$defs` | named `classes` with caller-prefix-derived `class_uri` |
+| scalar `$defs` | named `types` |
+| string and `{"@id": ...}` enum `$defs` | named `enums` and `permissible_values` |
+| `properties` | class-scoped `attributes`; safe keys remain exact, while unsafe keys use the selected policy and always retain the source key in `alias` when emitted |
+| local `$ref` | class, type, or enum `range`; class aliases use `is_a` |
+| inline object | deterministic synthesized class with `inlined: true` |
+| `required` | attribute `required` |
+| homogeneous array | `multivalued`, item range, ordered/unique flags, and min/max cardinality |
+| `anyOf` / `allOf` / `oneOf` / `not` | `any_of` / `all_of` / `exactly_one_of` / `none_of` |
+| `pattern`, `minimum`, `maximum` | `pattern`, `minimum_value`, `maximum_value` |
+| `additionalProperties` | LinkML 1.11 `extra_slots`, including a typed `range_expression` |
+| titles and descriptions | the corresponding LinkML element fields |
+
+Every schema assertion passes through the same closed capability audit used by
+the renderer. A construct that LinkML cannot express is never silently ignored:
+it produces a stable code and JSON Pointer location. The profile covers
+conditional/dependency/contains/unevaluated rules, tuple widening, string and
+property counts, exclusive and multiple-of bounds, format differences,
+non-scalar enum carriers, and a closed catch-all. Malformed values,
+external/dynamic/dangling references, inconsistent `required` declarations,
+stale/ambiguous re-home hints, semantic identity collisions, and fixed-limit
+breaches hard fail instead of entering the ledger. Source SHACL → JSON Schema
+losses remain separate on `CompiledSchema::losses`.
+
+The production emitter has no Python dependency and remains wasm-clean. The
+dev-only oracle pins the official `linkml` and `linkml-runtime` packages to
+1.11.1, loads the emitted YAML through `SchemaDefinition` and `SchemaView`,
+regenerates JSON Schema, compares the exact fixture's `$defs` and accept/reject
+corpus, verifies renamed aliases and `slot_uri` values across seven identity
+forms, checks reverse predicates, and probes every lossy family:
+
+```bash
+make linkml-oracle
+```
+
+## TypeScript 7.0 declarations
+
+`emit_typescript` projects `CompiledSchema` directly into one deterministic
+`index.d.ts` artifact. `TypeScriptConfig` requires the caller's package name and
+package/module prose; no downstream identity or vocabulary is fabricated. The
+result includes the declaration bytes, an exact source-`$defs`-key to exported
+type-name map, and the always-computed `json-schema` → `typescript-7.0` loss
+ledger.
+
+```rust,ignore
+use purrdf_shapes::{
+    TYPESCRIPT_DECLARATION_PATH, TypeScriptConfig, emit_typescript,
+};
+
+let config = TypeScriptConfig::new(
+    "example-schema-types",
+    "Types published by the caller.",
+    "Declarations generated from the caller's compiled schema.",
+)?;
+let package = emit_typescript(&compiled_schema, &config)?;
+let declaration = std::str::from_utf8(
+    &package.artifacts[TYPESCRIPT_DECLARATION_PATH],
+)?;
+
+assert!(declaration.contains("export type Person"));
+assert_eq!(package.type_names.get("Person").map(String::as_str), Some("Person"));
+```
+
+The closed dialect is TypeScript 7.0 under `strict` and
+`exactOptionalPropertyTypes`. It represents JSON primitives and literals, exact
+required-versus-optional fields, explicit JSON `null`, local recursive
+references, `anyOf` unions, `allOf` intersections, arrays and tuples with
+exact length bounds of any size, and pairwise-distinct items over a finite
+scalar item set. It emits type aliases rather than runtime enums or mergeable
+interfaces and never uses `any`. Malformed keyword values, external/dynamic or
+dangling references, reserved names, and normalized-name collisions fail
+closed.
+
+TypeScript's structural assignability cannot encode every runtime JSON Schema
+assertion. Integer subsets, numeric/string predicates, object closure with
+named fields, regex-selected properties, dependencies, conditionals,
+negation, contains, uniqueness over infinitely many items (or beyond the
+compiler's enumeration limits), and evaluation state are therefore classified
+at their JSON Pointer locations by the closed loss profile. The compiler oracle checks both fresh literals and values
+passed through variables, so excess-property checks cannot hide structural
+widening:
+
+```bash
+make typescript-oracle
+```
+
+There is deliberately no general TypeScript → JSON Schema reader. Arbitrary
+TypeScript declarations have no unique runtime acceptance relation, and many
+different schemas project to the same declaration. `import_typescript_package`
+is the authoritative reverse surface: it verifies the fixed dialect, retained
+source schema, declaration bytes, reversible `type_names`, and forward ledger
+before importing SHACL. The production path has no JavaScript dependency,
+performs no filesystem I/O, and remains wasm-clean; TypeScript is dev-only
+oracle tooling.
+
+## GraphQL September 2025 SDL
+
+`emit_graphql` projects `CompiledSchema` into the fixed
+`graphql-september-2025` dialect. `GraphqlConfig` requires the caller's schema
+name, package and module prose, and non-built-in fallback-scalar name; it has no
+`Default` implementation. The output is a deterministic type-system fragment,
+not an executable GraphQL service: PurRDF emits no operation roots, resolvers,
+pagination, authorization, federation, or application directives.
+
+The compiling [`graphql_package` example](./examples/graphql_package.rs) shows
+configuration, artifact access, the typed name map, and the value codec:
+
+```rust,ignore
+use purrdf_shapes::{
+    GRAPHQL_NAME_MAP_PATH, GRAPHQL_SCHEMA_PATH, GraphqlConfig, emit_graphql,
+};
+
+let config = GraphqlConfig::new(
+    "ExampleSchema",
+    "GraphQL schema package owned by the caller.",
+    "Types generated from the caller's compiled schema.",
+    "JsonCarrier",
+)?;
+let package = emit_graphql(&compiled_schema, &config)?;
+let graphql_value = package.encode_input("Person", &source_json)?;
+let source_value = package.decode_output("Person", &graphql_value)?;
+
+let sdl = &package.artifacts[GRAPHQL_SCHEMA_PATH];
+let name_map = &package.artifacts[GRAPHQL_NAME_MAP_PATH];
+assert_eq!(package.names.definitions["Person"].input_type, "PersonInput");
+```
+
+Each structural object has a paired output `type` and input `input` object.
+The emitter directly represents booleans, strings, numbers, the exact signed
+32-bit `Int` domain, explicit nullability, finite `const`/`enum` value sets,
+closed named fields, required fields, homogeneous lists, local direct
+`#/$defs/...` references, aliases, descriptions, and deterministic inline
+object helpers. Types, helpers, and the fallback scalar share one global
+collision-checked namespace; fields and enum symbols are collision-checked in
+their GraphQL-local namespaces. The canonical `name-map.json` and identical
+typed `GraphqlNameMap` retain every source definition key, JSON property key,
+and finite JSON value alongside its GraphQL representation.
+
+`GraphqlPackage::encode_input` translates source JSON property names and
+finite values into GraphQL input names and enum symbols.
+`GraphqlPackage::decode_output` reverses present response fields and symbols;
+it permits GraphQL's normal partial field selection and does not invent omitted
+fields. Unknown definitions, keys, values, symbols, or incompatible carriers
+fail. This generated codec is the value boundary;
+`import_graphql_package` is the schema reverse boundary. The importer verifies
+the SDL, canonical and typed name/value maps, package identity, retained source
+schema, and forward ledger by deterministic re-emission. Arbitrary GraphQL SDL
+does not define one unique JSON Schema acceptance relation, so PurRDF does not
+claim or provide a general SDL-to-JSON-Schema reader.
+
+GraphQL coercion cannot represent every JSON Schema assertion. Every semantic
+difference is intentional, stable-coded, and located at its source JSON
+Pointer on the closed `json-schema` → `graphql-september-2025` loss ledger:
+
+| Boundary | Closed loss codes |
+|---|---|
+| fixed input fields and object-key rules | `additional-properties-validation-narrowed`, `pattern-properties-validation-changed`, `property-name-validation-changed`, `property-count-validation-dropped` |
+| requiredness, null, and recursive inputs | `nullable-presence-validation-widened`, `recursive-input-nullability-relaxed` |
+| lists and positional/evaluation rules | `singleton-list-coercion-widened`, `array-cardinality-validation-dropped`, `array-contains-validation-dropped`, `unique-items-validation-dropped`, `tuple-array-validation-delegated`, `unevaluated-validation-dropped` |
+| scalar domains and predicates | `integer-domain-validation-delegated`, `numeric-validation-dropped`, `string-validation-dropped` |
+| applicators and cross-field rules | `conditional-validation-dropped`, `dependency-validation-dropped`, `intersection-validation-delegated`, `union-validation-delegated`, `one-of-validation-delegated`, `negation-validation-delegated` |
+| caller/runtime validation boundary | `custom-scalar-validation-delegated`, `keyword-validation-delegated` |
+
+The fallback scalar is only declared in SDL. Its `parseValue`, `parseLiteral`,
+and serialization behavior belongs to the caller, and every use that delegates
+source validation is ledgered. A package with an empty ledger is exact for the
+represented source acceptance relation; a non-empty ledger is never silently
+treated as validation.
+
+Emission hard-fails invalid caller names or prose, built-in fallback-scalar
+names, malformed keyword values, `$id` rebasing, external, indirect, or
+dangling `$ref`, `$dynamicRef`/`$recursiveRef`, pure-alias cycles,
+unsatisfiable closed required fields, and any generated type, field, helper,
+scalar, or enum name collision. The value codec likewise rejects unmapped or
+structurally incompatible values. Definition and traversal widths derive from
+the current source bytes with checked arithmetic; the remaining
+platform-independent limits keep resource behavior deterministic:
+
+| Resource | Limit |
+|---|---:|
+| each emitted artifact | 4 bytes per input byte, at least 16 MiB |
+| one codec JSON value | 16 MiB |
+| definitions | bounded by source schema bytes |
+| fields in one object or values in one finite set | 65,536 |
+| schema-expression or codec-value depth | 128 |
+| generated or caller-supplied GraphQL name | 255 bytes |
+
+The dev-only oracle uses `purrdf-jsonschema` as the draft 2020-12 source
+classifier and the locked official GraphQL.js 16.14.0 implementation to build
+the generated SDL and execute real variable coercion. It checks lossless
+agreement, every closed loss family and location, codec/name-map agreement, and
+deliberate corruption failures:
+
+```bash
+make graphql-oracle
+```
+
+GraphQL.js is not a release dependency. The production emitter and codec are
+filesystem-free Rust and remain wasm-clean.
+
+---
+
+## Python extension
+
+```bash
+cd ../../bindings/python
+maturin develop
+```
+
+```python
+from purrdf_native import shacl
+
+report = shacl.validate(shapes_ttl="...", data_nt="...")
+print(report["conforms"])  # True / False
+print(report["results"])   # list of violation dicts
+```
+
+Each result dict keeps the stable keys `focus`, `path`, `value`, `severity`,
+`component`, `source_shape`, and `messages` (every `sh:resultMessage`, each a
+dict with `text` and its `language`, `direction` and `datatype` when present).
+`shacl.validate` takes a `conformance_disallows` keyword, the severity IRIs
+that make a report non-conforming. When the shapes or path terms carry
+`purrdf:graphBoxRole`, result dicts may also include `source_box_roles`,
+`path_box_roles`, and `result_box_roles`.
+
+---
+
+## Project and community
+
+`purrdf-shapes` is developed by [Blackcat Informatics® Inc.](https://blackcatinformatics.ca)
+as one member of the [PurRDF](https://github.com/Blackcat-Informatics/purrdf)
+RDF 1.2 toolkit. Most applications should depend on the umbrella
+[`purrdf`](https://crates.io/crates/purrdf) crate, which re-exports this crate
+as `purrdf::shapes`.
+
+Related crates:
+
+- [`purrdf-sparql-eval`](https://crates.io/crates/purrdf-sparql-eval) — the native
+  SPARQL engine that powers SHACL-SPARQL constraints and targets
+- [`purrdf-validate`](https://crates.io/crates/purrdf-validate) — renders
+  validation reports as byte-deterministic SARIF 2.1.0
+- [`purrdf-gts`](https://crates.io/crates/purrdf-gts) — the GTS graph-transport
+  container engine
+
+---
+
+## Reusing a parsed shapes graph
+
+`Shapes` retains the frozen `Arc<RdfDataset>` it was parsed from, and
+`Shapes::dataset()` borrows it. A consumer that needs the RDF behind a shapes
+graph — to union it with an ontology, to hand it to SPARQL — reads it from there
+instead of reparsing the source text. It is the shapes graph's whole `owl:imports`
+closure, as the constructor resolved it.
+
+## A shapes graph is its `owl:imports` closure
+
+Every `Shapes` constructor resolves the shapes graph's `owl:imports` closure through
+`imports::resolve_shapes_imports` before it reads a shape. An `owl:imports` triple is an
+import only when its subject is an anchor of its document:
+
+- the shapes graph's own IRI (the IRI it was read under; for an imported document, the IRI
+  it was imported by);
+- a SHACL instance of `owl:Ontology`, OWL 2's ontology header;
+- every SHACL instance of `sh:ShapesGraph` (SHACL 1.2 Core §6.1), including
+  `sh:RulesGraph` and any class the document declares `rdfs:subClassOf sh:ShapesGraph`;
+- a node naming one of those as its `owl:versionIRI` (SHACL 1.2's
+  `^owl:versionIRI?/owl:imports`).
+
+A node whose only graph role is `sh:DataGraph` is not an anchor. SHACL 1.2 Core §6.2 says
+"owl:imports in the data graph is not enacted", and the data graph's own `owl:imports` are
+never read at all. The anchors come from the kernel's one graph-role classifier
+(`purrdf_core::graph_roles`), which SHACL-SPARQL's implicit prefixes (`sh:declare` on an
+`owl:Ontology`, `sh:DataGraph`, `sh:ShapesGraph` or `sh:RulesGraph`) select from too, and
+entailment follows the same rule. On any other node the triple is data, as SHACL's
+`sh:prefixes/owl:imports*/sh:declare` prefix edges are, and `lint::lint` lists it in its
+informational `unanchored-imports` section. An import is resolved by a document in the
+caller's `ShapesImports` table, by the IRI the shapes document was read under, or by the
+closure declaring it (`<X> a owl:Ontology`, `<X> a sh:ShapesGraph`, or an ontology whose
+`owl:versionIRI` is `<X>`). The supplied documents are merged in, and an import
+nothing resolves — or a table entry nothing imports — is refused with the typed
+`ShapesError::Imports`. So a `Shapes` value is complete by construction, and every
+entry point built on one gives the same verdict on every host. PurRDF fetches nothing.
+
+```rust
+use purrdf_shapes::{ShapesImports, engine};
+
+let shapes_ttl = "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+    @prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+    <http://example.org/shapes> a sh:ShapesGraph ; owl:imports <http://example.org/lib> .\n";
+let lib_ttl = "@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+    <http://example.org/lib#S> a sh:NodeShape .\n";
+
+let imports = ShapesImports::from_turtle(&[("http://example.org/lib", lib_ttl)])
+    .expect("the imported document parses");
+let shapes = engine::parse_shapes_with_config(shapes_ttl, None, None, &imports)
+    .expect("every import resolves");
+assert_eq!(shapes.node_shapes.len(), 1);
+```
+
+### A data graph's `sh:shapesGraph` links
+
+SHACL 1.2 Core §6.4 lets a data graph name the graphs that "SHOULD be included into the
+shapes graph used to validate the data graph" — `<G> a sh:DataGraph ; sh:shapesGraph <S>`
+— and PurRDF reads the SHOULD as a MUST. A `sh:shapesGraph` is a link when its subject is
+the data graph's loaded IRI (when the host knows one) or a `sh:DataGraph`, by the same
+classifier; on any other node it is data. `imports::data_graph_links` reads the links and
+`ShapesImports::link_data_graph` puts them in the table, where `resolve_shapes_imports`
+resolves each one exactly as an import — the same table, the same in-place declarations,
+the `^owl:versionIRI` step, the linked graph's own `owl:imports` — and unions it into the
+shapes graph. `engine::validate_graphs_with_options` and the other text entry points do
+this themselves. A link nothing resolves is `ShapesImportError::UnresolvedLink`, a link
+value that is not an IRI is `InvalidLink`, and a table entry only a link names is reached.
+A shapes graph built before the data graph was known — a `Shapes` validated against many
+graphs, a `PreparedShapes`, a prepared product — cannot take a graph in, so every
+validation checks each link is one it already holds (`imports::check_data_graph_links`:
+its loaded IRI, a graph its closure or links folded in, an anchor or version IRI it
+declares) and refuses any other as `UnheldLink`. A change that adds or retracts a link
+changes the shapes graph, so the incremental change path validates in full and says why.
+
+The accessor returns a borrow rather than a clone so the caller decides whether
+to pay for retention; `Arc::clone(shapes.dataset())` keeps the dataset alive
+independently of the `Shapes` value.
+
+## License and copyright
+
+Copyright © 2026 Blackcat Informatics® Inc.
+
+This crate is licensed under **MIT OR Apache-2.0 OR MulanPSL-2.0** — see
+[`LICENSE-MIT`](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MIT),
+[`LICENSE-APACHE`](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-APACHE)
+and
+[`LICENSE-MULAN`](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MULAN)
+in the repository root. Separate proprietary/commercial terms are available;
+contact `licensing@blackcatinformatics.ca`.

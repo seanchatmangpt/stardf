@@ -1,0 +1,10 @@
+/target
+Cargo.lock.bak
+*.swp
+.DS_Store
+# c3 gitignore fixes (F13 flags): cargo residue + secrets — never commit
+crates/*/target/
+.ggen*
+signing.key
+rust_out
+examples/columnar_oracle_fixture

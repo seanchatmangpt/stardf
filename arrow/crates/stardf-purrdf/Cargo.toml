@@ -1,0 +1,186 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-rs"
+# Lane 07-publish-metadata (2026-10-31): v26.11.1 first-class closure member —
+# the umbrella joins the publish set with the unified workspace metadata
+# (description/keywords/categories inherited via `X.workspace = true`). This
+# overrides the upstream-verbatim literals ("PurRDF umbrella crate: RDF 1.2
+# implementation, slices, and SHACL/ShEx shape validation"; keywords
+# rdf/rdf-12/shacl/shex/sparql; categories parser-implementations/encoding/
+# data-structures) per the lane-07 unified-metadata contract; `documentation`
+# stays upstream-verbatim (docs.rs/purrdf, pre-existing, out of lane scope).
+# Manifest-level publishability only: the umbrella's path-only dep keys
+# (stardf-process, stardf-rdf, stardf-slice, stardf-shapes, stardf-shex,
+# stardf-gts, stardf-sparql-algebra/eval/results, stardf-entail, purrdf-arrow)
+# were a release-realm (lane 08 / coordinator) concern — RESOLVED lane H03
+# (2026-10-31): all root [workspace.dependencies] entries consumed via
+# `workspace = true` are version+path dual-keyed now (G5), at each member's
+# real version. The umbrella's remaining hard deps on NON-closure members
+# (stardf-datalog/entail/geo/glob/gts/hnsw/json/markdown/mime/process/retrieval/
+# shapes/shex/slice/sparql-eval/text/validate + optional stardf-duckdb) stay a
+# G8 blocker under the D17 operator registration — publish-flag + dual-key are
+# necessary, not sufficient, for this crate.
+# `cargo check` is unaffected by any of this block.
+version.workspace = true
+edition.workspace = true
+publish = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/purrdf"
+rust-version.workspace = true
+description.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+# Vendoring law: lib names stay upstream-verbatim. Upstream package `purrdf`
+# (lib `purrdf`); the bulk copy renamed the package to `stardf-rs` but left the
+# lib name implicit, and consumers import the facade as `purrdf::`.
+name = "purrdf"
+crate-type = ["rlib"]
+path = "src/lib.rs"
+
+[features]
+# Knowledge hooks (kh:) — optional: the hooks closure pulls stardf-sql/stardf-duckdb
+# (native cmake/frozen-duckdb), which must stay out of wasm-consumer default builds.
+# (repair lane 2026-10-31) `hooks` feature REMOVED with the stardf-hooks
+# optional dep: the hooks crate is upstream-broken at the pinned rev (excluded
+# from members — see root members-list disclosure). sql (stardf-sql +
+# stardf-duckdb) compiles and stays.
+sql = ["dep:stardf-sql", "dep:stardf-duckdb"]
+
+[dependencies]
+purrdf-columnar = { workspace = true }
+purrdf-arrow = { workspace = true }
+stardf-branchless = { workspace = true }
+stardf-sql = { workspace = true, optional = true }
+stardf-duckdb = { workspace = true, optional = true }
+stardf-rdf = { workspace = true }
+stardf-slice = { workspace = true }
+stardf-shapes = { workspace = true }
+stardf-shex = { workspace = true }
+# The remaining published surface, re-exported so a consumer depends on `purrdf`
+# alone: anything legitimately imported must be reachable from the umbrella.
+stardf-gts = { workspace = true }
+stardf-sparql-algebra = { workspace = true }
+stardf-sparql-eval = { workspace = true }
+stardf-sparql-results = { workspace = true }
+stardf-xsd = { workspace = true }
+stardf-iri = { workspace = true }
+stardf-events = { workspace = true }
+stardf-entail = { workspace = true }
+# Carried because `stardf-entail`'s PUBLIC surface carries datalog types across it:
+# `EntailError::Evaluate` holds a `seminaive::EvalError`, and `ReasoningReport`
+# hands out a `cache::ContractHash` and a `seminaive::BudgetReport`. Without this
+# edge a consumer could reach those values but never name their types from the
+# umbrella alone, which is exactly the reach-into-a-sub-crate this crate forbids.
+stardf-datalog = { workspace = true }
+# N3 (Notation3): parsing, forward/backward reasoning and proofs. Carried on the
+# umbrella for the same reason every sibling is — reachability from `purrdf` alone.
+stardf-n3 = { workspace = true }
+# Part of the published surface, so the umbrella re-exports it: a consumer who
+# wants GeoSPARQL registers this crate's functions and relations against the
+# evaluator's two extension seams, and must be able to name `Geometry`,
+# `GeoVocab` and `GeoRelation` while depending on `purrdf` alone.
+stardf-geo = { workspace = true }
+# Part of the published surface, so the umbrella re-exports it: a consumer who
+# wants ranked full-text retrieval registers this crate's relations against the
+# evaluator's property-function seam, and must be able to name `TextIndex`,
+# `TextIndexConfig` and `Scored` while depending on `purrdf` alone.
+stardf-text = { workspace = true }
+# Part of the published surface, so the umbrella re-exports it: a consumer who
+# wants approximate nearest-neighbour retrieval registers this crate's relation
+# against the evaluator's property-function seam, and must be able to name
+# `HnswIndex`, `HnswSpace`, `Params` and `HnswRelation` while depending on
+# `purrdf` alone.
+stardf-hnsw = { workspace = true }
+# Part of the published surface, so the umbrella re-exports it: the umbrella
+# already hands out the ranked-retrieval CAPABILITY type a producer declares
+# with (`sparql::RetrievalTermPattern`), so the layer that CONSUMES those
+# declarations has to be reachable from here too — a consumer that can name what
+# a producer accepts but not `RetrievalRequest`, `Plan` or `search` has been
+# handed half a seam.
+stardf-retrieval = { workspace = true }
+stardf-validate = { workspace = true }
+# Part of the published surface, so the umbrella re-exports it: a consumer who
+# slices a Markdown document must be able to name `Profile`, `Vocabulary`,
+# `SourceDocument` and `Document` — and to hand the slicer's claims straight to
+# the parser at this crate's root — while depending on `purrdf` alone.
+stardf-markdown = { workspace = true }
+stardf-mime.workspace = true
+
+# Ordered JSON is an always-available data carrier over the shared IR.
+stardf-json.workspace = true
+stardf-toml.workspace = true
+stardf-glob.workspace = true
+
+# The error conversions are declared through the one `From`-into-a-variant spelling.
+stardf-lex = { workspace = true }
+
+[dev-dependencies]
+# Runs the deep-structure tests on a stack of a stated size: a fresh thread
+# natively, the running stack under a fresh floor on wasm32.
+stardf-stack = { workspace = true }
+# The doc-hidden PURREMB identity fixture (`purrdf_core::purremb_fixture`) the
+# multimodal exact-kNN test declares its family contract with, one definition
+# shared by every suite rather than a copy in each.
+stardf-core = { workspace = true }
+# The timed bench (`benches/multimodal_on_demand_read.rs`). Report-only: it
+# compares the on-demand read against the materialised one over real text and
+# HNSW producers, which only the umbrella can wire together in one fixture
+# because `stardf-retrieval` does not depend on `stardf-hnsw`. It runs on the
+# workspace's bench harness, `purrdf_testkit::bench`. Path-only and unpublished,
+# so it is stripped from the packaged manifest.
+stardf-testkit = { workspace = true }
+# The allocation probe (`benches/pipeline_alloc.rs`): the workspace's shared
+# counting allocator and its whole-process window, for the parse/query/serialize
+# peak-bytes + RSS rows. Path-only and unpublished, so it is stripped from the
+# packaged manifest.
+stardf-alloc-probe = { workspace = true }
+# The one-home seeded generator (`purrdf_hash::mix::lcg64_next`) behind the
+# benches' shared fixture module (`benches/support/fixture.rs`). Path-only and
+# unpublished, so it is stripped from the packaged manifest.
+stardf-hash = { workspace = true }
+
+# The fused read taken on demand against the same read materialised, over real
+# text and HNSW producers rather than the mock ones `stardf-retrieval`'s own
+# `on_demand_read` bench uses — plus one governed per-candidate exclusion
+# lookup, timed in isolation. Report-only: the deterministic counterparts are
+# asserted in `tests/multimodal_exclusion_lookup.rs` and in
+# `stardf-retrieval`'s `tests/text_exclusion_lookup.rs`.
+# (This comment describes the `multimodal_on_demand_read` BENCH below;
+# the `reasoning_inspection` TEST that follows is unrelated.)
+[[test]]
+name = "reasoning_inspection"
+harness = false
+
+[[bench]]
+name = "multimodal_on_demand_read"
+harness = false
+
+# The end-to-end document pipeline — parse N-Triples text into the store, one
+# SPARQL SELECT, serialize the results — priced as one iteration (MB/s of input
+# document, the buyer-facing number) plus per-stage rows (parse MB/s, query
+# ops/s, serialize MB/s) over a seeded ~1 MB fixture. Report-only, on the same
+# `purrdf_testkit::bench` harness.
+[[bench]]
+name = "pipeline_e2e"
+harness = false
+
+# Peak-allocation evidence for the same stages, in a separate process so the
+# tracking allocator's atomics do not contaminate the timed bench (mirrors
+# `pack_input_alloc`): one whole-process window + RSS reading per parse/query/
+# serialize stage and for the whole pipeline, over the same `support/fixture.rs`
+# document. Report-only.
+[[bench]]
+name = "pipeline_alloc"
+harness = false
+
+[lints]
+workspace = true

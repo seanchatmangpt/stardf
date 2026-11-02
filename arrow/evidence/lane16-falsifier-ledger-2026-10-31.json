@@ -1,0 +1,76 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "kind": "lane-receipt",
+  "lane": "16-falsifier-ledger (finishers wave, v26.11.1)",
+  "date": "2026-10-31",
+  "branch": "fix/v26.9.29-ci-gates",
+  "subject": {
+    "head": "724d542540b497f2928a63b5aece9b37aef4019b",
+    "head_note": "Read-only `git rev-parse HEAD` (exit 0) = c4r. Working tree UNCOMMITTED (coordinator owns git; this lane ran no git state-changing commands)."
+  },
+  "purpose": "Re-anchors every 04-falsifiers.md row to an on-disk receipt; converts F4 (header freeze) to WITNESSED by executing the F09 court; re-witnesses F5/F5a local determinism on the receipt-time tree; records the avec-gate re-open witnessed on the post-21:00 tree.",
+  "checks": [
+    {
+      "id": "f4-header-freeze-court",
+      "passed": true,
+      "count": 2,
+      "comment": "FIRST WITNESSED RUNS of scripts/verify_header_freeze.py (court + snapshot landed 17:55/17:56 with no prior on-disk run receipt). Run 1 check mode: exit 0, '[PASS] header-freeze: 13 contract symbols == 13 header declarations, and committed snapshot is set+byte+count identical to the regeneration (no GONE, no NEW).' Run 2 --court non-vacuity: exit 0, baseline pristine PASS; shims A (header-decl rename), B (ontology targetSymbol rename), C (snapshot line drop) each flipped with the EXPECTED GONE/NEW membership; restore proof: real ontology/header/snapshot sha256 byte-identical before/after. Probe symbol stardf_arena_intern; temp-copy mutations only, no real file written."
+    },
+    {
+      "id": "f5-emit-receipt-determinism-pair",
+      "passed": true,
+      "count": 2,
+      "comment": "python3 scripts/verify.py --emit-receipt run twice on the receipt-time tree: exit 0/0; receipt files byte-identical (cmp exit 0, sha256 cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef both); stdout byte-identical. Internal receipt_sha256 (subject-bound) ceaf5a25f0ddd1d9071810543984ee307e4ab88eaafe6ddfe524595e990514c9. The file-level digest cb57ce4e matches the digest the F5a row cites as stable across the 50->93-file corpus growth - stability now re-witnessed on the current post-bulk-copy tree. Note: this verifier emits receipt_sha256 only (no artifacts_sha256 key); the dsrust two-key shape is partially instantiated locally."
+    },
+    {
+      "id": "f1-ontology-census-rerun",
+      "passed": true,
+      "count": 22,
+      "comment": "python3 scripts/verify_stardf_ontology.py (repo root) -> exit 0, '[ALL PASS] stardf_contract.ttl is fully verified and compliant.' Type census 11 opaque + 11 anonymous-struct typedefs = 22 total."
+    },
+    {
+      "id": "f1a-drop-type-refusal-rerun",
+      "passed": true,
+      "count": 1,
+      "comment": "python3 scripts/verify_stardf_ontology.py --mutate drop-type -> exit 0 (court passed, mutation refused): '[PASS] F1a: drop-type mutation REFUSED (mutant graph fails census).' Third witnessing run of the refusal path."
+    },
+    {
+      "id": "f2-bridge-gates-rerun",
+      "passed": true,
+      "count": 5,
+      "comment": "python3 queries/rust/run_bridge.py (as-built path; the falsifier doc's 'scripts/run_bridge.py' citation is corrected to this) -> exit 0: all 5 rust-pack gates coverage >= 1 row (010_api_naming 15, 020_unsafe_safety_proof 13, 030_alignment_invariant 1, 040_ffi_unwind_guard 13, 050_workspace_inheritance 1), violations 0, '[PASS] all 5 gates: coverage >= 1 row, violations = 0 (bridge is gate-clean)'. Bridged graph non-empty (104 triples over 109 base)."
+    },
+    {
+      "id": "avec-gate-reopen-witness",
+      "passed": false,
+      "count": 3,
+      "comment": "NOT A RUN BY THIS LANE - on-disk receipt citation. The avec-ffi stardf_consumer_court gate (scripts/publish_stardf.py gate set) was PASS in the three 20:26-20:30 dry-run receipts (20261101T032659Z / T032924Z / T033004Z, native posture, 3/3) and FAIL in all three post-21:00 receipts (20261101T040225Z / T040456Z / T040521Z): 'cargo test -p avec-ffi --test stardf_consumer_court -> exit 101: stardf-arrow-core@26.11.1 requires rustc 1.98'. The flip follows the concurrent manifest lanes' rust-version=1.98 landings (the disclosed edition-2024/rust-1.98 deviation). Avec-side F3/F3a standing is green AS OF the 20:30 tree and RE-OPENED on the current tree; owner is the avec-gate lane, not this ledger lane. Recorded here because the falsifier ledger must police subject drift."
+    }
+  ],
+  "commands": [
+    { "cmd": "python3 scripts/verify_header_freeze.py", "exit": 0 },
+    { "cmd": "python3 scripts/verify_header_freeze.py --court", "exit": 0 },
+    { "cmd": "python3 scripts/verify.py --emit-receipt /tmp/l16_v1.json", "exit": 0 },
+    { "cmd": "python3 scripts/verify.py --emit-receipt /tmp/l16_v2.json", "exit": 0 },
+    { "cmd": "cmp /tmp/l16_v1.json /tmp/l16_v2.json", "exit": 0 },
+    { "cmd": "python3 (repo root) scripts/verify_stardf_ontology.py", "exit": 0 },
+    { "cmd": "python3 (repo root) scripts/verify_stardf_ontology.py --mutate drop-type", "exit": 0 },
+    { "cmd": "python3 queries/rust/run_bridge.py", "exit": 0 },
+    { "cmd": "git rev-parse HEAD / --abbrev-ref HEAD", "exit": 0 }
+  ],
+  "standing": {
+    "f4_header_freeze": "WITNESSED (this lane's runs, check + court, on subject 724d5425 tree-as-of-21:08)",
+    "f5_f5a_local": "WITNESSED (this lane's pair + evidence/replay-2026-10-31.json pairs)",
+    "f1_f1a_f2": "RE-WITNESSED on current tree (this lane's runs)",
+    "f3_f3a_avec_side": "WITNESSED as-of the 20:30 tree via publish-receipt gate rows; RE-OPENED on the current tree (rustc-1.98 gate flip witnessed 21:02-21:05)"
+  },
+  "nonclaims": [
+    "This lane ran NO cargo commands (no cargo test/check/clippy) - every cargo exit cited belongs to a landed receipt artifact (publish_stardf dry-run receipts, RECEIPTS.md lane rows).",
+    "No CI standing: ci/stardf-arrow-reconstitution.yml has never executed in GitHub Actions (D2 unresolved); the F5 witness is local-only.",
+    "The emitted verify.py receipt carries receipt_sha256 only; artifacts_sha256 is not emitted by this verifier - no claim that the dsrust two-key shape is fully instantiated.",
+    "No live publish, no registry touch, no git state-changing command by this lane.",
+    "Lane 05's F06 receipt artifact never landed; the avec-court green witnesses are the publish-receipt gate rows and the manufacturing receipt's avec-w3-gate row (lane 17 disclosure), not a lane-05 artifact.",
+    "The avec-court current-tree standing is FAIL-witnessed; this lane neither fixed nor re-ran it (not this lane's lease).",
+    "F4a remains loud-missing: no purrdf abi.rs test class is ported to stardf; no mutation-per-class court exists."
+  ]
+}

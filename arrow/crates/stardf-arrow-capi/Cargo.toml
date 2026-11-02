@@ -1,0 +1,61 @@
+[package]
+name = "stardf-arrow-capi"
+version.workspace = true
+# (repair lane 2026-10-31) pinned 2021: this first-party C ABI uses plain
+# `#[no_mangle]` (2021-authored); under the workspace-default 2024 edition
+# rustc requires `#[unsafe(no_mangle)]` — a source edit outside this lane's
+# manifest-level lease. 2021 keeps the authored syntax compiling.
+edition = "2021"
+# Lane 06-msrv (2026-10-31): member MSRV was absent; inherits the workspace
+# 1.98 like the rest of the closure.
+rust-version.workspace = true
+authors.workspace = true
+# Lane 07-publish-metadata (2026-10-31): v26.11.1 first-class closure —
+# publishable with unified workspace metadata. License + homepage added
+# (crate declared neither; crates.io requires a license to publish).
+publish = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+description.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# LANE 09 decouple (2026-10-31): cgap-arrow REMOVED entirely. Witnessed
+# bound: `cargo package -p stardf-arrow-capi` rejects even an OPTIONAL git
+# dep ("dependency `cgap-arrow` does not specify a version"), so feature-
+# gating alone cannot publish this crate. The release-tagged export surface
+# (stardf_i32_batch / stardf_release / the ARRAY_SLOT/SCHEMA_SLOT identity
+# slots) now mints its i32 primitive batch with stardf-owned primitives over
+# the spec-fixed stardf-arrow-core struct types; the cgap-ffi consumer pins
+# cgap itself (its court is dlopen/dlsym-based — no cgap type crosses the
+# C ABI). The v1 frozen 13-symbol surface (docs/ABI-FREEZE.md) stays
+# compiled by default.
+stardf-arrow-core = { workspace = true }
+
+[features]
+default = []
+# Positive-control mutant: routes stardf-owned memory through the foreign
+# (untagged) release path in the release chain. Used only by
+# tests/cross_allocator_court.rs — a court that cannot flip is FAIL.
+mutant-cross-alloc = []
+
+# LANE-14 UNBLOCK (disclosed): the columnar wave gate
+# (tests/columnar_integration.rs) implements stardf-columnar's vendored
+# DatasetView over the arena and runs its write/read codec.
+[dev-dependencies]
+# Lane H03 gate-closure (2026-10-31): dual-keyed per the G5 version+path law
+# (the 21:05 ladder receipt named this row).
+stardf-columnar = { version = "=26.11.1", path = "../stardf-columnar" }
+
+# cgap consumer court (tests/cgap_consumer_court.rs, moved from cgap
+# crates/cgap-ffi 2026-10-31): cgap carries no stardf deps (cgap publishes to
+# crates.io; stardf is WIP), so the foreign-consumer court lives with its
+# subject here. cgap-audit is the process counting allocator witness; cgap-ffi
+# is the membrane whose published cdylib court 3 dlopens.
+cgap-audit = { path = "../../../../../cgap/crates/audit" }
+cgap-ffi = { path = "../../../../../cgap/crates/cgap-ffi" }

@@ -1,0 +1,30 @@
+[package]
+name = "stardf-arrow-bench"
+# Lane 08-dual-key (2026-10-31): closure version inherits the workspace 26.11.1.
+version.workspace = true
+edition = "2021"
+# Lane 06-msrv (2026-10-31): 1.82.0 was a stale heritage claim; the operator-
+# ratified v26.11.1 deviation sets the MSRV at the workspace 1.98 (true member
+# max) — inherited here.
+rust-version.workspace = true
+license = "MIT"
+# Lane 07-publish-metadata (2026-10-31): v26.11.1 first-class closure.
+# Disclosed literal keeps: license "MIT" (crate-declared; differs from the
+# workspace tri-license — operator arbitration before any change), edition
+# 2021. Version now workspace-inherits (lane 08); rust-version joined the
+# workspace inheritance (lane 06-msrv, supersedes the earlier 1.82.0 keep).
+description.workspace = true
+publish = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# Lane 7 (2026-10-31): DECISION — member, not standalone. Compiles in-workspace
+# (verified: `cargo check --workspace` exit 0), so it joined the members list
+# and the empty `[workspace]` root block was removed. The workspace ladder
+# (check/test/clippy) now exercises the bench sources, and the root Cargo.lock
+# is authoritative. The `just bench` recipe drives the actual criterion runs.
+[dependencies]
+stardf-arrow-core = { workspace = true }
+

@@ -1,0 +1,188 @@
+<!--
+SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+-->
+
+<p align="center">
+  <a href="https://github.com/Blackcat-Informatics/purrdf">
+    <img src="https://raw.githubusercontent.com/Blackcat-Informatics/purrdf/main/docs/purrdf-logo.svg" alt="PurRDF logo" width="120" height="120">
+  </a>
+</p>
+
+
+English | [简体中文](README.zh-Hans.md)
+# `purrdf-text` — Deterministic Full-Text Search over RDF Literals
+
+[![crates.io](https://img.shields.io/crates/v/purrdf-text.svg)](https://crates.io/crates/purrdf-text)
+[![docs.rs](https://docs.rs/purrdf-text/badge.svg)](https://docs.rs/purrdf-text)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0%20OR%20MulanPSL--2.0-blue.svg)](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MIT)
+[![Repository](https://img.shields.io/badge/repo-Blackcat--Informatics%2Fpurrdf-181717.svg)](https://github.com/Blackcat-Informatics/purrdf)
+
+`purrdf-text` is the in-memory full-text index of the PurRDF toolkit. It reads
+RDF 1.2 literals out of a frozen dataset, analyzes them through an explicit
+resolved Unicode/dictionary profile, and answers ranked queries with exact BM25F
+scores. [Analysis and auxiliary retrieval](../../docs/design/text-analysis.md)
+describes scoped accents, English stemming, all five full baseline dictionaries,
+emoji, HTML references, source evidence, positional substrings and the independent
+Han-character producer.
+
+## Explicit graph-free corpora
+
+The default `GraphLanguage` profile retains the existing graph/subject/language
+documents and graph/language partitions. For a `TripleDataset`, select
+`TextIndexConfig::<GraphFree>::for_triples` and pass its explicit fallible read session to the
+original index constructor. The resulting `TextIndex<GraphFree>` stores
+subject/language document keys and language-only partition keys; its graph
+coordinate occupies no storage and contributes no identity field.
+
+Both profiles use the same analyzer, scorer, dictionary, term-occurrence and
+phrase-occurrence machinery. Graph-free corpus, index and retrieval-source
+identities use distinct domains, so they cannot alias the graph-language
+profile. The graph-free constructor refuses a graph-capable source rather than
+silently projecting away named graphs. The partition and document ordering
+below describes the default graph-language profile; the graph-free profile
+omits its graph coordinate.
+
+## Caller-supplied IRIs
+
+PurRDF mints no vocabulary. This crate exposes ranked retrieval to SPARQL
+through the evaluator's property-function seam, and the predicate IRIs a query
+calls it by are **configuration the caller supplies** — there is no default
+namespace and no fabricated fallback. A configuration that names no IRI is a
+typed error, not a guess. The same holds for the predicates whose literals are
+indexed: the caller names them.
+
+## Exact arithmetic, identical answers everywhere
+
+Ranking is done in base-10 fixed-point integer arithmetic with twelve
+fractional digits. Scoring and ranking use no floating-point arithmetic; the crate root carries
+`#![deny(clippy::float_arithmetic)]`.
+
+That is a correctness property, not an aesthetic one. BM25 needs a natural
+logarithm, and a libm `ln` is free to differ by a unit in the last place
+between implementations. One such difference is enough to swap the order of two
+near-tied documents, so the same query over the same data could return rows in a
+different order on a native build than in a WebAssembly build of the same
+engine. The logarithm here is a fixed-length series over integers — a fixed
+iteration count, never a convergence test — so its result is a pure function of
+its input on every target.
+
+Native Rust pins the **ranking** — row order and every score's decimal lexical —
+against independent expectations. It also asserts byte identity of the
+**serialized** answer from two independently built indexes queried through the
+property-function seam. `make wasm` separately builds the release crate; WASM
+execution is reserved for actual target paths and host interfaces described in
+[WASM test ownership](../../docs/WASM_TESTING.md).
+
+## Versioned BM25F, ranked within a partition
+
+`TextIndexConfig::with_surface_index(false)` builds a BM25F-only index, omitting
+substring and phonetic postings. Construction otherwise includes the surface
+index. `TextIndex::surface_index()` returns `Option<&SurfaceIndex>` so callers
+can handle its absence explicitly. Exact ranked scores, document order, source
+identity and independent Han retrieval are unchanged by this selection.
+Index generations use the `purrdf-text/index/v4` preimage, which includes a
+surface-presence byte and distinguishes an omitted index from an empty one.
+This intentionally changes index fingerprints in both modes; source fingerprints
+and serialized ranked answers retain their existing encodings.
+
+`TextIndexConfig::<GraphFree>::for_triples` selects subject/language documents
+and language-only partitions. Their `purrdf-text/triples/index/v1` identity
+includes the same surface-presence field and omits every graph coordinate and
+selector. The separate `purrdf-text/triples/source/v1` identity covers the source
+triples and remains unchanged when surface indexing is omitted.
+
+Ranking uses one fielded BM25F path, including the single-field case. The
+immutable `RankingProfile` binds caller-named fields, each field's weight and
+length normalization, total predicate routing, exact arithmetic, query
+aggregation and the field-population law into a fingerprint.
+`PreparedQuery` separately carries the query's certified score
+bound from its corpus statistics.
+`k1 = 1.2` is fixed. `RankingProfile::single_field()` explicitly routes every
+selected predicate to one field with weight one and `b = 0.75`.
+
+`TextIndex::from_dataset_with_ranking` builds under an explicit profile;
+`with_ranking_profile` reweights or remaps an existing index from retained
+predicate-level token facts without re-tokenizing. Analyzer identity is
+separate from ranking identity. The pure `PreparedCorpus` and `PreparedQuery`
+APIs expose the same scoring implementation for other stores, binding cached
+IDFs to validated corpus statistics and the immutable profile.
+
+`index.with_delta(&next_dataset, &added, &removed)` updates an owned index from
+effective statement additions and removals. The inputs use the same carrier
+profile as the index. Both asserted and annotation literal rows count, including
+a literal present in both layers. Reversing the delta must recover the indexed
+source fingerprint; missing additions and incomplete deltas are typed refusals.
+The next source also refreshes predicate coverage for nonliteral changes.
+
+Only changed documents are analyzed, using their complete key:
+`(graph, subject, language)` for `GraphLanguage`, or `(subject, language)` for
+`GraphFree`. Their complete
+next literal rows are analyzed together, so a retained literal in a changed
+document is analyzed again. Other documents retain their token and source
+projection buffers; their gram positions and pronunciation codes are reused.
+Canonical IDs, statistics, fingerprints and answers match a fresh build. IDs can
+change after an update: keep them with their index generation. Source collection,
+sorting, hashing and ordered table merges still visit retained data; total work
+is not sublinear. To preserve an older snapshot, clone before the owned update;
+the explicit clone copies buffers rather than sharing them implicitly.
+
+For sparse fields, select `RankingProfile::with_field_populations()` and supply
+per-field counts of documents carrying that field to `PreparedCorpus::with_field_populations`. Lengths
+then normalize against the mean of the field's carriers; IDF remains
+corpus-wide. `TextIndex` derives these counts per partition when that profile
+is selected. The mode changes ranking identity; existing dense profiles keep
+their fingerprints and scores.
+
+The ranking law has no global score ceiling or reserved host tie bits. Each
+`PreparedQuery` certifies an exact score bound and its bit width from the actual
+corpus and IDFs; hosts choose their own key representation. See
+[the ranking contract](RANKING.md) for the bound proof, operation order,
+independent arithmetic reference and vocabulary-search ownership decision.
+
+Corpus statistics are computed per `(graph, language)` partition for
+`GraphLanguage`, or per language for `GraphFree`, so a score is a
+number relative to one corpus. `?rank` is therefore the 1-based position of a
+document **within its own partition**, never a global position; a rank spanning
+partitions would order numbers computed against different corpora. Rows are
+emitted in `(partition key ASC, rank ASC)` order, and a query wanting one ranked
+list binds `?lang` and restricts the graph for `GraphLanguage`, or binds only
+`?lang` for `GraphFree`. A single-partition index also gives one ranked list.
+
+The Rust field is named `Scored::partition_rank` for that reason: nothing about
+the *value* records which corpus produced it, so an answer over a three-language
+index carries three rows of rank 1 and `LIMIT 10` over it is the first ten of the
+partition-major output rather than the ten best documents.
+
+Within a partition the order is `(score DESC, document id ASC)`. Document ids are
+assigned only after sorting on the complete document key:
+`(graph, subject, language)` for `GraphLanguage`, or `(subject, language)` for
+`GraphFree`. Ascending id is
+ascending canonical order and the tie-break is reproducible across independently
+built indexes. Because ids are distinct, the order is strict and total.
+
+A score reaches a consumer as an `xsd:decimal` of fixed width, so two rows can
+report the same `?score` while carrying different `?rank` — whether their scores
+are exactly equal or merely equal once rounded. Within one partition,
+`ORDER BY ?rank` reproduces the index order; `ORDER BY DESC(?score)` can
+disagree with it.
+
+## Part of PurRDF
+
+This crate is one member of the [PurRDF](https://github.com/Blackcat-Informatics/purrdf)
+workspace — an RDF 1.2 toolkit with native codecs, SPARQL, SHACL, ShEx,
+entailment, and the GTS graph transport, carried into Python, WebAssembly, and
+C (the GTS container itself reaches Python and C, not the wasm package). Most applications should depend on the umbrella
+[`purrdf`](https://crates.io/crates/purrdf) crate; depend on `purrdf-text`
+directly when you want the index and its arithmetic on their own.
+
+There are deliberately no Cargo feature flags anywhere in the workspace. MSRV
+follows the workspace `rust-version` (currently 1.98 for consumers on stable Rust).
+
+## License
+
+Licensed under any one of the following, at your option:
+
+- [MIT license](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MIT)
+- [Apache License, Version 2.0](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-APACHE)
+- [Mulan Permissive Software License, Version 2 (MulanPSL-2.0)](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MULAN)

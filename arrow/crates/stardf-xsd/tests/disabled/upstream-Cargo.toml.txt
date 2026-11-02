@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "purrdf-xsd"
+description = "Native XSD value space (parse, value-space equality/ordering, canonical lexical mapping, SPARQL numeric promotion) for the RDF 1.2 query stack"
+version.workspace = true
+edition.workspace = true
+publish = false
+repository.workspace = true
+license.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/purrdf-xsd"
+rust-version.workspace = true
+keywords = ["xsd", "rdf", "rdf-12", "value-space", "sparql"]
+categories = ["parser-implementations", "data-structures"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+# rlib-only, and a foundation: its runtime dependencies are the zero-dependency
+# root `purrdf-hash` and the lexical layer `purrdf-lex` directly above it. It must
+# stay wasm-clean. It does NOT depend on
+# `purrdf-core` — the dependency points the other way.
+crate-type = ["rlib"]
+path = "src/lib.rs"
+name = "purrdf_xsd"
+
+[dependencies]
+# The base16 codec behind `xsd:hexBinary` (the either-case reader and the
+# uppercase canonical writer), and the SplitMix64 stream `ieee::reference`
+# draws its deterministic samples from.
+purrdf-hash = { workspace = true }
+# The byte-run membership test (`scan::in_runs`) the whitespace facets' chunked
+# prechecks classify each byte with.
+purrdf-lex = { workspace = true }
+
+[dev-dependencies]
+# Round-trip / canonicalization property tests (lexical -> value -> canonical)
+# on the shared property harness. Path-only and unpublished, so it is stripped
+# from the packaged manifest.
+purrdf-testkit = { workspace = true }
+# The counting allocator the governance tests hold each cost estimate's byte bound
+# to (path-only and unpublished, so it is stripped from the packaged manifest).
+purrdf-alloc-probe = { workspace = true }
+
+# The arbitrary-precision tower's pinned answers: run natively under `cargo test`,
+# and runnable unchanged on wasm32-unknown-unknown in Node through
+# scripts/wasm-test-runner.sh, the same named cases on purrdf_testkit's runner.
+[[test]]
+name = "exact_wasm_determinism"
+harness = false
+
+[[test]]
+name = "exact_governance"
+harness = false
+
+[[test]]
+name = "certified_numerical"
+harness = false
+
+[[test]]
+name = "any_uri"
+harness = false
+
+[[bench]]
+name = "lexical"
+harness = false
+
+[[bench]]
+name = "exact"
+harness = false
+
+[[bench]]
+name = "numerical"
+harness = false
+
+[lints]
+workspace = true

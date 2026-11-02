@@ -1,0 +1,176 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! The `update` subcommand: COW-atomic SPARQL UPDATE followed by RDF serialization.
+
+use purrdf_core::SparqlRequest;
+use purrdf_core::xsd_regex::xpath::Profile;
+use purrdf_rdf::JsonLdSerializeOptions;
+use purrdf_sparql_eval::{GovernedUpdateOutcome, QueryOptions};
+
+use crate::cli::{CliRdfFormat, LedgerTarget};
+use crate::error::{CliError, CliOutcome};
+use crate::format;
+use crate::governors::{self, GovernorFlags};
+use crate::path_relation::{self, PathRelationSpec};
+use crate::{ledger, sink, source};
+
+/// The resolved `update` flags.
+pub(crate) struct UpdateOptions<'a> {
+    /// Raw supplied time, decoded before UPDATE source I/O.
+    pub(crate) now: Option<&'a str>,
+    /// Raw supplied initial request seed.
+    pub(crate) entropy_seed: Option<&'a str>,
+    /// The immutable geographic profile selected by `--geo-profile`.
+    pub(crate) geo: &'a purrdf_validate::geo::GeoProfile,
+    pub(crate) data: &'a str,
+    pub(crate) from: Option<CliRdfFormat>,
+    pub(crate) output: &'a str,
+    pub(crate) to: Option<CliRdfFormat>,
+    pub(crate) base: Option<&'a str>,
+    pub(crate) update: &'a str,
+    pub(crate) graph_existence: purrdf_core::GraphExistenceMode,
+    pub(crate) governors: GovernorFlags,
+    pub(crate) jsonld_options: Option<&'a JsonLdSerializeOptions>,
+    /// `--aggregate-namespace`: registers purrdf's first-party statistical aggregate
+    /// set under this IRI namespace, reachable from a `DELETE`/`INSERT … WHERE` clause
+    /// through a nested `SELECT … GROUP BY`. `None` leaves the set unregistered,
+    /// exactly as before this flag existed.
+    pub(crate) aggregate_namespace: Option<&'a str>,
+    /// `--path-relation`, repeatable: the path-witness relations this request registers,
+    /// reachable from a `DELETE`/`INSERT … WHERE` clause. Empty leaves
+    /// `QueryOptions::property_functions` at its `EMPTY` value, exactly as before this
+    /// flag existed.
+    pub(crate) path_relations: &'a [PathRelationSpec],
+    /// `--xpath-regex`: the dated native XPath pattern law the request's `REGEX` and
+    /// `REPLACE` evaluate under. `None` keeps the compatibility pattern engine, exactly
+    /// as before this flag existed.
+    pub(crate) xpath_regex: Option<Profile>,
+    /// `--division`: the precision of every `xsd:integer`/`xsd:decimal` quotient the
+    /// request computes.
+    pub(crate) division: purrdf_sparql_eval::DivisionPolicy,
+}
+
+/// Apply the request and emit the new dataset only after the whole request commits.
+pub(crate) fn run(
+    options: &UpdateOptions<'_>,
+    ledger_target: &LedgerTarget,
+) -> Result<CliOutcome, CliError> {
+    let coordinates =
+        purrdf_validate::query::CoordinateInputs::from_parts(options.now, options.entropy_seed)
+            .map_err(|error| {
+                let flag = match &error {
+                    purrdf_validate::query::CoordinateInputError::Now(_) => "--now",
+                    purrdf_validate::query::CoordinateInputError::EntropySeed(_) => {
+                        "--entropy-seed"
+                    }
+                    _ => "update coordinates",
+                };
+                CliError::Usage(format!("{flag}: {error}"))
+            })?;
+    let source_format = format::resolve(options.from, options.data)?;
+    let target_format = format::resolve_target(options.to, options.output, "the --to target")?;
+    let mut dataset = source::load_dataset(options.data, source_format, options.base)?;
+    // The same engine `query` builds: one law for the whole request, and a native
+    // resource refusal is an `Err` that applies nothing and writes no dataset.
+    let engine = purrdf_validate::xpath_regex::sparql_engine(options.xpath_regex);
+    let request = SparqlRequest {
+        query: options.update,
+        base_iri: options.base,
+        substitutions: &[],
+    };
+    // `AggregateRegistry::register_statistical_aggregates` takes only a namespace
+    // string; `None` here reproduces `QueryOptions::EMPTY` byte-for-byte, so an
+    // omitted `--aggregate-namespace` changes nothing about existing behaviour.
+    let aggregates = purrdf_validate::query::statistical_aggregates(options.aggregate_namespace);
+    // The path-witness relations `--path-relation` declares, snapshotted from the
+    // PRE-update dataset — the same state the request's `WHERE` clause matches, and the
+    // only state that exists before the mutation is computed. A duplicate IRI across
+    // repeated flags is refused first: `PropertyFunctionRegistry::register` PANICS on one,
+    // and a command line is a host misconfiguration rather than an abort.
+    path_relation::refuse_duplicate_iris(options.path_relations)?;
+    let relations = path_relation::build_registry(&*dataset, options.path_relations)?;
+    // `QueryOptions::EMPTY` for every axis but `aggregates` and `property_functions`: the
+    // CLI wires no SHACL-AF function table.
+    // `static`, not a bare `&AggregateRegistry::EMPTY` temporary: `query_options` below
+    // outlives this statement, so the environment is a named local rather than a
+    // temporary: it owns the derived parse configuration the options borrow.
+    let env = purrdf_sparql_eval::ExtensionEnv::over(
+        relations.as_ref().map_or_else(
+            || purrdf_sparql_eval::PropertyFunctionRegistry::EMPTY,
+            Clone::clone,
+        ),
+        aggregates.as_ref().map_or_else(
+            || purrdf_sparql_eval::AggregateRegistry::EMPTY,
+            Clone::clone,
+        ),
+    )
+    .map_err(|e| CliError::Runtime(format!("extension environment: {e}")))?;
+    let query_options = coordinates.apply(
+        QueryOptions::new()
+            .with_geo(options.geo)
+            .with_env(&env)
+            .with_division(options.division)
+            .with_graph_existence(options.graph_existence),
+    );
+
+    if options.governors.is_engaged() {
+        let governors = options.governors.to_governors()?;
+        let outcome = crate::query::with_execution_receipt(|capture| {
+            Ok(engine.update_governed(
+                &mut dataset,
+                request,
+                query_options.with_coordinate_observer(capture),
+                &governors,
+            )?)
+        })?;
+        match outcome {
+            // A governed request names the F&O errors its expressions absorbed into
+            // unbound values on stderr, as a governed query does.
+            GovernedUpdateOutcome::Applied { evidence, .. } => {
+                eprint!("{}", governors::render_expression_errors(&evidence));
+            }
+            GovernedUpdateOutcome::BudgetExhausted {
+                tripped, evidence, ..
+            } => {
+                eprint!("{}", governors::render_update_trip(tripped, &evidence));
+                eprint!("{}", governors::render_expression_errors(&evidence));
+                return Ok(CliOutcome::BudgetExhausted);
+            }
+        }
+    } else {
+        // `update_with_options(.., QueryOptions::EMPTY)` is the trait-level
+        // `SparqlEngine::update` this call replaces, byte-for-byte (see
+        // `NativeSparqlEngine`'s `SparqlEngine` impl) — switching to it unconditionally
+        // does not change behaviour when `aggregates` is `None`.
+        crate::query::with_execution_receipt(|capture| {
+            Ok(engine.update_with_options(
+                &mut dataset,
+                request,
+                query_options.with_coordinate_observer(capture),
+            )?)
+        })?;
+    }
+
+    let loss = sink::write_rdf(
+        &*dataset,
+        options.output,
+        target_format,
+        options.base,
+        source_format.loss_codec_name(),
+        options.jsonld_options,
+    )?;
+    ledger::surface(ledger_target, &loss)?;
+    Ok(CliOutcome::Complete)
+}
+
+/// Decode the native graph-lifetime policy before loading or writing data.
+pub(crate) fn parse_graph_existence(
+    value: &str,
+) -> Result<purrdf_core::GraphExistenceMode, String> {
+    match value {
+        "remember-empty" => Ok(purrdf_core::GraphExistenceMode::RememberEmpty),
+        "implicit" => Ok(purrdf_core::GraphExistenceMode::Implicit),
+        _ => Err("graph existence must be remember-empty or implicit".to_owned()),
+    }
+}

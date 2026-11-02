@@ -1,0 +1,160 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! Turtle fixtures for the SHACL integration tests: a shapes graph or a data graph
+//! read from a snippet under the including test's own `@prefix` header.
+//!
+//! Every helper takes that header explicitly. Each test binary declares its own
+//! `PREFIXES`, and the prefix set a snippet is read under is part of what the test
+//! states, so the helpers never supply one.
+
+// The module is included into more than one integration-test binary, and no single binary
+// uses every helper; an unused-here helper is used there.
+#![allow(dead_code, unreachable_pub)]
+
+use std::sync::Arc;
+
+use purrdf_rdf::RdfDataset;
+use purrdf_shapes::engine::{parse_shapes, validate_dataset_with_shapes_graph};
+use purrdf_shapes::expression::NodeExpr;
+use purrdf_shapes::report::ValidationReport;
+use purrdf_shapes::shapes::{Constraint, PropertyShape, Shape, Shapes};
+use purrdf_shapes::text_ingest::parse_turtle_to_dataset;
+
+/// The shapes graph `prefixes` + `shapes_ttl` reads as, or the load error's text.
+pub fn load(prefixes: &str, shapes_ttl: &str) -> Result<Shapes, String> {
+    parse_shapes(&format!("{prefixes}{shapes_ttl}"), None).map_err(|error| error.to_string())
+}
+
+/// The shapes graph `prefixes` + `shapes_ttl` reads as; a load error fails the test.
+#[track_caller]
+pub fn loads(prefixes: &str, shapes_ttl: &str) -> Shapes {
+    load(prefixes, shapes_ttl).unwrap_or_else(|error| panic!("the shapes graph must load: {error}"))
+}
+
+/// Inspect the original property bodies of a fixture, including identity edges.
+/// This asserts the parser's representation without exporting copied definitions.
+pub fn properties<'a>(
+    shapes: &'a Shapes, shape: &'a Shape,
+) -> impl Iterator<Item = &'a PropertyShape> {
+    let definition = match shape.constraints.as_slice() {
+        [Constraint::Reference(id)] => shapes.owner.definition(id).expect("original definition"),
+        _ => shape,
+    };
+    definition
+        .property_shapes
+        .iter()
+        .chain(definition.constraints.iter().filter_map(|constraint| {
+            let Constraint::PropertyReference(edge) = constraint else {
+                return None;
+            };
+            let body = shapes
+                .owner
+                .definition(&edge.target)
+                .expect("original property definition");
+            let [property] = body.property_shapes.as_slice() else {
+                panic!("property edge must name a property definition");
+            };
+            Some(property)
+        }))
+}
+
+/// [`loads`] for the valid neighbour of a refused shapes graph: the loading
+/// counterpart a refusal test pairs with each [`refused`].
+#[track_caller]
+pub fn loads_neighbour(prefixes: &str, shapes_ttl: &str) -> Shapes {
+    load(prefixes, shapes_ttl)
+        .unwrap_or_else(|error| panic!("the valid neighbour must load: {error}"))
+}
+
+/// Require the shapes graph `prefixes` + `shapes_ttl` to be refused at load with
+/// an error that mentions `needle`.
+#[track_caller]
+pub fn refused(prefixes: &str, shapes_ttl: &str, needle: &str) {
+    let error = load(prefixes, shapes_ttl).expect_err("the shapes graph must be refused at load");
+    assert!(
+        error.contains(needle),
+        "refusal must mention {needle:?}: {error}"
+    );
+}
+
+/// The load error's text for the shapes graph `prefixes` + `shapes_ttl`, which
+/// must be refused; a graph that loads fails the test showing its source.
+#[track_caller]
+pub fn refusal_text(prefixes: &str, shapes_ttl: &str) -> String {
+    match load(prefixes, shapes_ttl) {
+        Ok(_) => panic!("the shapes graph must be refused:\n{prefixes}{shapes_ttl}"),
+        Err(error) => error,
+    }
+}
+
+/// The data graph `prefixes` + `data_ttl` reads as.
+pub fn data(prefixes: &str, data_ttl: &str) -> Arc<RdfDataset> {
+    parse_turtle_to_dataset(&format!("{prefixes}{data_ttl}"), None).expect("data parses")
+}
+
+/// Validate the data graph `data_ttl` against the shapes graph `shapes_ttl`, both
+/// read under `prefixes`.
+#[track_caller]
+pub fn validate(prefixes: &str, shapes_ttl: &str, data_ttl: &str) -> ValidationReport {
+    validate_dataset_with_shapes_graph(
+        &data(prefixes, data_ttl),
+        &loads(prefixes, shapes_ttl),
+        None,
+    )
+    .expect("validation runs")
+}
+
+/// The one `sh:expression` the shapes graph `prefixes` + `shapes_ttl` declares;
+/// a fixture that declares none or several fails the test.
+pub fn expression_of(prefixes: &str, shapes_ttl: &str) -> NodeExpr {
+    let shapes = parse_shapes(&format!("{prefixes}{shapes_ttl}"), None).expect("shapes parse");
+    let mut found: Vec<NodeExpr> = shapes
+        .node_shapes
+        .iter()
+        .flat_map(|shape| {
+            &shapes
+                .owner
+                .definition(&shape.id)
+                .expect("original definition")
+                .constraints
+        })
+        .filter_map(|c| match c {
+            Constraint::Expression { expr, .. } => Some(expr.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "the fixture must declare exactly one sh:expression"
+    );
+    NodeExpr::Owned {
+        expr: Box::new(found.remove(0)),
+        owner: Arc::clone(&shapes.owner),
+    }
+}
+
+/// The rendered error the shapes graph `prefixes` + `shapes_ttl` is refused
+/// with at shapes-load; a graph that loads fails the test.
+pub fn load_error(prefixes: &str, shapes_ttl: &str) -> String {
+    parse_shapes(&format!("{prefixes}{shapes_ttl}"), None)
+        .expect_err("the fixture must be refused at shapes-load")
+        .to_string()
+}
+
+/// The shapes-graph lint report of the Turtle document `prefixes` + `shapes_ttl`,
+/// read with its document prefix map and no imports.
+pub fn lint_of(prefixes: &str, shapes_ttl: &str) -> purrdf_shapes::lint::LintReport {
+    let document =
+        purrdf_shapes::text_ingest::parse_turtle_document(&format!("{prefixes}{shapes_ttl}"), None)
+            .expect("parses");
+    purrdf_shapes::lint::lint(
+        &document.dataset,
+        &document.prefixes,
+        None,
+        None,
+        &purrdf_shapes::ShapesImports::new(),
+    )
+    .expect("lint runs")
+}

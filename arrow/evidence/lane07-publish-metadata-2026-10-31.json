@@ -1,0 +1,134 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "kind": "lane-receipt",
+  "lane": "07-publish-metadata",
+  "date": "2026-10-31",
+  "campaign": "v26.11.1 finishers",
+  "subject": {
+    "workspace": "/Users/sac/ggen-legacy/stardf/arrow",
+    "branch": "fix/v26.9.29-ci-gates",
+    "note": "uncommitted working tree; coordinator owns git transitions (lane contract: no git state-changing commands)"
+  },
+  "lease": "publish=true + workspace-inherited description/keywords/categories/repository/homepage for the 20-crate first-class closure; all other members stay publish=false (D17); edition 2024 / rust-version 1.98 kept",
+  "checks": [
+    {
+      "id": "metadata-exit-0-all-member-manifests-parse-and-inherit",
+      "passed": true,
+      "count": 47,
+      "comment": "cargo metadata --format-version 1 --no-deps exit 0 after all edits (47 member packages incl. root stardf-arrow)"
+    },
+    {
+      "id": "closure-metadata-materialized-19-of-19",
+      "passed": true,
+      "count": 19,
+      "comment": "post-edit cargo metadata: all 19 real closure crates materialize description='Deterministic zero-copy columnar RDF 1.2, Arrow, Parquet, and DuckDB execution substrate', keywords=[rdf,arrow,parquet,duckdb,sparql], categories=[database-implementations,data-structures], repository, homepage, non-empty license, version 26.11.1"
+    },
+    {
+      "id": "d17-exact-only-closure-publishable",
+      "passed": true,
+ "count": 19,
+      "comment": "cargo metadata publish field: exactly 19 packages unrestricted (the closure list); 28 packages publish=[] explicit-false incl. root stardf-arrow — no D17 leak"
+    },
+    {
+      "id": "package-list-exit-0-19-crates",
+      "passed": true,
+      "count": 19,
+      "comment": "cargo package --list --allow-dirty exit 0 for all 19 closure crates (manifest-level packaging validity)"
+    },
+    {
+      "id": "full-package-no-verify-exit-0-zero-in-closure-dep-crates",
+      "passed": true,
+      "count": 3,
+      "comment": "cargo package --no-verify --allow-dirty exit 0: stardf-hash (54 files, 516.9KiB), stardf-columnar (52 files, 568.8KiB), stardf-alloc-probe (12 files, 107.5KiB) — all under the 10MB ceiling"
+    },
+    {
+      "id": "license-files-in-tarball",
+      "passed": true,
+      "count": 3,
+      "comment": "witnessed in packaged file lists of the 3 fully-packaged crates: LICENSE-APACHE / LICENSE-MIT / LICENSE-MULAN / NOTICE.txt / CC-BY-4.0.txt under licenses/"
+    },
+    {
+      "id": "workspace-check-exit-0",
+      "passed": true,
+ "count": 0,
+      "comment": "cargo check --workspace exit 0 post-edits (46 warn-only dead-code-class warnings, pre-existing); no regression against the dispatch baseline"
+    },
+    {
+      "id": "full-package-blocked-remaining-16-registry-and-dual-key",
+      "passed": false,
+      "count": 16,
+      "comment": "cargo package --no-verify for the 16 crates with in-closure deps: two failure classes, both outside this lane's lease. (a) registry-absence: 'no matching package named stardf-hash found / crates.io index' — in-closure deps require bottom-up upload before per-crate package/publish dry-runs can pass (witnessed live on stardf-arrow-rs, post lane-08 dual-key landing). (b) path-only deps still unresolved at package time for stardf-arrow-core, stardf-arrow-capi, stardf-arrow-bench, stardf-sql, stardf-n3, stardf-lex, stardf-iri, stardf-xsd, stardf-cdt, stardf-events, stardf-deflate, stardf-stack, stardf-testkit, stardf-toml — see errors[]"
+    },
+    {
+      "id": "umbrella-stardf-cell",
+      "passed": false,
+      "count": 0,
+      "comment": "no live crates/stardf manifest exists in this workspace (only archived posture at docs/archive/c3-dual-site/slice11-umbrella/Cargo.toml; no crates/stardf in any git history). Nothing to normalize; creating the crate is vendoring actuation outside a metadata lane. Poll twice: still absent at receipt time."
+    }
+  ],
+  "errors": [
+    {
+      "code": "PUBLISH_BLOCKED_AVEC_ARROW_GIT_DEP",
+      "message": "avec-arrow = { git = 'https://github.com/seanchatmangpt/avec', rev = 67c0ec1 } in [workspace.dependencies]; crates.io refuses git deps in published crates. Runtime consumers stardf-arrow-core + stardf-arrow-capi (and transitively stardf-arrow-bench) publish-blocked until avec-arrow is feature-gated or decoupled (contract law; lane 11 surface)"
+    },
+    {
+      "code": "PUBLISH_BLOCKED_INTERNAL_RUNTIME_DEP",
+      "message": "runtime deps on crates outside the publish footprint: stardf-n3 -> stardf-rdf (direct path, no workspace entry), stardf-sql + stardf-toml -> stardf-core (workspace key path-only, crates/stardf-rdf-core). Under the dispatched footprint these three crates are structurally not publish-closed; operator scope decision required (footprint expansion vs feature-gating)"
+    },
+    {
+      "code": "PUBLISH_BLOCKED_PATH_ONLY_DEP_KEYS",
+      "message": "direct path-only deps in member manifests bypass the dual-keyed [workspace.dependencies]: stardf-arrow-capi (stardf-arrow-core, stardf-columnar dev), stardf-arrow-bench (stardf-arrow-core), stardf-lex (stardf-hash), stardf-iri (stardf-lex, stardf-hash, stardf-testkit dev), stardf-xsd (stardf-hash, stardf-lex, purrdf-testkit/purrdf-alloc-probe alias path dev-deps), stardf-cdt (hash/lex/iri/xsd), stardf-events (stardf-hash), stardf-deflate (stardf-hash), stardf-stack (stardf-hash, stardf-testkit dev), stardf-testkit (stardf-hash), stardf-n3 (stardf-iri/lex/hash direct path + stardf-rdf) — lane 08-dual-key in-flight surface; also violates the root single-pin law comment"
+    },
+    {
+      "code": "PUBLISH_ORDERING_REGISTRY_ABSENCE",
+      "message": "even with dual-keys landed, per-crate cargo package/publish dry-runs fail with 'no matching package named stardf-hash found / crates.io index' until the closure is uploaded bottom-up (hash first). Operator publish gate must run in topological order; dry-run PASS pre-upload is only reachable for zero-in-closure-dep crates"
+    },
+    {
+      "code": "LICENSE_DIVERGENCE_LITERAL",
+      "message": "stardf-arrow-bench declares license = 'MIT' literal (crate-authored value; differs from workspace tri-license). Left untouched — license re-declaration is a legal claim needing operator ratification; crates.io-publishable as-is"
+    },
+    {
+      "code": "STALE_DOCUMENTATION_URL_FIXED_DISCLOSED",
+      "message": "stardf-arrow-rs documentation URL re-pointed docs.rs/stardf-arrow -> docs.rs/stardf-arrow-rs (stale after the repair-lane package rename; publish-metadata-adjacent fix, disclosed as beyond the strict inherit list)"
+    },
+    {
+      "code": "STALE_COMMENT_RESIDUE",
+      "message": "stardf-hash/stardf-deflate/branchless manifests carry pre-existing comments referencing a '2021 root default' and 'no [workspace.package] entry' — superseded by the repair-lane 2024 root and by the now-complete [workspace.package]; comments left verbatim (not this lane's text; edit would churn vendoring-posture receipts)"
+    }
+  ],
+  "commands": [
+    { "cmd": "cargo metadata --format-version 1 --no-deps", "exit": 0, "note": "run twice (pre-gate + post-gate); 47 packages, inheritance resolves" },
+    { "cmd": "cargo package --no-verify --allow-dirty -p <each of 19>", "exit": "3 of 19 exit 0 (stardf-hash, stardf-columnar, stardf-alloc-probe); 16 exit 101 with the two disclosed failure classes", "note": "dry-run only per lane contract" },
+    { "cmd": "cargo package --list --allow-dirty -p <each of 19>", "exit": 0, "note": "19/19 exit 0" },
+    { "cmd": "cargo check --workspace", "exit": 0, "note": "post-edit; 46 warn-only warnings, none introduced by this lane" },
+    { "cmd": "git commands", "exit": "none run", "note": "read-only rev-parse-class usage avoided entirely; coordinator owns git" }
+  ],
+  "concurrent_lanes_disclosed": [
+    "lane 08-dual-key: landed version.workspace=true flips in member manifests + =26.11.1 dual-key [workspace.dependencies] entries (17/19 keys) DURING this lane's edit window; both root-Cargo.toml co-edits resolved without collision (my workspace.package metadata block + their version bump coexist)",
+    "lane 10: landed exclude=[tests/suite] (stardf-toml) and exclude=[oracles/vectors] (stardf-branchless) below this lane's [package] edits — additive, no collision",
+    "no unblock edits applied to other lanes' in-flight files by this lane"
+  ],
+  "files_touched": [
+    "Cargo.toml",
+    "crates/stardf-arrow/Cargo.toml",
+    "crates/stardf-arrow-core/Cargo.toml",
+    "crates/stardf-arrow-capi/Cargo.toml",
+    "crates/stardf-arrow-bench/Cargo.toml",
+    "crates/stardf-columnar/Cargo.toml",
+    "crates/stardf-sql/Cargo.toml",
+    "crates/stardf-n3/Cargo.toml",
+    "crates/stardf-hash/Cargo.toml",
+    "crates/stardf-branchless/Cargo.toml",
+    "crates/stardf-lex/Cargo.toml",
+    "crates/stardf-iri/Cargo.toml",
+    "crates/stardf-xsd/Cargo.toml",
+    "crates/stardf-cdt/Cargo.toml",
+    "crates/stardf-events/Cargo.toml",
+    "crates/stardf-deflate/Cargo.toml",
+    "crates/stardf-stack/Cargo.toml",
+    "crates/stardf-testkit/Cargo.toml",
+    "crates/stardf-alloc-probe/Cargo.toml",
+    "crates/stardf-toml/Cargo.toml",
+    "evidence/lane07-publish-metadata-2026-10-31.json"
+  ]
+}

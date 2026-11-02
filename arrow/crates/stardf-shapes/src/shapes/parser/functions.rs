@@ -1,0 +1,1018 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! Parsing for SHACL-AF `sh:SPARQLFunction` declarations.
+
+use ::purrdf_rdf::FastSet;
+use std::collections::BTreeSet;
+use std::sync::Arc;
+
+use ::purrdf_rdf::{RdfDataset, TermValue};
+use purrdf_sparql_algebra::{Query, SparqlParser};
+use purrdf_sparql_eval::{
+    EvalError, ExprFnCall, NodeKind as EvalNodeKind, TypeConstraint, UserFnBody, UserFnParam,
+    UserFunction, UserFunctionRegistry,
+};
+
+#[cfg(test)]
+use crate::data::ShaclData;
+use crate::error::{FailureClass, ShapesError};
+use crate::expression::{
+    CustomFunction, FnCall, NodeExpr, ShapeArg, SparqlCallForm, eval_custom_function_call,
+    eval_node_expr, sparql_ns_lowering,
+};
+use crate::model::{rdf, sh, shnex, sparql_ns};
+use crate::provenance::ParseProvenance;
+use crate::sparql::enter_call_depth_scope;
+use crate::term::{NamedNode, Term, term_value_to_native};
+
+use crate::shapes::Parser;
+
+/// Re-derive a shapes graph's `sh:SPARQLFunction` declarations from the shapes
+/// DATASET, into `registry` — the restore-time twin of what
+/// [`Parser::parse_sparql_functions`] does during a parse.
+///
+/// # Why a shapes graph's SPARQL functions need no carrier of their own
+///
+/// A `sh:SPARQLFunction` declaration is not an opaque host binding: it is an IRI, an
+/// ordered `sh:parameter` list, a required-arity count, a `sh:select`/`sh:ask` body
+/// and a `sh:returnType`, and every one of those is stated by the shapes graph
+/// itself. Anything holding that graph can therefore rebuild the declaration with no
+/// cooperation from the process that first parsed it — which is exactly what
+/// [`purrdf_sparql_eval::user_fn::FnPopulation::Declared`] means by "rebuildable at
+/// restore by re-parsing that graph".
+///
+/// A prepared shapes product carries that graph, authenticated, so the restore has
+/// the input this needs. Reinstating the declarations here rather than transcribing
+/// them into a second on-disk carrier is what keeps the restored function IDENTICAL
+/// to the parsed one: there is one parser for these declarations, and a restore runs
+/// it. The rejected alternative — a section of the product spelling each parameter,
+/// body string and return type — is a second, silently divergent transcription of a
+/// parse that already exists, and its first drift would be a restored function whose
+/// arity or return constraint differed from the one the author wrote.
+///
+/// # The precedence rule is the parser's, unchanged
+///
+/// [`Parser::parse_sparql_functions`] SKIPS an IRI that the shapes graph also
+/// declares as a custom node-expression function, because a node typed both has
+/// already been parsed as the latter, body and all — registering it twice would put
+/// two different functions under one IRI. That rule is a property of the graph's
+/// content, so it is reproduced here by rediscovering the custom node-expression
+/// declarations from the same dataset rather than by consulting whatever a caller
+/// happens to have in hand. Rediscovery is what makes the skip set the parse's own.
+///
+/// # What the common case pays
+///
+/// Five term-table probes cover the three node-expression declaring classes and
+/// `sh:SPARQLFunction` / `sh:Function`. If none occurs, no declaration can exist,
+/// so no parser or prefix-map copy is needed. Otherwise the original declaration
+/// readers perform their normal checks, including malformed declarations.
+///
+/// # Errors
+///
+/// The parser's own message when a declaration in `dataset` is malformed. A dataset
+/// that reaches here has already parsed once, so a failure means the dataset is not
+/// the shapes graph it claims to be; refusing is the fail-closed answer.
+pub(crate) fn register_declared_sparql_functions(
+    dataset: &Arc<RdfDataset>, provenance: &ParseProvenance, reached: &[Arc<CustomFunction>],
+    registry: &mut UserFunctionRegistry, profile: crate::profile::ShaclProfile,
+) -> Result<BTreeSet<String>, crate::report::CompleteValidationError> {
+    // No declaration can name a class absent from the term table. Avoid
+    // constructing a prefix resolver when there is no function syntax to read.
+    if [sh::SPARQL_FUNCTION, sh::FUNCTION]
+        .into_iter()
+        .chain(crate::spec::FunctionClass::ALL.map(crate::spec::FunctionClass::iri))
+        .all(|class| dataset.term_id_by_iri(class).is_none())
+    {
+        return Ok(BTreeSet::new());
+    }
+    let mut parser = Parser::new(
+        dataset.as_ref(),
+        provenance.base().map(ToOwned::to_owned),
+        provenance.doc_prefixes(),
+        provenance.box_role_vocab().cloned(),
+        Arc::clone(dataset),
+        provenance.shapes_graph().map(ToOwned::to_owned),
+        profile,
+    );
+    let mut register = |parser: &mut Parser<'_>| {
+        let linked = parser.discover_custom_functions()?;
+        parser.custom_fns = linked.custom;
+        parser.parse_sparql_functions(registry)?;
+        parser.register_unreached_list_functions(reached, registry)?;
+        Ok(linked.native_list)
+    };
+    register(&mut parser).map_err(|message| parser.load_complete_error(message))
+}
+
+impl Parser<'_> {
+    /// Register, from the shapes DATASET, every custom LIST-parameter function the
+    /// decoded model does not reach — the restore-time half of SHACL 1.2 SPARQL
+    /// Extensions §7.3 registration.
+    ///
+    /// A native parse retains every declaration in its original domain. An
+    /// assembled model may omit a declaration called only from SPARQL text
+    /// (`BIND (ex:f('a') AS ?v)` inside a `sh:sparql`), which has no native call
+    /// site to retain it. The declaration and its complete resolution domain
+    /// remain in the carried shapes dataset, so the one parser re-derives them
+    /// here, exactly as it does for `sh:SPARQLFunction` declarations.
+    ///
+    /// Free in the common case: nothing is parsed unless the graph declares a list
+    /// function the model does not reach. When it does, EVERY declaration's body is
+    /// parsed into this parser's own handles, because an unreached body may call a
+    /// reached function and must find it filled.
+    fn register_unreached_list_functions(
+        &mut self, reached: &[Arc<CustomFunction>], registry: &mut UserFunctionRegistry,
+    ) -> Result<(), String> {
+        let reached: BTreeSet<&str> = reached.iter().map(|f| f.iri.as_str()).collect();
+        let unreached: Vec<Arc<CustomFunction>> = self
+            .custom_fns
+            .iter()
+            .filter(|f| {
+                matches!(f.kind, crate::expression::CustomFnKind::ListParameter)
+                    && !reached.contains(f.iri.as_str())
+            })
+            .map(Arc::clone)
+            .collect();
+        if unreached.is_empty() {
+            return Ok(());
+        }
+        self.component_registry = crate::components::ComponentRegistry::parse_collecting(
+            self.data,
+            &self.prefix_resolver,
+            self.profile,
+        )?;
+        self.target_types = self.parse_sparql_target_types()?;
+        let index = self.custom_fns.clone();
+        let bodies = self.parse_custom_function_bodies(&index)?;
+        // These bodies belong to this parser's declarations. Retain their entire
+        // original resolution domain, rather than copying another model's root
+        // handles into this domain and losing private definitions or functions.
+        let ids = self.spec_shapes();
+        self.catalog_seen.reserve(ids.len());
+        for id in ids.iter().rev() {
+            self.request_shape(id);
+        }
+        let mut definitions = Vec::with_capacity(self.catalog_seen.len());
+        self.parse_pending_definitions(&mut definitions)?;
+        let declarations: Vec<_> = index.iter().map(Arc::clone).collect();
+        let owner = crate::shapes::link::link_definitions(
+            definitions,
+            &self.node_shape_index,
+            &declarations,
+            bodies,
+        )
+        .map_err(|error| error.to_string())?;
+        crate::shapes::link::register_expression_bodied_functions(&unreached, &owner, registry);
+        Ok(())
+    }
+
+    /// Parse every `sh:SPARQLFunction` (or `sh:Function`) declaration in the shapes
+    /// graph into `registry`: ordered `sh:parameter`s (pre-bound variable = the
+    /// parameter predicate's local name), the required-arity count, the
+    /// `sh:select`/`sh:ask` body, and the `sh:returnType` constraint.
+    ///
+    /// # Errors
+    ///
+    /// Hard-fails on a malformed declaration — a parameter without a predicate or
+    /// with a reserved name, two parameters whose derived variable names collide, a
+    /// missing/ambiguous body, or an unparsable body query. A parse of a shapes graph
+    /// has already refused every such declaration, all of them at once, before any
+    /// shape was read ([`Self::check_sparql_function_declarations`]); this refusal is
+    /// the one a restore meets for a dataset that is not the shapes graph it claims.
+    ///
+    /// A body that violates a pre-binding restriction is registered: it is not
+    /// ill-formed, and whether it is refused depends on whether anything calls it (see
+    /// `Parser::refuse_reached_calls`).
+    ///
+    /// What this adds to `registry` is INCOMPLETE on purpose: the custom
+    /// node-expression functions SHACL 1.2 SPARQL Extensions §7.3 also asks for are
+    /// added by [`crate::shapes::link::link_shapes`], which is the one place that
+    /// can add them — registering a declaration is only sound once its body is
+    /// installed, and installing bodies is that pass's own first step.
+    ///
+    /// It writes into a caller-supplied registry rather than returning a fresh one
+    /// because the two callers start from different tables and must end at the same
+    /// contents: a parse starts from an empty registry, and a prepared-product
+    /// restore starts from the host's injected table (see
+    /// [`register_declared_sparql_functions`]). Returning a registry would force the
+    /// second caller to merge two of them, and a merge is a second place for the
+    /// precedence between the kinds to be decided differently.
+    pub(crate) fn parse_sparql_functions(
+        &self, registry: &mut UserFunctionRegistry,
+    ) -> Result<(), String> {
+        for id in self.sparql_function_ids() {
+            // Only IRI-named functions are callable (the call site is an IRI), so a
+            // blank-node declaration declares nothing any query could call: a
+            // malformed declaration, refused rather than skipped.
+            let Term::NamedNode(iri) = &id else {
+                return Err(format!(
+                    "the sh:SPARQLFunction / sh:Function declaration {id} is not an IRI; a \
+                     function must be named by an IRI so a query can call it"
+                ));
+            };
+            // A node typed both `sh:SPARQLFunction` and one of the custom
+            // node-expression classes has already been parsed as the latter, body and
+            // all; registering it twice would be two different functions under one
+            // IRI. The declaring class it carries decides, once.
+            if self.custom_fns.get(iri.as_str()).is_some() {
+                continue;
+            }
+            // A built-in node-expression function already has its implementation;
+            // a SPARQL body for it is a second definition, refused by the linker's
+            // rule rather than registered over the built-in.
+            if crate::spec::native_function(iri.as_str()).is_some() {
+                return Err(format!(
+                    "duplicate definition of <{}>: it is a node-expression function this \
+                     engine implements natively, and the shapes graph also declares it a \
+                     sh:SPARQLFunction with a SPARQL body; a built-in cannot be redefined, so \
+                     declare the SPARQL function under an IRI of your own",
+                    iri.as_str()
+                ));
+            }
+            let (func, _) = self
+                .parse_one_sparql_function(&id)
+                .map_err(|(rule, message)| {
+                    crate::error::IllFormedDeclaration::new(
+                        format!("the sh:SPARQLFunction <{}>", iri.as_str()),
+                        rule,
+                        message,
+                    )
+                    .to_string()
+                })?;
+            registry.insert(iri.as_str().to_owned(), func);
+        }
+        Ok(())
+    }
+
+    /// Every node typed `sh:SPARQLFunction` or `sh:Function`, in canonical order.
+    fn sparql_function_ids(&self) -> Vec<Term> {
+        let mut fn_ids: Vec<Term> = self
+            .quads_with(None, Some(rdf::TYPE), Some(sh::SPARQL_FUNCTION))
+            .into_iter()
+            .chain(self.quads_with(None, Some(rdf::TYPE), Some(sh::FUNCTION)))
+            .map(|(subject, _, _)| subject)
+            .collect();
+        crate::term::sort_terms_canonical(&mut fn_ids);
+        fn_ids.dedup();
+        fn_ids
+    }
+
+    /// Judge every `sh:SPARQLFunction` declaration of the shapes graph against the syntax
+    /// rules, before any shape is read and whether or not anything calls it, returning
+    /// every violation (SHACL 1.2 Core, "Handling of Ill-formed Shapes Graphs"; SHACL
+    /// Advanced Features, "Function Parameters" and "SPARQL-based Functions"). The
+    /// pre-binding violation of each well-formed body is recorded in
+    /// `function_prebinding`, keyed by IRI, to be judged where a call executes it.
+    ///
+    /// The declarations judged are the ones [`Self::parse_sparql_functions`] would
+    /// register. A node that is also typed with a custom node-expression function class
+    /// is that declaration, judged where it is parsed, and a declaration naming a
+    /// built-in or a blank node is refused by `parse_sparql_functions` itself.
+    pub(crate) fn check_sparql_function_declarations(
+        &self,
+    ) -> Vec<crate::error::IllFormedDeclaration> {
+        let mut violations = Vec::new();
+        for id in self.sparql_function_ids() {
+            let Term::NamedNode(iri) = &id else {
+                continue;
+            };
+            if crate::spec::native_function(iri.as_str()).is_some()
+                || [
+                    sh::LIST_PARAMETER_EXPRESSION_FUNCTION,
+                    sh::NAMED_PARAMETER_EXPRESSION_FUNCTION,
+                ]
+                .into_iter()
+                .any(|class| {
+                    !self
+                        .quads_with(Some(iri.as_str()), Some(rdf::TYPE), Some(class))
+                        .is_empty()
+                })
+            {
+                continue;
+            }
+            match self.parse_one_sparql_function(&id) {
+                Ok((_, None)) => {}
+                Ok((_, Some(prebinding))) => {
+                    self.function_prebinding
+                        .borrow_mut()
+                        .insert(iri.as_str().to_owned(), prebinding);
+                }
+                Err((rule, message)) => violations.push(crate::error::IllFormedDeclaration::new(
+                    format!("the sh:SPARQLFunction <{}>", iri.as_str()),
+                    rule,
+                    message,
+                )),
+            }
+        }
+        violations
+    }
+
+    /// Parse a single `sh:SPARQLFunction` declaration node into a [`UserFunction`],
+    /// with the pre-binding restriction its body violates, if any (see
+    /// [`crate::prebinding::check_function_body`]).
+    ///
+    /// # Errors
+    ///
+    /// The syntax rule the declaration violates, when a numbered rule states it, and
+    /// the diagnostic. The parameter rules are SHACL-SPARQL's, which SHACL Advanced
+    /// Features, "Function Parameters", applies to functions ("the same syntax rules
+    /// apply") — with the reserved names of the SHACL version it links, which adds
+    /// `shapesGraph` and `currentShape`; the body rule is `SPARQLFunction-query`.
+    fn parse_one_sparql_function(
+        &self, id: &Term,
+    ) -> Result<(UserFunction, Option<crate::shapes::QueryRefusal>), crate::error::RuleViolation>
+    {
+        // ── Parameters, ordered by (sh:order, predicate IRI) ──────────────────
+        struct RawParam {
+            order: f64,
+            predicate: String,
+            var: String,
+            optional: bool,
+            constraint: TypeConstraint,
+        }
+        let mut raw: Vec<RawParam> = Vec::new();
+        for p_node in self.objects_of(id, sh::PARAMETER_PROPERTY) {
+            // The parameter predicate: sh:path (a predicate IRI) or sh:predicate.
+            let predicate = match self
+                .first_object_of(&p_node, sh::PATH)
+                .or_else(|| self.first_object_of(&p_node, sh::PREDICATE))
+            {
+                Some(Term::NamedNode(n)) => n.as_str().to_owned(),
+                other => {
+                    return Err((
+                        Some(if other.is_some() {
+                            "Parameter"
+                        } else {
+                            "Parameter-predicate-count"
+                        }),
+                        format!(
+                            "sh:SPARQLFunction <{id}> has a sh:parameter without an IRI \
+                             sh:path/sh:predicate"
+                        ),
+                    ));
+                }
+            };
+            let var = purrdf_iri::local_name(&predicate).to_owned();
+            if var.is_empty() {
+                return Err((
+                    Some("parameter-name-VARNAME"),
+                    format!(
+                        "sh:SPARQLFunction <{id}> has a sh:parameter whose predicate \
+                         <{predicate}> has an empty local name and yields no usable variable"
+                    ),
+                ));
+            }
+            // A parameter must not shadow a SHACL/SHACL-AF pre-bound or reserved
+            // variable (SHACL §3.2.1, SHACL-AF §5.2) — e.g. `this` would clobber the
+            // injected focus-node binding during evaluation.
+            const RESERVED_VARS: [&str; 6] = [
+                "this",
+                "path",
+                "PATH",
+                "value",
+                "shapesGraph",
+                "currentShape",
+            ];
+            if RESERVED_VARS.contains(&var.as_str()) {
+                return Err((
+                    Some("parameter-name-not-in"),
+                    format!(
+                        "sh:SPARQLFunction <{id}> parameter variable ?{var} is a SHACL/SHACL-AF \
+                         reserved name"
+                    ),
+                ));
+            }
+            // SHACL Advanced Features orders parameters by "the parameters' numeric
+            // values of sh:order"; no numbered rule states the datatype, so these two
+            // refusals name none.
+            let order = match self.first_object_of(&p_node, sh::ORDER) {
+                None => f64::INFINITY,
+                Some(Term::Literal(lit)) => lit.value().parse::<f64>().map_err(|_| {
+                    (
+                        None,
+                        format!(
+                            "sh:SPARQLFunction <{id}> parameter ?{var} has a non-numeric \
+                             sh:order '{}'",
+                            lit.value()
+                        ),
+                    )
+                })?,
+                Some(other) => {
+                    return Err((
+                        None,
+                        format!(
+                            "sh:SPARQLFunction <{id}> parameter ?{var} has a non-literal \
+                             sh:order {other}"
+                        ),
+                    ));
+                }
+            };
+            let optional = match self.first_object_of(&p_node, sh::OPTIONAL) {
+                None => false,
+                Some(Term::Literal(lit)) => match lit.value() {
+                    "true" | "1" => true,
+                    "false" | "0" => false,
+                    other => {
+                        return Err((
+                            Some("optional-datatype"),
+                            format!(
+                                "sh:SPARQLFunction <{id}> parameter ?{var} has a non-boolean \
+                                 sh:optional '{other}'"
+                            ),
+                        ));
+                    }
+                },
+                Some(other) => {
+                    return Err((
+                        Some("optional-datatype"),
+                        format!(
+                            "sh:SPARQLFunction <{id}> parameter ?{var} has a non-literal \
+                             sh:optional {other}"
+                        ),
+                    ));
+                }
+            };
+            let constraint = self.type_constraint_of(&p_node);
+            raw.push(RawParam {
+                order,
+                predicate,
+                var,
+                optional,
+                constraint,
+            });
+        }
+        // Deterministic order: ascending sh:order, IRI as tiebreak (unspecified
+        // orders — INFINITY — sort last, still by IRI).
+        raw.sort_by(|a, b| {
+            a.order
+                .partial_cmp(&b.order)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.predicate.cmp(&b.predicate))
+        });
+
+        // Reject colliding derived variable names — silent shadowing would bind the
+        // wrong argument.
+        let mut seen: FastSet<&str> = FastSet::default();
+        for p in &raw {
+            if !seen.insert(p.var.as_str()) {
+                return Err((
+                    Some("parameter-name-unique"),
+                    format!(
+                        "sh:SPARQLFunction <{id}> has two parameters whose variable name ?{} \
+                         collides",
+                        p.var
+                    ),
+                ));
+            }
+        }
+
+        // A required parameter after an optional one is ill-formed (arity would be
+        // ambiguous). Enforce the "optionals are trailing" rule.
+        let mut seen_optional = false;
+        for p in &raw {
+            if p.optional {
+                seen_optional = true;
+            } else if seen_optional {
+                // No numbered rule; the arity of a call would be ambiguous.
+                return Err((
+                    None,
+                    format!(
+                        "sh:SPARQLFunction <{id}> declares a required parameter ?{} after an \
+                         optional one",
+                        p.var
+                    ),
+                ));
+            }
+        }
+        let required = raw.iter().filter(|p| !p.optional).count();
+        let params: Vec<UserFnParam> = raw
+            .into_iter()
+            .map(|p| UserFnParam {
+                var: p.var,
+                constraint: p.constraint,
+            })
+            .collect();
+
+        // ── Body: exactly one of sh:select / sh:ask / sh:bodyExpression ───────
+        //
+        // `sh:bodyExpression` is the third body form: a NODE EXPRESSION rather than
+        // query text (SHACL 1.2 SPARQL Extensions §7; SHACL 1.2 Node Expressions
+        // §6.1/§6.2). It is not parsed here — a node-expression body belongs to the
+        // declaring class that carries it, and `Parser::discover_custom_functions`
+        // has already interned that declaration and
+        // `parse_custom_function_bodies` has already parsed the body — so reaching
+        // this point with one means the node declared an expression body WITHOUT one
+        // of the two classes that give it meaning. That is a body nothing would ever
+        // evaluate, so it is refused rather than loaded green.
+        let select = self.first_string_object(id, sh::SELECT);
+        let ask = self.first_string_object(id, sh::ASK);
+        let body_expression = self.first_object_of(id, sh::BODY_EXPRESSION);
+        // SHACL Advanced Features, "SPARQL-based Functions": "SPARQL-based functions have
+        // exactly one value for either sh:ask or sh:select" (`SPARQLFunction-query`).
+        const BODY_RULE: Option<&str> = Some("SPARQLFunction-query");
+        if let Some(body) = &body_expression {
+            if select.is_some() || ask.is_some() {
+                return Err((
+                    BODY_RULE,
+                    format!(
+                        "sh:SPARQLFunction <{id}> declares a sh:bodyExpression alongside a \
+                         sh:select/sh:ask body; exactly one body is required"
+                    ),
+                ));
+            }
+            return Err((
+                BODY_RULE,
+                format!(
+                    "<{id}> declares the sh:bodyExpression {body} but is not typed \
+                     sh:ListParameterExpressionFunction or sh:NamedParameterExpressionFunction, \
+                     so nothing would ever evaluate that body"
+                ),
+            ));
+        }
+        let (raw_body, kind) = match (select, ask) {
+            (Some(s), None) => (s, UserFnBody::Select),
+            (None, Some(a)) => (a, UserFnBody::Ask),
+            (Some(_), Some(_)) => {
+                return Err((
+                    BODY_RULE,
+                    format!(
+                        "sh:SPARQLFunction <{id}> declares both sh:select and sh:ask (exactly one \
+                         is required)"
+                    ),
+                ));
+            }
+            (None, None) => {
+                return Err((
+                    BODY_RULE,
+                    format!(
+                        "sh:SPARQLFunction <{id}> is missing its sh:select/sh:ask/sh:bodyExpression \
+                         body"
+                    ),
+                ));
+            }
+        };
+        let header = self
+            .prefix_header(&[id])
+            .map_err(crate::shapes::prefixes::split_syntax_rule)?;
+        let body_text = format!("{header}{raw_body}");
+        // A GRAMMAR check, and deliberately only that.
+        //
+        // This parse runs under default options — no registered relation IRIs —
+        // which is exactly why its result is thrown away. Whether a predicate IRI
+        // in this body is a data edge or a call to a registered relation is decided
+        // by the extension environment in force at VALIDATION time, and a shapes
+        // graph is loaded once and validated many times under different ones. There
+        // is no parse here that would be right for all of them.
+        //
+        // What is knowable here is whether the text is SPARQL at all and whether
+        // its form matches the `sh:select`/`sh:ask` the author declared. Both are
+        // properties of the text alone, both are author errors, and both are worth
+        // failing at load rather than at first validation. So the text is kept and
+        // the algebra is discarded — the same division
+        // `purrdf-retrieval`'s `hoistable_clauses` documents: the blind parse is
+        // about grammar, and the registry-aware parse stays the authority.
+        let form = SparqlParser::new().parse_query(&body_text).map_err(|e| {
+            (
+                BODY_RULE,
+                format!("sh:SPARQLFunction <{id}> has an unparsable body query: {e}"),
+            )
+        })?;
+        match (&form, kind) {
+            (Query::Select { pattern, .. }, UserFnBody::Select) => {
+                // "SELECT queries return exactly one result variable": the value a call
+                // answers is that variable's binding, so a body projecting more or fewer
+                // has no return value to give.
+                if let Some(projected) = projected_variables(pattern)
+                    && projected != 1
+                {
+                    return Err((
+                        BODY_RULE,
+                        format!(
+                            "sh:SPARQLFunction <{id}> has a SELECT body that projects \
+                             {projected} variables; a SPARQL-based function's SELECT query \
+                             returns exactly one result variable"
+                        ),
+                    ));
+                }
+            }
+            (Query::Ask { .. }, UserFnBody::Ask) => {}
+            _ => {
+                return Err((
+                    BODY_RULE,
+                    format!(
+                        "sh:SPARQLFunction <{id}> body form does not match its sh:select/sh:ask \
+                         declaration"
+                    ),
+                ));
+            }
+        }
+        // The pre-binding restrictions, over the parameter variables the call pre-binds.
+        // A violation is not a syntax error: it is judged where a call executes the body.
+        let parameters: Vec<&str> = params.iter().map(|param| param.var.as_str()).collect();
+        let prebinding = crate::shapes::audit_query(
+            self.profile,
+            crate::profile::QueryPurpose::Function,
+            &form,
+            &parameters,
+            || crate::prebinding::check_function_body(&form, &parameters),
+        )
+        .err()
+        .map(|error| {
+            error.legacy_context(|message| {
+                format!("sh:SPARQLFunction <{id}> violates pre-binding restrictions: {message}")
+            })
+        });
+
+        let return_constraint = TypeConstraint {
+            datatype: self.first_iri_object(id, sh::RETURN_TYPE),
+            node_kind: None,
+        };
+
+        Ok((
+            UserFunction {
+                params,
+                required,
+                body: Arc::from(body_text),
+                kind,
+                return_constraint,
+            },
+            prebinding,
+        ))
+    }
+
+    /// The `sh:datatype`/`sh:nodeKind` type constraint declared on a parameter node.
+    fn type_constraint_of(&self, p_node: &Term) -> TypeConstraint {
+        let datatype = self.first_iri_object(p_node, sh::DATATYPE);
+        let node_kind = self
+            .first_object_of(p_node, sh::NODE_KIND)
+            .and_then(|t| match t {
+                Term::NamedNode(n) => node_kind_from_iri(n.as_str()),
+                _ => None,
+            });
+        TypeConstraint {
+            datatype,
+            node_kind,
+        }
+    }
+}
+
+/// Whether the law in force makes a blank-node argument to a custom SPARQL function
+/// an error: the editor's draft and the compatibility law do, the working draft and
+/// the 2017 Recommendation state no such rule.
+fn blank_node_argument_is_error(call: &ExprFnCall<'_>) -> bool {
+    if let Some(context) = call.invocation_context::<crate::sparql::FunctionRequest>() {
+        return context
+            .request
+            .shacl_profile
+            .reads_editors_draft_semantics();
+    }
+    crate::query_law::current().is_none_or(|law| law.profile().reads_editors_draft_semantics())
+}
+
+/// Evaluate one SPARQL call of a custom LIST parameter function — the body of the
+/// closure [`crate::shapes::link::link_shapes`] installs.
+///
+/// SHACL 1.2 SPARQL Extensions §7.3 in three moves:
+///
+/// 1. The already-evaluated arguments become the argument scope, keyed by INDEX.
+///    An unbound argument, or (under the editor's draft) one that is a blank node, in a
+///    required position leaves the call with no value (`Ok(None)` — SPARQL's own
+///    expression-error result); in
+///    an optional position it is left out of the scope and the arguments after it keep
+///    their indexes.
+/// 2. The body is evaluated over `call.focus_graph`, the graph the calling query is
+///    reading, with the FUNCTION'S OWN IRI as focus node — §7.3: "there is no
+///    dedicated focus node. Instead, the `focusNode` passed into a custom SPARQL
+///    function based on a node expression is the IRI of the function itself."
+/// 3. Exactly one output node is returned; any other count is the call's SPARQL error
+///    (`Ok(None)`), because the specification returns a node only in the one-member
+///    case and picking one would be inventing an answer. So is any EVALUATION failure
+///    of the body ("or if the evaluation produces an evaluation failure, the result of
+///    the SPARQL function call is an error"); a failure of the processor still fails the
+///    query ([`sparql_call_result`]).
+///
+/// The recursion guard is SEEDED from `call.depth`, so a cycle that passed through
+/// SPARQL to get here keeps counting rather than restarting.
+pub(crate) fn invoke_expression_function(
+    owner: &Arc<crate::shapes::ModelOwner>, func: &Arc<CustomFunction>, call: &ExprFnCall<'_>,
+) -> Result<Option<TermValue>, EvalError> {
+    let _functions = crate::sparql::FunctionRequest::enter(call);
+    let mut args: Vec<Option<Term>> = Vec::with_capacity(call.args.len());
+    for (index, value) in call.args.iter().enumerate() {
+        // SHACL 1.2 SPARQL Extensions §7.3: an argument whose evaluation is an error
+        // makes the call an error "unless the corresponding sh:parameter for the
+        // argument has sh:optional true. In that case, the argument will be unbound in
+        // the scope". The editor's draft adds that "blank nodes cannot be passed as
+        // arguments: they are not constant node expressions, so an argument that
+        // evaluates to a blank node leads to an evaluation failure and thus an error".
+        // The working draft states no such rule, so a blank node is an ordinary
+        // argument under it.
+        let blank_is_error = blank_node_argument_is_error(call);
+        let bound = value
+            .as_ref()
+            .map(term_value_to_native)
+            .filter(|term| !(blank_is_error && matches!(term, Term::BlankNode(_))));
+        if bound.is_none() && index < func.required {
+            return Ok(None);
+        }
+        args.push(bound);
+    }
+    // A fresh view over the calling query's own graph. Both halves are the same
+    // frozen dataset, so the node expression reads exactly the graph the query is
+    // reading — the CURRENT one, never a capture from shapes-load.
+    let store = crate::sparql::FunctionRequest::store(call)
+        .map_err(|error| EvalError::function(format!("function request: {error}")))?;
+    let mut guard = crate::sparql::FunctionRequest::guard(call);
+    let _depth = enter_call_depth_scope(call.depth);
+    let result = sparql_call_result(
+        eval_custom_function_call(&store, owner, func, &args, &mut guard),
+        "custom SPARQL function",
+    )?;
+    Ok(result.as_ref().map(Term::to_term_value))
+}
+
+/// The SPARQL result of a custom function call whose body evaluation returned `outcome`
+/// — the ONE place that decides which body failures are the call's SPARQL error.
+///
+/// SHACL 1.2 SPARQL Extensions, "Evaluation of Custom SPARQL Functions": "if the
+/// evaluation produces an evaluation failure, the result of the SPARQL function call is
+/// an error". A SPARQL error is `Ok(None)`, the unbound result every other value-less
+/// call returns, so a `BIND` leaves its variable unbound and the query continues. The
+/// sentence is about EVALUATION failures only. A failure of the processor (a storage
+/// refusal, a governor trip, a stop signal, a recursion bound, a query-engine failure
+/// that must propagate) and a refusal of the shapes graph still fail the query, because
+/// no verdict can honestly be computed from a run that did not finish; the
+/// classification is [`ShapesError::failure_class`], an exhaustive match on the typed
+/// error, never on its message.
+fn sparql_call_result<T>(
+    outcome: Result<Option<T>, ShapesError>, what: &str,
+) -> Result<Option<T>, EvalError> {
+    match outcome {
+        Ok(value) => Ok(value),
+        Err(error) => match error.failure_class() {
+            FailureClass::Evaluation => Ok(None),
+            FailureClass::Processor | FailureClass::Refusal => {
+                Err(EvalError::function(format!("{what}: {error}")))
+            }
+        },
+    }
+}
+
+/// What a declared built-in LIST-parameter function calls, resolved ONCE when the
+/// function is registered: the spec symbol table and the `sparql:` resolver are
+/// load-time lookups, and a query that calls the function once per solution row
+/// must not repeat them per call. Only the arity-dependent rendering is per call.
+#[derive(Debug, Clone)]
+pub(crate) enum NativeListCallee {
+    /// `shnex:conformsToShape`.
+    ConformsToShape,
+    /// A `sparql:<NAME>` function: its SPARQL call form, or why the IRI resolves
+    /// to none — kept, not dropped, so every call answers with that error exactly
+    /// as an unresolved call always has.
+    Sparql(Result<SparqlCallForm, String>),
+}
+
+impl NativeListCallee {
+    /// Resolve `iri` — one of the declared built-ins the linker registers.
+    pub(crate) fn resolve(iri: &str) -> Self {
+        if iri == shnex::CONFORMS_TO_SHAPE {
+            return Self::ConformsToShape;
+        }
+        Self::Sparql(match iri.strip_prefix(sparql_ns::NS) {
+            Some(local) => sparql_ns_lowering(local),
+            None => Err(format!(
+                "<{iri}> is registered as a built-in list-parameter function but is neither \
+                 shnex:conformsToShape nor a sparql: function"
+            )),
+        })
+    }
+}
+
+/// Evaluate one SPARQL call of a built-in LIST-parameter function the shapes graph
+/// declares — the closure [`crate::shapes::link::register_native_list_functions`]
+/// installs (SHACL 1.2 SPARQL Extensions §7.3).
+///
+/// The call is the node expression the parser builds for `[ <iri> ( a0 … aN ) ]`
+/// over the already-evaluated arguments, evaluated by the SAME evaluator a node
+/// expression uses — so `shnex:conformsToShape(?x, ex:S)` in a query and
+/// `[ shnex:conformsToShape ( … ) ]` in a shape can never disagree:
+///
+/// * `shnex:conformsToShape` resolves its shape argument against the shapes
+///   graph's shape index, exactly as a computed shape argument does;
+/// * `sparql:<NAME>` renders its SPARQL form for this call's arity.
+///
+/// An unbound argument leaves the call with no value (SPARQL's own
+/// expression-error result), and the result follows the §7.3 rule a custom
+/// function's does: one output node is the value; none, more than one, and any
+/// evaluation failure are the call's SPARQL error (`Ok(None)`, unbound). A failure of the
+/// processor or a refusal of the shapes graph still fails the query
+/// ([`sparql_call_result`]).
+///
+/// A call of the wrong ARITY (an operator form with the wrong operand count, or
+/// `shnex:conformsToShape` with other than two arguments) is not an evaluation failure
+/// and fails the query: §7.3 turns the failure of an EVALUATION into the call's error, and
+/// an evaluation failure is a property of the argument values, whereas a wrong operand
+/// count fails identically for every value. It is a defect of the query as written, as
+/// it is for a custom function, whose registry arity is checked the same way.
+pub(crate) fn invoke_native_list_function(
+    iri: &str, callee: &NativeListCallee, owner: &Arc<crate::shapes::ModelOwner>,
+    call: &ExprFnCall<'_>,
+) -> Result<Option<TermValue>, EvalError> {
+    let _functions = crate::sparql::FunctionRequest::enter(call);
+    let mut args: Vec<NodeExpr> = Vec::with_capacity(call.args.len());
+    for value in call.args {
+        match value {
+            Some(bound) => args.push(NodeExpr::Constant(term_value_to_native(bound))),
+            None => return Ok(None),
+        }
+    }
+    let expr = if let NativeListCallee::Sparql(form) = callee {
+        let rendered = form
+            .clone()
+            .and_then(|form| form.render(iri, args.len()))
+            .map_err(EvalError::function)?;
+        NodeExpr::Call(FnCall::Sparql {
+            iri: NamedNode::from(iri),
+            expr: rendered,
+            args,
+        })
+    } else {
+        let [node, shape]: [NodeExpr; 2] = args.try_into().map_err(|args: Vec<NodeExpr>| {
+            EvalError::function(format!(
+                "shnex:conformsToShape takes exactly 2 arguments, got {}",
+                args.len()
+            ))
+        })?;
+        NodeExpr::ConformsToShape {
+            node: Box::new(node),
+            shape: ShapeArg::Computed {
+                expr: Box::new(shape),
+                shapes: Arc::downgrade(&owner.index),
+            },
+        }
+    };
+    let store = crate::sparql::FunctionRequest::store(call)
+        .map_err(|error| EvalError::function(format!("function request: {error}")))?;
+    let mut guard = crate::sparql::FunctionRequest::guard(call);
+    let _depth = enter_call_depth_scope(call.depth);
+    let focus = Term::NamedNode(NamedNode::from(iri));
+    let expr = NodeExpr::Owned {
+        expr: Box::new(expr),
+        owner: Arc::clone(owner),
+    };
+    let out = sparql_call_result(
+        eval_node_expr(&store, &focus, &expr, &mut guard).map(Some),
+        &format!("built-in SPARQL function <{iri}>"),
+    )?;
+    // §7.3 returns a value only when exactly one output node is produced; any other
+    // count is the call's SPARQL error, as for a custom function.
+    Ok(match out.as_deref() {
+        Some([only]) => Some(only.to_term_value()),
+        _ => None,
+    })
+}
+
+/// Map a `sh:nodeKind` object IRI to the evaluator's [`EvalNodeKind`] for a
+/// function parameter/return type constraint.
+fn node_kind_from_iri(iri: &str) -> Option<EvalNodeKind> {
+    match iri {
+        sh::IRI => Some(EvalNodeKind::Iri),
+        sh::BLANK_NODE => Some(EvalNodeKind::BlankNode),
+        sh::LITERAL => Some(EvalNodeKind::Literal),
+        sh::BLANK_NODE_OR_IRI => Some(EvalNodeKind::BlankNodeOrIri),
+        sh::BLANK_NODE_OR_LITERAL => Some(EvalNodeKind::BlankNodeOrLiteral),
+        sh::IRI_OR_LITERAL => Some(EvalNodeKind::IriOrLiteral),
+        _ => None,
+    }
+}
+
+/// How many variables the outermost projection of a SELECT query's algebra projects, or
+/// `None` when no projection wraps it.
+fn projected_variables(pattern: &purrdf_sparql_algebra::GraphPattern) -> Option<usize> {
+    use purrdf_sparql_algebra::GraphPattern;
+    let mut node = pattern;
+    loop {
+        match node {
+            GraphPattern::Slice { inner, .. }
+            | GraphPattern::Distinct { inner }
+            | GraphPattern::Reduced { inner }
+            | GraphPattern::OrderBy { inner, .. } => node = inner,
+            GraphPattern::Project { variables, .. } => return Some(variables.len()),
+            GraphPattern::ProjectStar { variables, .. } => return Some(variables.len()),
+            _ => return None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::{PrebindingViolation, ProcessorFailure};
+
+    #[test]
+    fn an_unreached_function_keeps_its_complete_original_definition_domain() {
+        let mut shapes = crate::engine::parse_shapes(
+            r#"
+            @prefix sh: <http://www.w3.org/ns/shacl#> .
+            @prefix shnex: <http://www.w3.org/ns/shacl-node-expr#> .
+            @prefix ex: <http://example.org/> .
+            ex:conforms a sh:ListParameterExpressionFunction ;
+              sh:parameter [ sh:path shnex:arg0 ], [ sh:path shnex:arg1 ] ;
+              sh:bodyExpression [ shnex:conformsToShape ( [ shnex:arg 0 ] [ shnex:arg 1 ] ) ] .
+            ex:MarkerComponent a sh:ConstraintComponent ;
+              sh:parameter [ sh:path ex:requiresMarker ] ;
+              sh:validator [ a sh:SPARQLAskValidator ;
+                sh:ask "ASK { $this <http://example.org/required> ?marker }" ] .
+            ex:Hidden a sh:NodeShape ; ex:requiresMarker true .
+            ex:NoTargets a sh:SPARQLTargetType ;
+              sh:select "SELECT ?this WHERE { FILTER(false) }" .
+            ex:Aux a sh:NodeShape ; sh:target [ a ex:NoTargets ] .
+            ex:S a sh:NodeShape ; sh:targetNode ex:a, ex:b ;
+              sh:sparql [ sh:select "SELECT $this WHERE { FILTER (!ex:conforms($this, ex:Hidden)) }" ] .
+            "#,
+            None,
+        ).unwrap();
+        let mut registry = UserFunctionRegistry::default();
+        // A caller-supplied model need not carry declarations used only in its
+        // SPARQL text. Force this restore seam to reconstruct that domain.
+        register_declared_sparql_functions(
+            shapes.dataset(),
+            shapes.provenance(),
+            &[],
+            &mut registry,
+            crate::profile::ShaclProfile::LEGACY,
+        )
+        .unwrap();
+        shapes.functions = Arc::new(registry);
+        let dataset = crate::text_ingest::parse_turtle_to_dataset(
+            "<http://example.org/a> <http://example.org/required> 1.
+             <http://example.org/b> <http://example.org/unrelated> 1.",
+            None,
+        )
+        .unwrap();
+        let data = ShaclData::new(Arc::clone(&dataset), dataset, None);
+        let report = crate::engine::validate_with(&data, &shapes).unwrap();
+        assert_eq!(report.results.len(), 1, "{report:?}");
+        assert_eq!(
+            report.results[0].focus_node,
+            Term::NamedNode(NamedNode::from("http://example.org/b"))
+        );
+    }
+
+    /// SHACL 1.2 SPARQL Extensions §7.3: an evaluation failure is the call's SPARQL error
+    /// (`Ok(None)`); a failure of the processor and a refusal of the shapes graph still
+    /// fail the query. The classification is by the typed error, one case per class.
+    #[test]
+    fn only_an_evaluation_failure_becomes_the_calls_sparql_error() {
+        let call = |error: ShapesError| sparql_call_result::<u8>(Err(error), "call");
+        assert!(matches!(
+            call(ShapesError::Invalid("arity".to_owned())),
+            Ok(None)
+        ));
+        assert!(matches!(
+            sparql_call_result::<u8>(Ok(Some(1)), "call"),
+            Ok(Some(1))
+        ));
+        let processor = [
+            ProcessorFailure::CallDepth {
+                iri: "http://example.org/f".to_owned(),
+                limit: 64,
+            },
+            ProcessorFailure::ExpressionDepth {
+                depth: 257,
+                limit: 256,
+            },
+            ProcessorFailure::ValidationDepth {
+                shape: "s".to_owned(),
+                depth: 65,
+                limit: 64,
+            },
+            ProcessorFailure::ReentryCycle {
+                shape: "s".to_owned(),
+                focus: "f".to_owned(),
+            },
+            ProcessorFailure::Stopped(purrdf_core::governor::StopCause::Cancelled),
+            ProcessorFailure::IncompleteRelation {
+                relations: vec!["r".to_owned()],
+            },
+            ProcessorFailure::Internal {
+                what: "internal validation-plan defect".to_owned(),
+            },
+            ProcessorFailure::Admission {
+                message: "query refused by the law".to_owned(),
+            },
+            ProcessorFailure::Query {
+                code: "native-sparql-function-operational".to_owned(),
+                message: "host".to_owned(),
+            },
+        ];
+        for failure in processor {
+            assert!(
+                call(ShapesError::Processor(failure.clone())).is_err(),
+                "{failure:?} fails the query"
+            );
+        }
+        assert!(call(ShapesError::Prebinding(PrebindingViolation::new("d", "m"))).is_err());
+    }
+}

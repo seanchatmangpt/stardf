@@ -1,0 +1,109 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "subject": {
+    "tree_digest": "332392fa9da7f0e8b665add5e7bab9b448325e15a9929b894f0480dc610324aa",
+    "head": "c9f8028ced8c89feb7eb5d6e0fcb651bb3fd1781 (parent repo HEAD; stardf/ is untracked in parent — tree_digest is the receipt-time whole-tree sha256 over all 45 files excluding */target, per `find . -path \"*/target\" -prune -o -type f -print | sort | xargs shasum -a 256 | shasum -a 256`)"
+  },
+  "checks": [
+    {
+      "id": "cargo-test-workspace-no-fail-fast",
+      "passed": false,
+      "count": 9,
+      "comment": "cargo test --workspace --no-fail-fast (final full run this session): 8 of 9 test targets ok, 1 FAILED — stardf-arrow-capi tests/stream_courts.rs court_2_exact_batch_count_then_eof (5 passed, 1 failed). Target tallies: stardf-arrow anti_vacuity 3 passed (earlier in session this target FAILED 0/2 — another lane repaired fixtures mid-wave, then 3/3 passed on rerun); capi unit 22 passed; alloc_identity 2 passed 1 ignored (earlier compile-aborted E0425 x4, repaired mid-wave by its owning lane); c_smoke 1 passed; cross_allocator_court 2 passed; stream_courts 5 passed 1 failed; core unit 33 passed; core doctests 0."
+    },
+    {
+      "id": "cargo-check-workspace",
+      "passed": true,
+      "count": 2,
+      "comment": "cargo check --workspace exit 0 (2 workspace members). One dead-code warning in capi lib remains (warning, not error)."
+    },
+    {
+      "id": "cargo-clippy-workspace-all-targets-d-warnings",
+      "passed": false,
+      "count": 1,
+ "comment": "cargo clippy --workspace --all-targets -- -D warnings exit 101. Failing target: stardf-arrow-capi test alloc_identity.rs — `needless_range_loop`-family error 'comparison involving the minimum or maximum element ... always true or always false' (1 error, 1 warning). Earlier in session clippy also flagged core lib (doc-comment empty line, too-many-arguments 8/7, fn-ptr transmute, missing # Safety sections) — those cleared on rerun after mid-wave lane repairs; alloc_identity clippy error remains."
+    },
+    {
+      "id": "cargo-fmt-check",
+      "passed": false,
+      "count": 1,
+      "comment": "cargo fmt --all -- --check exit 1. Diff in crates/stardf-arrow-capi/src/stream_c.rs:213 (closure body indentation in .iter().map())."
+    },
+    {
+      "id": "verify-py-strict-full-run",
+      "passed": true,
+      "count": 13,
+      "comment": "python3 scripts/verify.py exit 0 twice: '[ALL PASS] stardf-arrow substrate verified.' Header/impl parity 13 == 13 declarations/exports, set equality both directions."
+    },
+    {
+      "id": "court-stream-courts",
+      "passed": false,
+      "count": 5,
+      "comment": "cargo test -p stardf-arrow-capi --test stream_courts: 5 passed, 1 FAILED. court_2_exact_batch_count_then_eof panicked at stream_courts.rs:205 — 'exactly ceil(n/64) batches must be yielded before EOF (n=1)': left=0, right=1 (n=1 quad yields 0 batches instead of 1)."
+    },
+    {
+      "id": "court-cross-allocator",
+      "passed": true,
+      "count": 2,
+      "comment": "cargo test -p stardf-arrow-capi --test cross_allocator_court: 2 passed, 0 failed."
+    },
+    {
+      "id": "court-anti-vacuity",
+      "passed": true,
+      "count": 3,
+      "comment": "cargo test -p stardf-arrow --test anti_vacuity: 3 passed, 0 failed at receipt time. Honest history: earlier this session the same court FAILED 0 passed / 2 failed — 'vacuous court: verifier ACCEPTED an ontology missing an export individual' (fixture ontology_missing_export.ttl verified ALL PASS: 0 AbiFunction instances, 0 exported, '100% census match' over 0 functions) plus 'pristine ontology lost fn_buffer_data — fixture refresh needed'. Another lane landed a repair mid-wave; court now passes on the mutated-fixture corpus. This is the repair lane's receipt to write, not this lane's claim."
+    },
+    {
+      "id": "workspace-test-census-vs-compile-abort",
+      "passed": true,
+    "comment": "Census kept distinct from compile-abort: early run was a compile-abort of capi test alloc_identity (E0425 x4, exit 101, zero tests executed) — recorded as compile-abort, never as a failure count. Final run executed 9 targets.",
+      "count": 9
+    }
+  ],
+  "errors": [
+    {
+      "code": "STREAM_COURTS_COURT_2_BATCH_COUNT",
+      "message": "court_2_exact_batch_count_then_eof: expected ceil(1/64)=1 batch before EOF, observed 0 (stream_courts.rs:205). Real court failure, not flake — reproduces across runs."
+    },
+    {
+      "code": "CLIPPY_D_WARNINGS_ALLOC_IDENTITY",
+      "message": "clippy -D warnings exit 101: alloc_identity.rs comparison always-true/false (min/max element), 1 error."
+    },
+    {
+      "code": "FMT_CHECK_DIRTY",
+      "message": "cargo fmt --check exit 1: crates/stardf-arrow-capi/src/stream_c.rs:213 indentation diff."
+    },
+    {
+      "code": "MID_WAVE_TREE_CHURN",
+      "message": "Tree digest moved during receipt writing (73e7b24f... -> 332392fa...) as repair lanes landed; receipt reflects the receipt-time tree, gates re-run after the final landing."
+    }
+  ],
+  "commands": [
+    { "cmd": "cargo test --workspace --no-fail-fast", "exit": 101, "comment": "final full run; only stream_courts target fails" },
+    { "cmd": "cargo check --workspace", "exit": 0 },
+    { "cmd": "cargo clippy --workspace --all-targets -- -D warnings", "exit": 101 },
+    { "cmd": "cargo fmt --all -- --check", "exit": 1 },
+    { "cmd": "python3 scripts/verify.py (run 1)", "exit": 0 },
+    { "cmd": "python3 scripts/verify.py (run 2)", "exit": 0 },
+    { "cmd": "cargo test -p stardf-arrow-capi --test c_smoke", "exit": 0 },
+    { "cmd": "cargo test -p stardf-arrow-capi --test stream_courts", "exit": 101 },
+    { "cmd": "cargo test -p stardf-arrow-capi --test cross_allocator_court", "exit": 0 },
+    { "cmd": "cargo test -p stardf-arrow-core", "exit": 0 },
+    { "cmd": "cargo test -p stardf-arrow-bench", "exit": 101, "comment": "package ID did not match any packages — bench is a standalone crate with its own Cargo.lock/target, not a workspace member" }
+  ],
+  "replay": {
+    "status": "WITNESSED",
+    "comment": "verify.py run twice to /tmp/v3.out and /tmp/v4.out, both exit 0, `cmp -s` byte-identical (exit 0). Note: this was manual cmp of stdout, NOT via the lane's --emit-receipt flag — grep for 'emit' in scripts/verify.py returns no matches at receipt time; that flag had not landed when the pair was run."
+  },
+  "standing": "PARTIAL_ALIVE",
+  "nonclaims": [
+    "stream_courts NOT fully passing — court_2_exact_batch_count_then_eof fails (0 batches for n=1, expected 1); slice NOT ALIVE",
+    "clippy -D warnings NOT clean — alloc_identity.rs always-true/false comparison error remains",
+    "fmt --check NOT clean — stream_c.rs:213 diff",
+    "avec integration test NOT RUN — avec-ffi path-dep not yet wired",
+    "--emit-receipt flag NOT landed in scripts/verify.py at receipt time — replay witnessed by manual cmp of two stdout captures, not through the flag's own receipt emission",
+    "anti_vacuity court repair is another lane's mid-wave landing — not claimed by this lane",
+    "stardf-arrow-bench NOT under workspace membership — never compiled or tested by the workspace ladder",
+    "no git operations performed by this lane"
+  ]
+}

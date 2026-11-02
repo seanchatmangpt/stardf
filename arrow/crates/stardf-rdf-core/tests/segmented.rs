@@ -1,0 +1,1239 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! Real block-provider, eviction, pin, exact-evidence and reopening laws.
+
+use std::sync::Arc;
+
+#[path = "support/segmented_text.rs"]
+mod text_fixture;
+
+#[global_allocator]
+static GLOBAL: purrdf_alloc_probe::CountingAllocator = purrdf_alloc_probe::CountingAllocator;
+
+use purrdf_core::{
+    BlankScope, DatasetView, GlobalTermId, GraphMatch, QuadIds, RdfTextDirection,
+    SegmentedBuildLimits, SegmentedBuilder, SegmentedBytes, SegmentedError, SegmentedImage,
+    SegmentedReadLimits, SegmentedSession, TermBox, TermGuard, TermRef, TermValue, ViewTermId,
+    WorkspaceReservation,
+};
+
+fn build(values: &[TermValue], first: u64) -> (SegmentedImage, Vec<GlobalTermId>) {
+    let limits = SegmentedBuildLimits::new(4096, 200_000, 4096, 1024, 4)
+        .unwrap()
+        .with_first_term_index(first)
+        .unwrap();
+    let mut builder = SegmentedBuilder::new(limits).unwrap();
+    let mut ids = Vec::with_capacity(values.len());
+    builder.intern_batch(values, |_, id| ids.push(id)).unwrap();
+    for &id in &ids {
+        builder
+            .push_quad(QuadIds {
+                s: ids[0],
+                p: ids[0],
+                o: id,
+                g: None,
+            })
+            .unwrap();
+    }
+    (builder.seal().unwrap(), ids)
+}
+fn session(image: &SegmentedImage, cache: u32) -> SegmentedSession {
+    SegmentedSession::open(
+        Arc::new(image.provider()),
+        image.receipt(),
+        SegmentedReadLimits::new(2_000_000, cache, 20_000, 10_000_000, 8),
+    )
+    .unwrap()
+}
+
+fn routing_growth_cannot_refuse_an_already_admitted_payload() {
+    const CEILING: u64 = 2_000_000;
+    let mut builder =
+        SegmentedBuilder::new(SegmentedBuildLimits::new(1024, 200_000, 0, 512, 1).unwrap())
+            .unwrap();
+    let values: Vec<_> = (0..512)
+        .map(|index| TermValue::iri(format!("urn:routing:{index:04}")))
+        .collect();
+    let mut ids = Vec::new();
+    builder.intern_batch(&values, |_, id| ids.push(id)).unwrap();
+    let image = builder.seal().unwrap();
+    for slots in [2, 128] {
+        let read = session(&image, slots);
+        // One-record pages reach a learned-index growth boundary after 112 reads.
+        // The request ledger already has room for the next authenticated read.
+        // A larger payload cache must not be cannibalized for optional hints.
+        for &id in &ids[..112] {
+            drop(read.resolve(id).unwrap());
+        }
+        let before = read.evidence();
+        let held = read
+            .reserve_workspace(CEILING - before.live_bytes() - 4096)
+            .unwrap();
+        let guard = read.resolve(ids[112]).unwrap();
+        assert_eq!(guard.term(), TermRef::Iri(values[112].as_iri().unwrap()));
+        drop(guard);
+        assert_eq!(read.read_error(), None);
+        assert_eq!(
+            read.evidence().bookkeeping_bytes(),
+            before.bookkeeping_bytes(),
+            "optional routing growth cannot consume the payload cache ({slots} slots)"
+        );
+        assert!(read.evidence().peak_bytes() <= CEILING);
+        drop(held);
+        assert_eq!(read.term_value(ids[113]).unwrap(), values[113]);
+        assert_eq!(read.read_error(), None);
+    }
+}
+
+fn construction_limits_grow_on_input_instead_of_reserving_their_ceilings() {
+    let values = [
+        TermValue::iri("https://example.org/subject"),
+        TermValue::iri("https://example.org/predicate"),
+        TermValue::iri("https://example.org/object"),
+    ];
+    let first = (1_u64 << 54) + 7;
+    let mut observations = Vec::new();
+    let mut images = Vec::new();
+    for limits in [
+        SegmentedBuildLimits::new(16, 4096, 3, 1024, 4).unwrap(),
+        SegmentedBuildLimits::new(u32::MAX - 1, u32::MAX, u32::MAX, 1024, 4).unwrap(),
+    ] {
+        let limits = limits.with_first_term_index(first).unwrap();
+        let window = purrdf_alloc_probe::CurrentThreadWindow::open();
+        let mut builder = SegmentedBuilder::new(limits).unwrap();
+        let empty = window.close();
+        assert_eq!(empty.allocations, 0);
+        assert_eq!(empty.retained_bytes, 0);
+        let mut ids = Vec::with_capacity(values.len());
+        let window = purrdf_alloc_probe::CurrentThreadWindow::open();
+        builder.intern_batch(&values, |_, id| ids.push(id)).unwrap();
+        for &object in &ids {
+            builder
+                .push_quad(QuadIds {
+                    s: ids[0],
+                    p: ids[1],
+                    o: object,
+                    g: None,
+                })
+                .unwrap();
+        }
+        let grown = window.close();
+        observations.push((
+            grown.allocations,
+            grown.retained_bytes,
+            grown.peak_working_bytes,
+        ));
+        let image = builder.seal().unwrap();
+        let read = session(&image, 2);
+        assert_eq!(read.term_count(), 3);
+        assert_eq!(read.quads().count(), 3);
+        for (value, id) in values.iter().zip(ids) {
+            assert!(id.index() > (1_u64 << 53));
+            assert_eq!(read.term_value(id).unwrap(), *value);
+        }
+        images.push(image);
+    }
+    assert_eq!(observations[0], observations[1]);
+    assert_eq!(images[0].bytes(), images[1].bytes());
+}
+
+fn demand_growth_keeps_typed_construction_limits_and_failed_ingress_atomic() {
+    let mut builder =
+        SegmentedBuilder::new(SegmentedBuildLimits::new(2, 4096, 1, 1024, 4).unwrap()).unwrap();
+    let values = [
+        TermValue::iri("https://example.org/s"),
+        TermValue::iri("https://example.org/p"),
+    ];
+    let mut ids = Vec::new();
+    builder.intern_batch(&values, |_, id| ids.push(id)).unwrap();
+    assert!(matches!(
+        builder.intern_batch(
+            &[TermValue::iri("https://example.org/refused")],
+            |_, _| panic!("refused term must not be published")
+        ),
+        Err(SegmentedError::ConstructionLimit)
+    ));
+    let quad = QuadIds {
+        s: ids[0],
+        p: ids[1],
+        o: ids[0],
+        g: None,
+    };
+    builder.push_quad(quad).unwrap();
+    assert_eq!(builder.statement_count(), 1);
+    assert!(matches!(
+        builder.push_quad(quad),
+        Err(SegmentedError::ConstructionLimit)
+    ));
+    assert_eq!(builder.statement_count(), 1, "refusal adds no stored row");
+    let image = builder.seal().unwrap();
+    let read = session(&image, 2);
+    assert_eq!(read.term_count(), 2);
+    assert_eq!(read.quads().count(), 1);
+}
+
+fn byte_packed_dictionaries_round_trip_with_sparse_high_id_reads() {
+    let values: Vec<_> = (0..80)
+        .map(|index| {
+            // Retain genuinely sparse pages even when DEFLATE compresses runs.
+            let body: String = purrdf_testkit::rng::splitmix64_bytes(180, 0x6360 + index)
+                .into_iter()
+                .map(|byte| char::from(b'a' + byte % 26))
+                .collect();
+            TermValue::iri(format!("https://example.org/{body}/{index:03}"))
+        })
+        .collect();
+    let first = (1_u64 << 54) + 251;
+    let limits = SegmentedBuildLimits::new(100, 100_000, 100, 512, 8)
+        .unwrap()
+        .with_first_term_index(first)
+        .unwrap();
+    let mut builder = SegmentedBuilder::new(limits).unwrap();
+    let mut ids = Vec::new();
+    builder.intern_batch(&values, |_, id| ids.push(id)).unwrap();
+    for &id in &ids {
+        builder
+            .push_quad(QuadIds {
+                s: id,
+                p: ids[0],
+                o: id,
+                g: None,
+            })
+            .unwrap();
+    }
+    let image = builder.seal().unwrap();
+    let certified = SegmentedImage::certify(image.bytes().to_vec()).unwrap();
+    assert_eq!(certified.bytes(), image.bytes());
+    // Read the persisted stream descriptors, not a reconstruction of their
+    // encoder: dictionary/reverse descriptors begin at bytes 48 and 72.
+    let dictionary_blocks = purrdf_core::bytes::read_u64_le(image.bytes(), 56).unwrap();
+    let reverse_first = purrdf_core::bytes::read_u64_le(image.bytes(), 72).unwrap();
+    let reverse_blocks = purrdf_core::bytes::read_u64_le(image.bytes(), 80).unwrap();
+    let terms = purrdf_core::bytes::read_u64_le(image.bytes(), 24).unwrap();
+    let block_bytes = purrdf_core::bytes::read_u32_le(image.bytes(), 12).unwrap();
+    let reverse_capacity = (block_bytes - 9) / 8;
+    assert_eq!(reverse_blocks, terms.div_ceil(u64::from(reverse_capacity)));
+    assert!(
+        dictionary_blocks > terms.div_ceil(8),
+        "the control must exercise sparse dictionary routing"
+    );
+    assert!(reverse_blocks < dictionary_blocks);
+    let mut count = 0_u64;
+    let mut widest = 0;
+    for slot in reverse_first..reverse_first + reverse_blocks {
+        let offset = usize::try_from(slot * 512).unwrap();
+        let population = purrdf_core::bytes::read_u32_le(image.bytes(), offset + 1).unwrap();
+        assert!((1..=reverse_capacity).contains(&population));
+        widest = widest.max(population);
+        count += u64::from(population);
+    }
+    assert_eq!(count, 80);
+    assert!(widest > 1);
+    let read = session(&certified, 2);
+    let opened = read.evidence();
+    opened.with_requests(|requests| {
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| request.bytes() == 512)
+                .count(),
+            1
+        );
+        assert_eq!(requests[0].position(), 0);
+    });
+    let before = opened.request_count();
+    assert_eq!(read.term_value(ids[79]).unwrap(), values[79]);
+    assert!(
+        read.evidence().request_count() - before < 80,
+        "one sparse read must not scan the complete dictionary"
+    );
+    // Both insertion order and lexical order cross variable-size boundaries.
+    for index in (0..ids.len()).rev() {
+        assert_eq!(read.term_value(ids[index]).unwrap(), values[index]);
+        assert_eq!(
+            read.term_id_by_value(&values[index]).unwrap(),
+            Some(ids[index])
+        );
+        assert_eq!(ids[index].index(), first + u64::try_from(index).unwrap());
+    }
+    assert_eq!(read.checked_read(|view| view.quads().count()).unwrap(), 80);
+    let mut output = Vec::new();
+    read.export_trig_lines(&mut purrdf_core::sink::WriterDrain(&mut output))
+        .unwrap();
+    let text = String::from_utf8(output).unwrap();
+    for value in &values {
+        assert!(text.contains(value.as_iri().unwrap()));
+    }
+    assert!(read.evidence().peak_bytes() <= read.storage_live_budget().unwrap());
+    assert_eq!(read.read_error(), None);
+
+    let sequential = session(&certified, 2);
+    for (id, value) in ids.iter().zip(&values) {
+        assert_eq!(sequential.term_value(*id).unwrap(), *value);
+    }
+    sequential.evidence().with_requests(|requests| {
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| request.bytes() == 512)
+                .count(),
+            1 + usize::try_from(dictionary_blocks).unwrap(),
+            "header plus one payload read per packed dictionary page, without distant search fences"
+        );
+    });
+
+    let routed = session(&certified, 1);
+    assert_eq!(routed.term_value(ids[79]).unwrap(), values[79]);
+    assert_eq!(routed.term_value(ids[0]).unwrap(), values[0]);
+    let before = routed.evidence();
+    assert_eq!(routed.term_value(ids[79]).unwrap(), values[79]);
+    let after = routed.evidence();
+    after.with_requests(|requests| {
+        assert_eq!(
+            requests[before.request_count()..]
+                .iter()
+                .filter(|request| request.bytes() == 512)
+                .count(),
+            1,
+            "an evicted payload needs one authenticated reload, not another fence search"
+        );
+    });
+    assert_eq!(after.evictions(), before.evictions() + 1);
+
+    for indices in [&[78, 79][..], &[77, 78, 79][..]] {
+        let hot = session(&certified, u32::try_from(indices.len()).unwrap());
+        let pins: Vec<_> = indices
+            .iter()
+            .map(|&index| hot.resolve(ids[index]).unwrap())
+            .collect();
+        drop(pins);
+        let before = hot.evidence();
+        for _ in 0..64 {
+            for &index in indices {
+                let guard = hot.resolve(ids[index]).unwrap();
+                assert_eq!(guard.term(), TermRef::Iri(values[index].as_iri().unwrap()));
+            }
+        }
+        let after = hot.evidence();
+        assert_eq!(
+            after.request_count(),
+            before.request_count(),
+            "cached variable-population terms must not reread search fences"
+        );
+        assert_eq!(after.evictions(), before.evictions());
+    }
+}
+
+fn oversized_encoded_terms_keep_fixed_pages_and_round_trip() {
+    let iri = TermValue::iri(format!("https://example.org/{}", "x".repeat(20_000)));
+    let literal = TermValue::Literal {
+        lexical_form: "مرحبا 漢字".repeat(1024),
+        datatype: purrdf_iri::vocab::rdf::DIR_LANG_STRING.to_owned(),
+        language: Some("ar".to_owned()),
+        direction: Some(RdfTextDirection::Rtl),
+    };
+    let quoted = TermValue::Triple {
+        s: iri.clone().into(),
+        p: TermValue::iri("https://example.org/p").into(),
+        o: literal.clone().into(),
+    };
+    let values = [iri, literal, quoted];
+    for block_bytes in [512, 4096] {
+        let mut builder = SegmentedBuilder::new(
+            SegmentedBuildLimits::new(16, 300_000, 0, block_bytes, 8).unwrap(),
+        )
+        .unwrap();
+        let mut ids = Vec::new();
+        builder.intern_batch(&values, |_, id| ids.push(id)).unwrap();
+        let image = builder.seal().unwrap();
+        assert_eq!(
+            purrdf_core::bytes::read_u32_le(image.bytes(), 12),
+            Some(block_bytes)
+        );
+        let read = session(&image, 2);
+        for (id, value) in ids.into_iter().zip(&values) {
+            assert_eq!(read.term_value(id).unwrap(), *value);
+            assert_eq!(read.term_id_by_value(value).unwrap(), Some(id));
+        }
+    }
+}
+
+fn small_reverse_lookups_do_not_materialize_oversized_candidates() {
+    let lexical = "z".repeat(64 * 1024);
+    let values = [
+        TermValue::iri("urn:overflow:subject"),
+        TermValue::iri("urn:overflow:predicate"),
+        TermValue::simple_literal(lexical),
+        TermValue::simple_literal("zebra"),
+    ];
+    let (image, ids) = build(&values, (1_u64 << 54) + 9);
+    let read = SegmentedSession::open(
+        Arc::new(image.provider()),
+        image.receipt(),
+        SegmentedReadLimits::new(32_000, 4, 20_000, 10_000_000, 8),
+    )
+    .unwrap();
+    assert_eq!(read.term_id_by_value(&values[3]).unwrap(), Some(ids[3]));
+    assert_eq!(read.term_value(ids[0]).unwrap(), values[0]);
+    assert!(read.evidence().peak_bytes() <= 32_000);
+    let before = read.evidence().request_count();
+    assert!(matches!(
+        read.resolve(ids[2]),
+        Err(SegmentedError::Residency { .. } | SegmentedError::PinnedBlocks)
+    ));
+    assert_eq!(read.evidence().request_count(), before);
+    assert!(read.read_error().is_some());
+}
+
+fn reverse_identifiers_resolve_the_single_stored_term_even_with_one_cache_slot() {
+    let marker = "Only one original encoding of this authored literal survives in the image. ";
+    let lexical = format!("{marker}{}", "natural language payload ".repeat(8));
+    let values = [
+        TermValue::iri("urn:single-owner"),
+        TermValue::simple_literal(lexical),
+        TermValue::iri("urn:lexically-before"),
+        TermValue::iri("urn:lexically-after"),
+    ];
+    let (image, ids) = build(&values, (1_u64 << 54) + 19);
+    let mut previous_profile = image.bytes().to_vec();
+    previous_profile[7] = b'5';
+    purrdf_core::bytes::put_u32_le(&mut previous_profile, 8, 5).unwrap();
+    assert!(matches!(
+        SegmentedImage::certify(previous_profile),
+        Err(SegmentedError::Corrupt(
+            "unsupported segmented format/profile; regenerate the image from RDF input"
+        ))
+    ));
+    assert_eq!(
+        image
+            .bytes()
+            .windows(marker.len())
+            .filter(|bytes| *bytes == marker.as_bytes())
+            .count(),
+        1
+    );
+    let reverse_first = purrdf_core::bytes::read_u64_le(image.bytes(), 72).unwrap();
+    let reverse_blocks = purrdf_core::bytes::read_u64_le(image.bytes(), 80).unwrap();
+    for slot in reverse_first..reverse_first + reverse_blocks {
+        let start = usize::try_from(slot * 1024).unwrap();
+        let bytes = &image.bytes()[start..start + 1024];
+        let records = purrdf_core::bytes::read_u32_le(bytes, 1).unwrap();
+        assert_eq!(purrdf_core::bytes::read_u32_le(bytes, 5), Some(records * 8));
+        assert!(
+            !bytes
+                .windows(marker.len())
+                .any(|bytes| bytes == marker.as_bytes())
+        );
+    }
+    let read = session(&image, 1);
+    for (value, id) in values.iter().zip(ids) {
+        assert_eq!(read.term_id_by_value(value).unwrap(), Some(id));
+        assert_eq!(read.term_value(id).unwrap(), *value);
+    }
+    assert_eq!(
+        read.term_id_by_value(&TermValue::iri("urn:absent"))
+            .unwrap(),
+        None
+    );
+    assert!(read.evidence().peak_bytes() <= read.storage_live_budget().unwrap());
+    assert_eq!(read.read_error(), None);
+}
+
+fn indexed_reopen_preserves_high_ids_and_bidirectional_batches() {
+    let values: Vec<_> = (0..37)
+        .map(|n| TermValue::iri(format!("http://example.org/中文/long/{n:04}")))
+        .collect();
+    let (image, ids) = build(&values, (1_u64 << 54) + 7);
+    let read = session(&image, 2);
+    assert_eq!(
+        read.max_owned_term_bytes(),
+        Some(144 + u64::try_from(values[0].as_iri().unwrap().len()).unwrap()),
+        "the certified wire-profile cost must be identical on 32-bit and 64-bit targets"
+    );
+    assert_eq!(
+        SegmentedImage::certify(image.bytes().to_vec())
+            .unwrap()
+            .bytes(),
+        image.bytes(),
+        "complete certification retains the portable representation verbatim"
+    );
+    let opened = read.evidence();
+    opened.with_requests(|requests| {
+        assert_eq!(requests[0].position(), 0);
+        assert_eq!(requests[0].bytes(), 1024);
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| request.bytes() == 1024)
+                .count(),
+            1,
+            "opening reads the authenticated header, not dictionary/index blocks"
+        );
+    });
+    let mut resolved = 0;
+    read.resolve_batch(&ids, |id, term| {
+        assert!(id.index() > 1_u64 << 53);
+        assert_eq!(id.encode(), u128::from(id.index()));
+        assert_eq!(term, TermRef::Iri(values[resolved].as_iri().unwrap()));
+        resolved += 1;
+    })
+    .unwrap();
+    let mut looked_up = 0;
+    read.lookup_batch(&values, |value, id| {
+        assert_eq!(value, &values[looked_up]);
+        assert_eq!(id, Some(ids[looked_up]));
+        looked_up += 1;
+    })
+    .unwrap();
+    assert_eq!(resolved, values.len());
+    assert_eq!(looked_up, values.len());
+    assert_eq!(
+        read.term_id_by_value(&TermValue::iri("http://example.org/absent"))
+            .unwrap(),
+        None
+    );
+    let evidence = read.evidence();
+    assert!(evidence.evictions() > 0);
+    assert!(evidence.peak_bytes() <= 2_000_000);
+    assert_eq!(
+        opened.request_count(),
+        opened.with_requests(<[purrdf_core::SegmentedRequest]>::len)
+    );
+    assert!(
+        opened.request_count() < evidence.request_count(),
+        "older evidence keeps its exact prefix"
+    );
+    // Reopen a fresh host attachment using the same full-validation authority.
+    let fresh = SegmentedBytes::new(Arc::from(image.bytes()), image.receipt().snapshot());
+    let reopened = SegmentedSession::open(
+        Arc::new(fresh),
+        image.receipt(),
+        SegmentedReadLimits::new(2_000_000, 2, 20_000, 10_000_000, 8),
+    )
+    .unwrap();
+    for (&id, value) in ids.iter().zip(&values) {
+        assert_eq!(reopened.term_value(id).unwrap(), *value);
+    }
+}
+
+fn live_pins_are_charged_and_cannot_be_evicted() {
+    let values: Vec<_> = (0..13)
+        .map(|n| TermValue::iri(format!("http://example.org/{n}")))
+        .collect();
+    let (image, ids) = build(&values, 0);
+    let read = session(&image, 1);
+    let first = read.resolve(ids[0]).unwrap();
+    let same = read.resolve(ids[1]).unwrap();
+    assert_eq!(first.term(), TermRef::Iri(values[0].as_iri().unwrap()));
+    assert!(matches!(
+        read.resolve(ids[8]),
+        Err(SegmentedError::PinnedBlocks)
+    ));
+    assert!(matches!(
+        read.read_error(),
+        Some(SegmentedError::PinnedBlocks)
+    ));
+    assert_eq!(
+        same.term(),
+        TermRef::Iri(values[1].as_iri().unwrap()),
+        "live pins retain authenticated text after admission refusal"
+    );
+    drop(first);
+    drop(same);
+    // A fresh operation releases lexical pins and can evict/reload the same cache.
+    let read = session(&image, 1);
+    for &id in &[ids[0], ids[8], ids[0]] {
+        let guard = read.resolve(id).unwrap();
+        assert!(matches!(guard.term(), TermRef::Iri(_)));
+    }
+    assert!(read.evidence().evictions() >= 3);
+}
+
+fn exact_evidence_and_workspace_refuse_before_unbounded_growth() {
+    let (image, ids) = build(
+        &[
+            TermValue::iri("http://example.org/p"),
+            TermValue::iri("http://example.org/o"),
+        ],
+        0,
+    );
+    assert!(matches!(
+        SegmentedSession::open(
+            Arc::new(image.provider()),
+            image.receipt(),
+            SegmentedReadLimits::new(1_000_000, 1, 0, 1_000_000, 1)
+        ),
+        Err(SegmentedError::EvidenceExhausted)
+    ));
+    let read = session(&image, 1);
+    let live = read.evidence().live_bytes();
+    let mut reservation = read.reserve_workspace(3000).unwrap();
+    assert!(
+        read.evidence().live_bytes() >= live + 3000 - 1200,
+        "admission may evict the old header"
+    );
+    reservation.resize(4000).unwrap();
+    assert!(reservation.resize(3_000_000).is_err());
+    drop(reservation);
+    assert!(read.term_value(ids[0]).is_ok());
+    assert!(read.evidence().peak_bytes() <= read.storage_live_budget().unwrap());
+}
+
+fn cache_eviction_preserves_exact_non_cache_owner_conservation() {
+    let (image, ids) = build(
+        &[
+            TermValue::iri("http://example.org/p"),
+            TermValue::iri("http://example.org/o"),
+        ],
+        0,
+    );
+    let read = session(&image, 2);
+    let opening = read.evidence();
+    let owners =
+        opening.live_bytes() - opening.unpinned_cache_bytes() - opening.bookkeeping_bytes();
+    assert!(opening.unpinned_cache_bytes() > 0);
+    let mut reservation = read.reserve_workspace(3000).unwrap();
+    let held = read.evidence();
+    assert_eq!(
+        held.live_bytes() - held.unpinned_cache_bytes() - held.bookkeeping_bytes(),
+        owners + 3000
+    );
+    reservation.resize(4000).unwrap();
+    assert!(matches!(
+        reservation.resize(3_000_000),
+        Err(SegmentedError::Residency { .. })
+    ));
+    let refused = read.evidence();
+    assert_eq!(
+        refused.live_bytes() - refused.unpinned_cache_bytes() - refused.bookkeeping_bytes(),
+        owners + 4000
+    );
+    drop(reservation);
+    let released = read.evidence();
+    assert!(released.evictions() > opening.evictions());
+    assert_eq!(
+        released.live_bytes() - released.unpinned_cache_bytes() - released.bookkeeping_bytes(),
+        owners
+    );
+    let pin = read.resolve(ids[0]).unwrap();
+    let pinned = read.evidence();
+    assert!(
+        pinned.live_bytes() - pinned.unpinned_cache_bytes() - pinned.bookkeeping_bytes() > owners
+    );
+    drop(pin);
+    let unpinned = read.evidence();
+    assert_eq!(
+        unpinned.live_bytes() - unpinned.unpinned_cache_bytes() - unpinned.bookkeeping_bytes(),
+        owners
+    );
+    assert!(read.read_error().is_none());
+}
+
+fn corruption_cannot_turn_an_omitted_fact_into_success() {
+    let values: Vec<_> = (0..21)
+        .map(|n| TermValue::iri(format!("http://example.org/{n:02}")))
+        .collect();
+    let (image, ids) = build(&values, 0);
+    let mut bytes = image.bytes().to_vec();
+    // Alter the first dictionary fence, leaving the receipt unchanged. Recomputed
+    // attacker-controlled local checksums could not replace this certified root.
+    bytes[1024 + 17 + 7] ^= 1;
+    let forged = SegmentedBytes::new(bytes.into(), image.receipt().snapshot());
+    let read = SegmentedSession::open(
+        Arc::new(forged),
+        image.receipt(),
+        SegmentedReadLimits::new(2_000_000, 2, 20_000, 10_000_000, 8),
+    )
+    .unwrap();
+    assert!(matches!(
+        read.resolve(ids[0]),
+        Err(SegmentedError::Corrupt(_))
+    ));
+    assert!(
+        read.checked_read(|view| view.quads().count()).is_err(),
+        "sticky corruption refuses the complete result"
+    );
+}
+
+fn compression_candidates_do_not_allocate_record_count_physical_blocks() {
+    let values: Vec<_> = (0_u64..256)
+        .map(|index| {
+            let text: String = purrdf_testkit::rng::splitmix64_bytes(5120, 0x63600 + index)
+                .into_iter()
+                .map(|byte| char::from(b'a' + byte % 26))
+                .collect();
+            TermValue::simple_literal(text)
+        })
+        .collect();
+    let mut builder = SegmentedBuilder::new(
+        SegmentedBuildLimits::new(1024, 5_000_000, 1, 1_048_576, 256).unwrap(),
+    )
+    .unwrap();
+    let mut ids = Vec::new();
+    builder.intern_batch(&values, |_, id| ids.push(id)).unwrap();
+    let window = purrdf_alloc_probe::CurrentThreadWindow::open();
+    let image = builder.seal().unwrap();
+    let measured = window.close();
+    println!(
+        "large-block candidate image_bytes={} seal_peak_bytes={}",
+        image.bytes().len(),
+        measured.peak_working_bytes
+    );
+    assert!(
+        measured.peak_working_bytes < 64 * 1024 * 1024,
+        "a 1.3-MiB payload must not allocate 256 physical MiB: {measured:?}"
+    );
+    let read = SegmentedSession::open(
+        Arc::new(image.provider()),
+        image.receipt(),
+        SegmentedReadLimits::new(32_000_000, 4, 1000, 1_000_000_000, 8),
+    )
+    .unwrap();
+    for index in [0, 127, 255] {
+        assert_eq!(read.term_value(ids[index]).unwrap(), values[index]);
+        assert_eq!(
+            read.term_id_by_value(&values[index]).unwrap(),
+            Some(ids[index])
+        );
+    }
+}
+
+fn compressed_archival_literals_preserve_rdf12_values_and_admitted_workspace() {
+    let paragraph = text_fixture::ARCHIVE_TEXT.repeat(12);
+    let archive = |long: bool| {
+        let predicate = TermValue::iri("urn:archive:record");
+        let mut values = vec![
+            predicate.clone(),
+            TermValue::iri("urn:archive:graph"),
+            TermValue::iri("urn:archive:annotation"),
+            TermValue::iri("urn:archive:empty"),
+        ];
+        let mut text_bytes = 0;
+        for index in 0..64 {
+            let subject = TermValue::Blank {
+                label: "source".into(),
+                scope: BlankScope(0x3600 + index),
+            };
+            let lexical = if long {
+                format!("{index:04} {paragraph}")
+            } else {
+                format!("{index:04}")
+            };
+            text_bytes += lexical.len();
+            let literal = TermValue::simple_literal(lexical);
+            let quoted = TermValue::Triple {
+                s: TermBox::new(subject.clone()),
+                p: TermBox::new(predicate.clone()),
+                o: TermBox::new(literal.clone()),
+            };
+            values.extend([
+                subject,
+                literal,
+                quoted,
+                TermValue::iri(format!("urn:archive:claim:{index}")),
+            ]);
+        }
+        let mut builder = SegmentedBuilder::new(
+            SegmentedBuildLimits::new(1024, 2_000_000, 1024, 4096, 64)
+                .unwrap()
+                .with_first_term_index((1_u64 << 54) + 31)
+                .unwrap(),
+        )
+        .unwrap();
+        let mut ids = Vec::new();
+        builder.intern_batch(&values, |_, id| ids.push(id)).unwrap();
+        builder.declare_named_graph(ids[3]).unwrap();
+        for index in 0..64 {
+            let start = 4 + index * 4;
+            builder
+                .push_quad(QuadIds {
+                    s: ids[start],
+                    p: ids[0],
+                    o: ids[start + 1],
+                    g: Some(ids[1]),
+                })
+                .unwrap();
+            builder
+                .push_reifier(ids[start + 3], ids[start + 2], Some(ids[1]))
+                .unwrap();
+            builder
+                .push_annotation(QuadIds {
+                    s: ids[start + 3],
+                    p: ids[2],
+                    o: ids[start + 1],
+                    g: Some(ids[1]),
+                })
+                .unwrap();
+        }
+        (builder.seal().unwrap(), ids, values, text_bytes)
+    };
+    let (short, _, _, _) = archive(false);
+    let (image, ids, values, text_bytes) = archive(true);
+    assert!(
+        image.bytes().len() <= short.bytes().len() + text_bytes / 8,
+        "long={} short={} text={text_bytes}",
+        image.bytes().len(),
+        short.bytes().len()
+    );
+    let certified = SegmentedImage::certify(image.bytes().to_vec()).unwrap();
+    assert_eq!(certified.receipt(), image.receipt());
+    let refused = SegmentedSession::open(
+        Arc::new(certified.provider()),
+        certified.receipt(),
+        SegmentedReadLimits::new(1_000_000, 1, 20_000, 10_000_000, 8),
+    )
+    .unwrap();
+    let cause = refused.term_value(ids[0]).unwrap_err();
+    assert!(matches!(
+        cause,
+        purrdf_core::TermLookupError::Read(SegmentedError::Residency {
+            limit: 1_000_000,
+            ..
+        })
+    ));
+    assert_eq!(refused.term_value(ids[0]).unwrap_err(), cause);
+    let pinned = session(&certified, 1);
+    let held = pinned.resolve(ids[0]).unwrap();
+    assert_eq!(
+        pinned.resolve(*ids.last().unwrap()).err(),
+        Some(SegmentedError::PinnedBlocks)
+    );
+    drop(held);
+    drop(pinned);
+    // Quoted values retain the parent guard while visiting children.
+    let small = session(&certified, 4);
+    for index in [6, 134, 258] {
+        assert_eq!(small.term_value(ids[index]).unwrap(), values[index]);
+        assert_eq!(
+            small.term_id_by_value(&values[index]).unwrap(),
+            Some(ids[index])
+        );
+    }
+    drop(small);
+    // The five dictionary blocks and packed reverse block fit this warm cache
+    // under the original two-MB physical and ten-MB cumulative I/O ceilings.
+    let read = session(&certified, 8);
+    let window = purrdf_alloc_probe::CurrentThreadWindow::open();
+    for (&id, value) in ids.iter().zip(&values) {
+        assert_eq!(read.term_value(id).unwrap(), *value);
+        assert_eq!(read.term_id_by_value(value).unwrap(), Some(id));
+    }
+    let measured = window.close();
+    assert!(
+        measured.peak_working_bytes <= i64::try_from(read.evidence().peak_bytes()).unwrap(),
+        "{measured:?}"
+    );
+    let requests = read.evidence().request_count();
+    for (&id, value) in ids.iter().zip(&values) {
+        assert_eq!(read.term_value(id).unwrap(), *value);
+        assert_eq!(read.term_id_by_value(value).unwrap(), Some(id));
+    }
+    assert_eq!(
+        read.evidence().request_count(),
+        requests,
+        "warm value lookups perform no provider I/O"
+    );
+    assert_eq!(read.checked_read(|view| view.quads().count()).unwrap(), 64);
+    assert_eq!(
+        read.checked_read(|view| view.reifier_quads().count())
+            .unwrap(),
+        64
+    );
+    assert_eq!(
+        read.checked_read(|view| view.annotation_quads().count())
+            .unwrap(),
+        64
+    );
+    assert_eq!(
+        read.checked_read(|view| view.named_graphs().count())
+            .unwrap(),
+        2
+    );
+    eprintln!(
+        "archive: short={} long={} text={text_bytes} peak={} measured={}",
+        short.bytes().len(),
+        image.bytes().len(),
+        read.evidence().peak_bytes(),
+        measured.peak_working_bytes
+    );
+}
+
+fn rdf12_references_empty_graphs_and_streamed_lines_survive() {
+    let subject = TermValue::Blank {
+        label: "主题".into(),
+        scope: BlankScope(71),
+    };
+    let predicate = TermValue::iri(format!("http://example.org/p{}", "p".repeat(180)));
+    let literal = TermValue::Literal {
+        lexical_form: "方向".into(),
+        datatype: purrdf_iri::vocab::rdf::DIR_LANG_STRING.into(),
+        language: Some("zh".into()),
+        direction: Some(RdfTextDirection::Rtl),
+    };
+    let triple = TermValue::Triple {
+        s: TermBox::new(subject.clone()),
+        p: TermBox::new(predicate.clone()),
+        o: TermBox::new(literal.clone()),
+    };
+    let values = [
+        subject,
+        predicate,
+        literal,
+        triple,
+        TermValue::iri(format!("http://example.org/claim{}", "c".repeat(180))),
+        TermValue::iri(format!("http://example.org/g{}", "g".repeat(180))),
+        TermValue::iri("http://example.org/empty"),
+    ];
+    let limits = SegmentedBuildLimits::new(100, 20_000, 30, 512, 8)
+        .unwrap()
+        .with_first_term_index((1_u64 << 54) + 31)
+        .unwrap();
+    let mut builder = SegmentedBuilder::new(limits).unwrap();
+    let mut ids = Vec::new();
+    builder.intern_batch(&values, |_, id| ids.push(id)).unwrap();
+    assert_eq!(builder.statement_count(), 0);
+    for _ in 0..3 {
+        builder
+            .push_quad(QuadIds {
+                s: ids[0],
+                p: ids[1],
+                o: ids[3],
+                g: Some(ids[5]),
+            })
+            .unwrap();
+        builder.push_reifier(ids[4], ids[3], Some(ids[5])).unwrap();
+        builder
+            .push_annotation(QuadIds {
+                s: ids[4],
+                p: ids[1],
+                o: ids[2],
+                g: Some(ids[5]),
+            })
+            .unwrap();
+        builder.declare_named_graph(ids[6]).unwrap();
+        let window = purrdf_alloc_probe::CurrentThreadWindow::open();
+        let count = builder.statement_count();
+        let measured = window.close();
+        assert_eq!(
+            count, 3,
+            "duplicate rows and declarations do not grow the count"
+        );
+        assert_eq!(measured.allocations, 0);
+    }
+    let image = builder.seal().unwrap();
+    let read = session(&image, 4);
+    for (&id, value) in ids.iter().zip(&values) {
+        assert_eq!(read.term_value(id).unwrap(), *value);
+    }
+    assert_eq!(read.checked_read(|view| view.quads().count()).unwrap(), 1);
+    assert_eq!(
+        read.checked_read(|view| view.reifier_quads().count())
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        read.checked_read(|view| view.annotation_quads().count())
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        read.checked_read(|view| view.named_graphs().count())
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        read.checked_read(|view| view
+            .quads_for_pattern(Some(ids[0]), None, None, GraphMatch::Named(ids[5]))
+            .count())
+            .unwrap(),
+        1
+    );
+    let mut output = Vec::new();
+    read.export_trig_lines(&mut purrdf_core::sink::WriterDrain(&mut output))
+        .unwrap();
+    let output = String::from_utf8(output).unwrap();
+    assert!(output.contains("<http://example.org/empty> {}\n"));
+    assert!(output.contains(purrdf_iri::vocab::rdf::REIFIES));
+    assert!(output.contains("@zh--rtl"));
+    assert!(output.contains("<<("));
+    assert!(read.max_owned_term_bytes().unwrap() >= u64::try_from(size_of::<TermValue>()).unwrap());
+}
+
+fn retained_v1_pack_reader_migrates_into_the_versioned_representation() {
+    let mut builder = purrdf_core::RdfDatasetBuilder::new();
+    let p = builder.intern_iri("http://example.org/p").unwrap();
+    let empty = builder.intern_iri("http://example.org/empty").unwrap();
+    builder.push_quad(p, p, p, None).unwrap();
+    builder.declare_named_graph(empty).unwrap();
+    let source = builder.freeze().unwrap();
+    let limits = SegmentedBuildLimits::new(100, 20_000, 30, 1024, 4).unwrap();
+    let graph_count = |image: &SegmentedImage| {
+        session(image, 3)
+            .checked_read(|view| view.named_graphs().count())
+            .unwrap()
+    };
+
+    // A v1 pack carries a declaration-only graph as a zero-row partition, so the
+    // migration keeps it without a sidecar.
+    let current = purrdf_core::PackBuilder::build_bytes(source.as_ref()).unwrap();
+    let migrated = SegmentedImage::from_pack_v1(&current, limits).unwrap();
+    let read = session(&migrated, 3);
+    assert_eq!(read.checked_read(|view| view.quads().count()).unwrap(), 1);
+    assert_eq!(
+        graph_count(&migrated),
+        1,
+        "the pack carries the declaration"
+    );
+    // Restating a declaration the pack already carries is idempotent.
+    let restated = SegmentedImage::from_pack_v1_with_graphs(
+        &current,
+        &[TermValue::iri("http://example.org/empty")],
+        limits,
+    )
+    .unwrap();
+    assert_eq!(graph_count(&restated), 1);
+    let restored = purrdf_core::dataset_from_view(&read).unwrap();
+    assert!(purrdf_core::datasets_isomorphic(source.as_ref(), restored.as_ref()).unwrap());
+    assert_eq!(restored.named_graphs().count(), 1);
+
+    // A pack written without the declaration (as every pack written before
+    // declarations were carried is) still needs the sidecar to restate it.
+    let mut builder = purrdf_core::RdfDatasetBuilder::new();
+    let p = builder.intern_iri("http://example.org/p").unwrap();
+    builder.push_quad(p, p, p, None).unwrap();
+    let old = purrdf_core::PackBuilder::build_bytes(builder.freeze().unwrap().as_ref()).unwrap();
+    assert_eq!(
+        graph_count(&SegmentedImage::from_pack_v1(&old, limits).unwrap()),
+        0,
+        "nothing in the pack names the graph"
+    );
+    let with_declarations = SegmentedImage::from_pack_v1_with_graphs(
+        &old,
+        &[TermValue::iri("http://example.org/empty")],
+        limits,
+    )
+    .unwrap();
+    assert_eq!(graph_count(&with_declarations), 1);
+}
+
+struct RetainedManifest([u8; purrdf_core::SegmentedReceipt::ENCODED_BYTES]);
+impl purrdf_core::SegmentedReceiptAuthority for RetainedManifest {
+    fn authenticate(&self, bytes: &[u8]) -> Result<(), SegmentedError> {
+        if bytes == self.0 {
+            Ok(())
+        } else {
+            Err(SegmentedError::SnapshotMismatch)
+        }
+    }
+}
+
+fn persisted_certification_reopens_only_with_retained_authority() {
+    let (image, ids) = build(&[TermValue::iri("http://example.org/original")], 0);
+    let retained = RetainedManifest(image.receipt().encode());
+    let restored =
+        purrdf_core::SegmentedReceipt::from_authenticated_bytes(&retained.0, &retained).unwrap();
+    assert_eq!(&restored, image.receipt());
+    let provider = SegmentedBytes::new(Arc::from(image.bytes()), restored.snapshot());
+    let read = SegmentedSession::open(
+        Arc::new(provider),
+        &restored,
+        SegmentedReadLimits::new(1_000_000, 2, 200, 100_000, 4),
+    )
+    .unwrap();
+    assert_eq!(
+        read.term_value(ids[0]).unwrap(),
+        TermValue::iri("http://example.org/original")
+    );
+    let mut replaced = retained.0;
+    replaced[40] ^= 1;
+    assert!(matches!(
+        purrdf_core::SegmentedReceipt::from_authenticated_bytes(&replaced, &retained),
+        Err(SegmentedError::SnapshotMismatch)
+    ));
+}
+
+fn snapshot_qualified_handles_do_not_reinterpret_reused_compact_ids() {
+    let (first, ids) = build(&[TermValue::iri("http://example.org/first")], 0);
+    let (second, second_ids) = build(&[TermValue::iri("http://example.org/second")], 0);
+    assert_eq!(ids, second_ids);
+    let first_read = session(&first, 2);
+    let handle = first_read.handle(ids[0]).unwrap();
+    let handle = purrdf_core::SegmentedHandle::from_encoded_bytes(&handle.encode()).unwrap();
+    assert_eq!(first_read.attach(handle).unwrap(), ids[0]);
+    assert_eq!(session(&first, 2).attach(handle).unwrap(), ids[0]);
+    assert!(matches!(
+        session(&second, 2).attach(handle),
+        Err(SegmentedError::SnapshotMismatch)
+    ));
+    assert!(
+        first_read
+            .handle(GlobalTermId::checked_from_index(999).unwrap())
+            .is_err()
+    );
+}
+
+#[derive(Debug)]
+struct StoppedProvider {
+    bytes: SegmentedBytes,
+    stop_after: std::sync::atomic::AtomicU64,
+}
+impl purrdf_core::SegmentedProvider for StoppedProvider {
+    fn snapshot(&self) -> purrdf_core::SegmentedSnapshot {
+        self.bytes.snapshot()
+    }
+    fn byte_len(&self) -> u64 {
+        self.bytes.byte_len()
+    }
+    fn read_at(&self, position: u64, output: &mut [u8]) -> Result<(), SegmentedError> {
+        if self
+            .stop_after
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed)
+            == 0
+        {
+            Err(SegmentedError::Stopped(purrdf_core::StopCause::Cancelled))
+        } else {
+            self.bytes.read_at(position, output)
+        }
+    }
+}
+
+fn cancellation_retains_the_exact_failed_request_and_refuses_partial_drains() {
+    let (image, ids) = build(&[TermValue::iri("http://example.org/p")], 0);
+    let provider = Arc::new(StoppedProvider {
+        bytes: image.provider(),
+        stop_after: std::sync::atomic::AtomicU64::new(u64::MAX),
+    });
+    let read = SegmentedSession::open(
+        provider.clone(),
+        image.receipt(),
+        SegmentedReadLimits::new(1_000_000, 2, 200, 100_000, 4),
+    )
+    .unwrap();
+    let before = read.evidence();
+    provider
+        .stop_after
+        .store(0, std::sync::atomic::Ordering::Relaxed);
+    assert!(matches!(
+        read.resolve(ids[0]),
+        Err(SegmentedError::Stopped(_))
+    ));
+    let after = read.evidence();
+    assert_eq!(after.request_count(), before.request_count() + 1);
+    after.with_requests(|requests| assert!(!requests.last().unwrap().completed()));
+    assert!(read.checked_read(|view| view.quads().count()).is_err());
+    assert!(purrdf_core::try_blank_count_view(&read).is_err());
+}
+
+fn charged_read_peak_covers_measured_allocations_including_streamed_output() {
+    let values = (0..125)
+        .map(|n| TermValue::iri(format!("http://example.org/{n:04}")))
+        .collect::<Vec<_>>();
+    let (image, ids) = build(&values, 0);
+    let provider = Arc::new(image.provider());
+    let mut drain = purrdf_core::sink::Measure::default();
+    // Provider-owned immutable fixture bytes exist before this window. The read
+    // session must charge all of its own cache, index, scratch, sink and evidence.
+    let window = purrdf_alloc_probe::CurrentThreadWindow::open();
+    let read = SegmentedSession::open(
+        provider,
+        image.receipt(),
+        SegmentedReadLimits::new(256 * 1024, 4, 2000, 10_000_000, 8),
+    )
+    .unwrap();
+    for &id in &ids {
+        let guard = read.resolve(id).unwrap();
+        std::hint::black_box(guard.term());
+    }
+    let evidence = read.export_trig_lines(&mut drain).unwrap();
+    let measured = window.close();
+    assert!(
+        u64::try_from(measured.peak_working_bytes).unwrap() <= evidence.peak_bytes(),
+        "all measured reader/output allocations must fit inside the conservative ledger"
+    );
+    assert!(evidence.peak_bytes() <= 256 * 1024);
+    assert!(evidence.evictions() > 0);
+}
+
+fn pin_refusal_precedes_io_and_owned_pin_survives_session_drop() {
+    let (image, ids) = build(&[TermValue::iri("http://example.org/p")], 0);
+    let read = SegmentedSession::open(
+        Arc::new(image.provider()),
+        image.receipt(),
+        SegmentedReadLimits::new(1_000_000, 2, 200, 100_000, 0),
+    )
+    .unwrap();
+    let before = read.evidence().request_count();
+    assert!(matches!(
+        read.resolve(ids[0]),
+        Err(SegmentedError::PinnedBlocks)
+    ));
+    assert_eq!(read.evidence().request_count(), before);
+    let guard = {
+        let read = session(&image, 2);
+        read.resolve(ids[0]).unwrap()
+    };
+    assert_eq!(guard.term(), TermRef::Iri("http://example.org/p"));
+}
+
+fn composite_lexical_blank_references_keep_their_scoped_dictionary_closure() {
+    let mut values = vec![TermValue::iri("https://example.org/p")];
+    let scopes = [BlankScope(71), BlankScope(72)];
+    for scope in scopes {
+        let label = scope.qualify_label("lexical-only");
+        values.push(TermValue::typed_literal(
+            format!("[_:{label}, [_:{label}], {{\"key\": _:{label}}}]"),
+            purrdf_cdt::datatype::CDT_LIST,
+        ));
+    }
+    let (image, ids) = build(&values, (1_u64 << 33) + 1);
+    let read = session(&image, 2);
+    for (index, scope) in scopes.into_iter().enumerate() {
+        let literal = read.term_value(ids[index + 1]).unwrap();
+        assert_eq!(literal, values[index + 1]);
+        let TermValue::Literal {
+            lexical_form,
+            datatype,
+            ..
+        } = literal
+        else {
+            panic!("composite fixture is a literal")
+        };
+        let references = purrdf_core::cdt_blank::cdt_embedded_blanks(&lexical_form, &datatype);
+        assert_ne!(references.len(), 0);
+        for (label, actual_scope) in references {
+            assert_eq!(actual_scope, scope);
+            let value = TermValue::Blank { label, scope };
+            let id = read
+                .term_id_by_value(&value)
+                .unwrap()
+                .expect("embedded blank is in the certified dictionary");
+            assert_eq!(read.term_value(id).unwrap(), value);
+        }
+    }
+}
+
+purrdf_testkit::harness_main!(
+    compression_candidates_do_not_allocate_record_count_physical_blocks,
+    compressed_archival_literals_preserve_rdf12_values_and_admitted_workspace,
+    reverse_identifiers_resolve_the_single_stored_term_even_with_one_cache_slot,
+    routing_growth_cannot_refuse_an_already_admitted_payload,
+    construction_limits_grow_on_input_instead_of_reserving_their_ceilings,
+    demand_growth_keeps_typed_construction_limits_and_failed_ingress_atomic,
+    byte_packed_dictionaries_round_trip_with_sparse_high_id_reads,
+    oversized_encoded_terms_keep_fixed_pages_and_round_trip,
+    small_reverse_lookups_do_not_materialize_oversized_candidates,
+    indexed_reopen_preserves_high_ids_and_bidirectional_batches,
+    live_pins_are_charged_and_cannot_be_evicted,
+    exact_evidence_and_workspace_refuse_before_unbounded_growth,
+    cache_eviction_preserves_exact_non_cache_owner_conservation,
+    corruption_cannot_turn_an_omitted_fact_into_success,
+    rdf12_references_empty_graphs_and_streamed_lines_survive,
+    retained_v1_pack_reader_migrates_into_the_versioned_representation,
+    persisted_certification_reopens_only_with_retained_authority,
+    snapshot_qualified_handles_do_not_reinterpret_reused_compact_ids,
+    cancellation_retains_the_exact_failed_request_and_refuses_partial_drains,
+    charged_read_peak_covers_measured_allocations_including_streamed_output,
+    pin_refusal_precedes_io_and_owned_pin_survives_session_drop,
+    composite_lexical_blank_references_keep_their_scoped_dictionary_closure,
+);

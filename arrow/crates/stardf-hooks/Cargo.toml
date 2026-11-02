@@ -1,0 +1,37 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-hooks"
+version.workspace = true
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Declarative RDF-described, SPARQL-driven knowledge derivation hooks (kh:) for PurRDF"
+
+[lib]
+# Vendoring law: lib name upstream-verbatim (package renamed, lib unchanged).
+name = "purrdf_hooks"
+
+[dependencies]
+stardf-core.workspace = true
+stardf-hash.workspace = true
+stardf-rdf.workspace = true
+stardf-shapes.workspace = true
+stardf-sparql-eval.workspace = true
+stardf-sql.workspace = true
+stardf-duckdb.workspace = true
+
+[dev-dependencies]
+cucumber = { version = "0.21", features = ["macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[[test]]
+name = "cucumber_hooks"
+harness = false
+
+[lints]
+workspace = true

@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-glob"
+description = "Compiled, metered Unicode glob matching with constant execution workspace"
+version.workspace = true
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+documentation = "https://docs.rs/stardf-glob"
+
+[lib]
+# Vendoring law: lib name upstream-verbatim (package renamed, lib unchanged).
+name = "purrdf_glob"
+
+[dependencies]
+stardf-core.workspace = true
+stardf-hash.workspace = true
+stardf-iri.workspace = true
+stardf-lex.workspace = true
+
+[dev-dependencies]
+stardf-alloc-probe.workspace = true
+stardf-testkit.workspace = true
+
+[[test]]
+name = "matching"
+harness = false
+
+# glob bench lanes: report-only, make bench lane only (wave v26.10.26).
+[[bench]]
+name = "execute"
+harness = false
+
+[lints]
+workspace = true

@@ -1,0 +1,353 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "lane": "11-license-carriage",
+  "date": "2026-10-31",
+  "subject": {
+    "head": "724d542540b497f2928a63b5aece9b37aef4019b",
+    "branch": "fix/v26.9.29-ci-gates",
+    "tree_digest": "0714ac5595c52724be802247a8d65fc3c333a6be73e2e2dcefba93cb4f3d8e3e",
+    "tree_digest_files": 12177,
+    "tree_digest_method": "cd stardf/arrow && find . -path '*/target*' -prune -o -type f -print | grep -v '/target/' | sort | xargs shasum -a 256 | shasum -a 256 (house method, prefix-relative)",
+    "git_state": "WORKING TREE UNCOMMITTED (concurrent campaign lanes + this lane's carriage files; coordinator owns commits)"
+  },
+  "scope": "Every v26.11.1 first-class-closure crate tarball legally self-contained: first-party license texts + in-package provenance notice; Unicode-3.0/BSD-3-Clause conjunct crates carry third-party notice dirs.",
+  "canonical_texts": {
+    "source": "crates/stardf-hash/licenses/",
+    "sha256": {
+      "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+      "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+      "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+    }
+  },
+  "checks": [
+    {
+      "id": "license-texts-copied-to-crates-lacking-carriage",
+      "passed": true,
+      "count": 22,
+      "comment": "22 text files into 8 crates' licenses/ dirs (arrow-core 3, capi 3, bench 1 [MIT-only declared], sql 3, duckdb 3, branchless 3, testkit 3, alloc-probe 3). branchless/testkit/alloc-probe were discovered missing by the gate itself (gate output over find-output recall). All 22 sha256-identical to canonical."
+    },
+    {
+      "id": "provenance-notices-written-in-package",
+      "passed": true,
+      "count": 6,
+      "comment": "PROVENANCE.md written inside arrow-core, arrow-capi, arrow-bench, sql, duckdb, stardf-purrdf(umbrella stardf-rs). Vendored crates already carried in-package notices."
+    },
+    {
+      "id": "package-list-gate-20-closure-crates",
+      "passed": true,
+      "count": 20,
+      "comment": "cargo package --list --allow-dirty -p <pkg>: 20/20 closure crates exit 0 with carriage rows; branchless/testkit/alloc-probe re-gated exit 0 post-fix; conjunct witness stardf-core exit 0 (lic=7 prov=3 tp=8). Witnessed lic/prov counts recorded per crate in per_crate[]."
+    },
+    {
+      "id": "real-tarball-witness-stardf-hash",
+      "passed": true,
+      "count": 8,
+      "comment": "cargo package --no-verify --allow-dirty --offline -p stardf-hash: 'Packaged 54 files, 516.9KiB (142.5KiB compressed)'; target/package/stardf-hash-26.11.1.crate exists; tar -tzf shows 8 carriage rows inside the real tarball. Dry-run packaging; no registry touch."
+    },
+    {
+      "id": "full-package-gate-testkit",
+      "passed": false,
+      "count": 0,
+      "comment": "cargo package -p stardf-testkit REFUSES: 'dependency `stardf-hash` does not specify a version' \u2014 path dep without version key. Dual-key law is lane 08-dual-key's lease; disclosed, not fixed here. testkit --list carriage gate green (exit 0, lic=3 prov=1)."
+    },
+    {
+      "id": "conjunct-notice-dirs-packaged",
+      "passed": true,
+      "count": 3,
+      "comment": "stardf-lex, stardf-iri, stardf-core third-party notice dirs all witnessed inside package lists (tp=11, tp=8, tp=8 rows)."
+    },
+    {
+      "id": "cargo-dirty-tree-refusal-witnessed",
+      "passed": true,
+      "count": 20,
+      "comment": "First gate run without --allow-dirty refused all 20 (exit 101, uncommitted-changes guard) - correct cargo behavior on a mid-campaign tree; re-run with --allow-dirty. Clean-tree full packaging gate is coordinator-phase, post-integration-commit."
+    }
+  ],
+  "errors": [
+    {
+      "code": "DUAL_KEY_MISSING_VERSION_TESTKIT_PACKAGE_REFUSAL",
+      "message": "cargo package -p stardf-testkit refuses: path dep stardf-hash lacks a version key (lane 08-dual-key lease). Full tarball gate un-witnessed for any crate whose internal path deps lack version keys; license carriage itself witnessed via --list + the hash real tarball."
+    },
+    {
+      "code": "GATE_LOOP_STRAY_ARG",
+      "message": "One gate-loop iteration passed a stray 'spec' argument (command artifact, not tree state); cargo refused the nonexistent package spec, exit 101, as it must."
+    }
+  ],
+  "commands": [
+    {
+      "cmd": "cargo package --list -p <each of 21 package specs> (no --allow-dirty)",
+      "exit": 101,
+      "comment": "All refused: dirty tree. Correct refusal, re-run with --allow-dirty."
+    },
+    {
+      "cmd": "cargo package --list --allow-dirty -p <each of 20 closure packages + stardf-core>",
+      "exit": 0,
+      "comment": "20/20 closure crates exit 0 with carriage rows; stardf-core conjunct witness exit 0."
+    },
+    {
+      "cmd": "cargo package --no-verify --allow-dirty --offline -p stardf-hash",
+      "exit": 0,
+      "comment": "Packaged 54 files -> target/package/stardf-hash-26.11.1.crate; tar -tzf witnessed 8 carriage rows inside."
+    },
+    {
+      "cmd": "cargo package --no-verify --allow-dirty --offline -p stardf-testkit",
+      "exit": 1,
+      "comment": "Refused: stardf-hash path dep missing version key."
+    },
+    {
+      "cmd": "shasum -a 256 over 22 copied license texts across 8 crates",
+      "exit": 0,
+      "comment": "All byte-identical to canonical crates/stardf-hash/licenses/ texts."
+    },
+    {
+      "cmd": "cd stardf/arrow && find . -path '*/target*' -prune -o -type f -print | grep -v '/target/' | sort | xargs shasum -a 256 | shasum -a 256",
+      "exit": 0,
+      "comment": "tree digest 0714ac5595c52724be802247a8d65fc3c333a6be73e2e2dcefba93cb4f3d8e3e over 12177 files, at receipt time."
+    },
+    {
+      "cmd": "git rev-parse HEAD",
+      "exit": 0,
+      "comment": "724d542540b497f2928a63b5aece9b37aef4019b on fix/v26.9.29-ci-gates."
+    }
+  ],
+  "per_crate": [
+    {
+      "crate": "stardf-arrow-core",
+      "license_declared": "workspace tri-license (license.workspace=true; landed by lane 07/08 mid-run; pre-existing: none)",
+      "carriage_files": [
+        "licenses/LICENSE-APACHE",
+        "licenses/LICENSE-MIT",
+        "licenses/LICENSE-MULAN",
+        "PROVENANCE.md (new)"
+      ],
+      "list_gate": "exit 0 (lic=3 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-arrow-capi",
+      "license_declared": "workspace tri-license (license.workspace=true; landed by lane 07/08 mid-run; pre-existing: none)",
+      "carriage_files": [
+        "licenses/LICENSE-APACHE",
+        "licenses/LICENSE-MIT",
+        "licenses/LICENSE-MULAN",
+        "PROVENANCE.md (new)"
+      ],
+      "list_gate": "exit 0 (lic=3 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-arrow-bench",
+      "license_declared": "MIT (crate-declared keep, disclosed by lane 07 as differing from workspace tri-license; awaiting operator arbitration)",
+      "carriage_files": [
+        "licenses/LICENSE-MIT (new)",
+        "PROVENANCE.md (new)"
+      ],
+      "list_gate": "exit 0 (lic=1 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-columnar",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt,CC-BY-4.0.txt,inventory.json}",
+        "PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=6 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-sql",
+      "license_declared": "workspace tri-license",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN} (new)",
+        "PROVENANCE.md (new)"
+      ],
+      "list_gate": "exit 0 (lic=3 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-n3",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt,CC-BY-4.0.txt,inventory.json}",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=6 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-duckdb",
+      "license_declared": "workspace tri-license",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN} (new)",
+        "PROVENANCE.md (new)"
+      ],
+      "list_gate": "exit 0 (lic=3 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-hash",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt,CC-BY-4.0.txt,inventory.json}",
+        "PROVENANCE.md",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=6 prov=2)",
+      "tarball_witness": "YES: real tarball stardf-hash-26.11.1.crate, 8 carriage rows in tar -tzf"
+    },
+    {
+      "crate": "stardf-branchless",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN} (new)",
+        "PROVENANCE.md"
+      ],
+      "list_gate": "post-fix exit 0 (lic=3 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-lex",
+      "license_declared": "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND MIT AND Unicode-3.0 AND BSD-3-Clause",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt,CC-BY-4.0.txt,inventory.json}",
+        "licenses/third-party/{unicode,whatwg-html-references,libyaml-emitter}/",
+        "PROVENANCE.md",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=10 prov=3 tp=11)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-iri",
+      "license_declared": "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt}",
+        "unicode/{LICENSES/Unicode-3.0.txt,PROVENANCE.md,REUSE.toml,16.0.0/,17.0.0/}",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=7 prov=3 tp=8)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-xsd",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt}",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=6 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-cdt",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt}",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=6 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-events",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt,CC-BY-4.0.txt,inventory.json}",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=6 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-deflate",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt,CC-BY-4.0.txt,inventory.json}",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=6 prov=2)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-stack",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt,CC-BY-4.0.txt,inventory.json}",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=6 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-testkit",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN} (new)",
+        "VENDOR-PROVENANCE.md",
+        "FALSIFIER-RECEIPT.md"
+      ],
+      "list_gate": "post-fix exit 0 (lic=3 prov=1)",
+      "tarball_witness": "refused: dual-key (lane 08 lease)"
+    },
+    {
+      "crate": "stardf-alloc-probe",
+      "license_declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (literal)",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN} (new)",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "post-fix exit 0 (lic=3 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-toml",
+      "license_declared": "workspace tri-license",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt}",
+        "PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=7 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-rs (dir crates/stardf-purrdf, umbrella)",
+      "license_declared": "workspace tri-license",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN,NOTICE.txt,CC-BY-4.0.txt,inventory.json}",
+        "PROVENANCE.md (new)"
+      ],
+      "list_gate": "exit 0 (lic=6 prov=1)",
+      "tarball_witness": "no (list gate only)"
+    },
+    {
+      "crate": "stardf-core (dir crates/stardf-rdf-core; non-closure conjunct witness named by the lane task)",
+      "license_declared": "not re-read this lane",
+      "carriage_files": [
+        "licenses/{APACHE,MIT,MULAN}",
+        "vendor/unicode/{LICENSES/Unicode-3.0.txt,Blocks.txt,Blocks.txt.license}",
+        "PROVENANCE.md",
+        "VENDOR-PROVENANCE.md"
+      ],
+      "list_gate": "exit 0 (lic=7 prov=3 tp=8)",
+      "tarball_witness": "no (list gate only)"
+    }
+  ],
+  "per_crate_note": "Load-bearing gate = checks[].package-list-gate-20-closure-crates; per_crate rows transcribe that witnessed output.",
+  "replay": {
+    "status": "NOT_RUN",
+    "comment": "Replay pair (gate re-run twice, byte-identical lists) not witnessed; coordinator-phase clean-tree re-run is the replay."
+  },
+  "standing": "PARTIAL_ALIVE",
+  "nonclaims": [
+    "no live publish (dry-run packaging only; registry untouched)",
+    "publish flags/metadata owned by lane 07-publish-metadata / lane 08-dual-key: witnessed mid-flight (arrow-core/capi/bench flipped to publish=true and license.workspace=true during this lane; other closure crates still publish=false at last read); their final publish-readiness is not a lane-11 claim",
+    "full cargo-package tarball witnessed ONLY for stardf-hash; the other 19 closure crates are witnessed via --list, not built tarballs (testkit additionally refused on dual-key)",
+    "stardf-arrow-bench declared license remains MIT-only (disclosed keep awaiting operator arbitration); if arbitrated to the tri-license, LICENSE-APACHE/LICENSE-MULAN must be added in the same pass",
+    "vendored NOTICE.txt/inventory.json reference upstream-layout paths (crates/lex/..., crates/iri/unicode/..., 'LICENSING.md') that do not resolve in this one-package tree; 'LICENSING.md' absent on disk - upstream content preserved verbatim, paths upstream-relative",
+    "crates/PROVENANCE-one-package.md referenced by the root manifest comment does not exist on disk (pre-existing drift, not introduced by this lane)",
+    "replay pair NOT_RUN",
+    "tree digest prefix-relative inside stardf/arrow; comparable only against receipts using the same prefix convention",
+    "concurrent-lane edits landing during this lane (license.workspace=true on arrow-core/capi, publish flags, version 26.11.1) are ambient state, not lane-11 work"
+  ]
+}

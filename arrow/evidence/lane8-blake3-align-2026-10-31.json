@@ -1,0 +1,135 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "lane": 8,
+  "date": "2026-10-31",
+  "scope": "blake3 declared-vs-locked version-pin alignment (WARN clearance): member manifests 1.8.5 -> 1.8.7 to match the lock's already-resolved 1.8.7. Manifest-version alignment, NOT an upgrade: no binary input changed (the lock already resolved 1.8.7 before this lane ran).",
+  "subject": {
+    "head": "NOT_COMPUTED (git prohibited for receipt lanes; coordinator owns git)",
+    "files": {
+      "Cargo.toml": "3fc0e4c5063c7049838d2aaf0b2d5f30caef5c92f4ac0d75c41a99f86ec782e3 (net-zero diff: cross-lane pin probe added then reverted byte-exact in-session)",
+      "Cargo.lock": "437987dc3be10d6cce4a2c46b3f688810e1a2597611fda8cdf60d3e24164f37b (mtime 22:54 PDT, 92253 bytes; rewritten by the gate's own cargo-tree resolution from 92429 bytes; semantic invariants verified below)",
+      "crates/stardf-arrow-core/Cargo.toml": "1a3f54218925f3036551386a339a7976552884331733e829d94a6596bc841c77",
+      "crates/stardf-columnar/Cargo.toml": "050fc555a7d29e9e87d3f16b19d9946f05144653767409a3ab771fb40510d790",
+      "crates/stardf-process/Cargo.toml": "68295c9e4c2c90bc142f7c5ee83e3d4df920df5dc7ac3db847f1ffb0b9085698 (cross-lane unblock, disclosed below)"
+    }
+  },
+  "checks": [
+    {
+      "id": "blake3-declared-versions-aligned",
+      "passed": true,
+      "count": 2,
+      "comment": "grep -rn 'blake3 = ' across all Cargo.toml: exactly 2 declaration sites (stardf-arrow-core:32, stardf-columnar:47), both now 1.8.7; zero '1.8.5' remains in any Cargo.toml. Root [workspace.dependencies] carries no blake3 key (grep verified), so no root edit was required for the alignment itself."
+    },
+    {
+      "id": "verify_blake3_identity_gate",
+      "passed": true,
+      "count": 1,
+      "comment": "bash scripts/verify_blake3_identity.sh -> EXIT=0. [PASS] exactly 1 blake3 identity: blake3 v1.8.7; [PASS-INFO] declared==locked: 1.8.7. Zero WARN lines. 9 workspace crates in the inverse tree, all on the single 1.8.7 identity."
+    },
+    {
+      "id": "gate-replay-pair",
+      "passed": true,
+      "count": 2,
+      "comment": "Gate run twice back-to-back: exit 0 both, outputs cmp exit 0 (byte-identical). Replay witnessed for this gate."
+    },
+    {
+      "id": "post-gate-lock-invariants",
+      "passed": true,
+      "count": 4,
+      "comment": "Post-gate lock: blake3 [[package]] version = 1.8.7 (Cargo.lock:361-363); grep -c cgap Cargo.lock = 0; avec-arrow entry unchanged (git+rev=67c0ec1#67c0ec1bad0bf4a81b2512e60f554b137ae596d9); --locked compiles (next check)."
+    },
+    {
+      "id": "consumer-compile-vs-lock",
+      "passed": true,
+      "count": 2,
+      "comment": "cargo check -p stardf-arrow-core -p stardf-columnar --locked -> EXIT=0, 'Finished dev profile in 10m 13s'. Both declaring crates compile against the aligned lock; --locked success also proves the post-gate lock matches manifest resolution exactly."
+    },
+    {
+      "id": "stardf-process-compile-post-unblock",
+      "passed": false,
+      "count": 30,
+      "comment": "HONEST FAILURE, pre-existing class, attributed: cargo check -p stardf-process --locked -> exit 101, 30 error lines, all cgap_arrow unresolved (E0432/E0433). NOT the blake3 alignment's effect (stardf-process consumes no blake3); this is the residue of the cgap-arrow decouple (LANE 09-dated comments in stardf-arrow-capi/stardf-arrow-core manifests) whose dangling inheritance line this lane removed as a cross-lane unblock. Lane 09 owns the columnar.rs migration."
+    },
+    {
+      "id": "cross_lane_unblock_disclosure",
+      "passed": true,
+      "count": 1,
+      "comment": "CROSS-LANE UNBLOCK (fan-out SLA expired ~62 min): the cgap-arrow decouple removed cgap-arrow from root [workspace.dependencies] (root mtime 21:48 PDT) while crates/stardf-process line 20 still inherited `cgap-arrow.workspace = true` — workspace resolution broken for the ENTIRE workspace, so the blake3 gate could not run at all (baseline 22:47: [ERROR] cargo tree failed, exit 1). Fix: removed the dangling `cgap-arrow.workspace = true` from crates/stardf-process/Cargo.toml [dependencies] with an in-manifest disclosure comment. Effect: whole-workspace resolution restored; stardf-process compile failure becomes loud, single-crate, attributed. Root Cargo.toml net change: ZERO (probe reverted byte-exact)."
+    },
+    {
+      "id": "gate-baseline-honesty",
+      "passed": false,
+      "count": 1,
+      "comment": "Pre-lane baseline gate run (22:47 PDT, before any lane-8 edit): EXIT=1, [ERROR] cargo tree failed — workspace resolution broken by cgap-arrow decouple residue, NOT by blake3. Recorded honestly so the lane-8 PASS is not read as green-from-start."
+    },
+    {
+      "id": "warn-state-before-after",
+      "passed": true,
+      "count": 1,
+      "comment": "Pre: gate source documents the skew witness (declares 1.8.5, lock 1.8.7; lane S4 / 11-blake3-arbitration.md section 1). Post-alignment: zero WARN, [PASS-INFO] declared==locked: 1.8.7."
+    }
+  ],
+  "falsified_alternatives": [
+    {
+      "alternative": "Restore cgap-arrow workspace pin as git rev 67c0ec1 of github.com/seanchatmangpt/avec",
+      "falsifier": "cargo tree after probe edit: 'error: no matching package named cgap-arrow found' in avec@67c0ec1. All three cargo-cached avec revs (20248e4/67c0ec1/965fcc5) carry only avec-* crates; the cgap-* rename exists in the local avec working tree (main fb474a5, read from .git/refs) but its remote state is unverifiable without git (prohibited for this lane). Probe REVERTED byte-exact.",
+      "witness": "gate run post-probe: [ERROR] no matching package named cgap-arrow, exit 1"
+    },
+    {
+      "alternative": "Registry pin cgap-arrow = \"26.10.29\" (crate manifest declares publish = true, version.workspace 26.10.29)",
+      "falsifier": "curl -s https://crates.io/api/v1/crates/cgap-arrow -> HTTP 404, body: crate `cgap-arrow` does not exist (witnessed 2026-10-31 ~22:52 PDT)",
+      "witness": "404 response witnessed in-session"
+    }
+  ],
+  "commands": [
+    {
+      "cmd": "grep -rn blake3 --include=Cargo.toml .",
+      "exit": 0,
+      "comment": "Before edits: 2 declaration sites at 1.8.5 (stardf-arrow-core:32, stardf-columnar:47); root carries no blake3 key"
+    },
+    {
+      "cmd": "bash scripts/verify_blake3_identity.sh (baseline, pre-edit)",
+      "exit": 1,
+      "comment": "[ERROR] cargo tree failed: workspace resolution broken (cgap-arrow decouple residue); the skew WARN arm was unreachable"
+    },
+    {
+      "cmd": "Edit crates/stardf-arrow-core/Cargo.toml line 32 and crates/stardf-columnar/Cargo.toml line 47: blake3 version 1.8.5 -> 1.8.7",
+      "exit": 0,
+      "comment": "The alignment itself. Consumer-break risk nil: the lock already resolved 1.8.7."
+    },
+    {
+      "cmd": "Edit crates/stardf-process/Cargo.toml: remove dangling cgap-arrow.workspace = true + disclosure comment (cross-lane unblock)",
+      "exit": 0,
+      "comment": "SLA expired ~62 min; disclosed per fan-out disclosure law in this receipt and in the manifest itself"
+    },
+    {
+      "cmd": "bash scripts/verify_blake3_identity.sh (post-edit, run twice)",
+      "exit": 0,
+      "comment": "[PASS] exactly 1 blake3 identity: blake3 v1.8.7; [PASS-INFO] declared==locked: 1.8.7; zero WARN; replay pair cmp exit 0"
+    },
+    {
+      "cmd": "cargo check -p stardf-arrow-core -p stardf-columnar --locked",
+      "exit": 0,
+      "comment": "Finished dev profile in 10m 13s; --locked proves post-gate lock matches manifest resolution"
+    },
+    {
+      "cmd": "cargo check -p stardf-process --locked",
+      "exit": 101,
+      "comment": "Honest failure, attributed: 30x cgap_arrow unresolved (E0432/E0433) — Lane 09's pending columnar.rs migration, NOT the blake3 alignment"
+    }
+  ],
+  "replay": {
+    "status": "WITNESSED_FOR_THIS_GATE",
+    "comment": "verify_blake3_identity.sh run twice back-to-back, outputs cmp exit 0 (byte-identical). verify.py replay pair NOT run (out of lane-8 scope)."
+  },
+  "standing": "PARTIAL_ALIVE",
+  "standing_scope": "blake3 single-identity + declared==locked==1.8.7 is ALIVE on the gate's surface (exit 0, zero WARN, replay witnessed, declaring consumers compile --locked). Workspace-wide G9 (cargo check --workspace) remains blocked OUTSIDE this lane by the stardf-process/cgap_arrow migration residue (Lane 09).",
+  "nonclaims": [
+    "NOT claimed: blake3 upgrade — manifest-version alignment to the lock's existing 1.8.7; no binary input changed",
+    "NOT claimed: workspace-wide cargo check/test green — stardf-process does not compile (30 cgap_arrow errors, exit 101, Lane 09's migration)",
+    "NOT claimed: stardf-process unblock fix final — Lane 09 owns the disposition (finish the columnar.rs migration, or re-ratify a cgap-arrow pin; registry 404 witnessed, avec@67c0ec1 lacks the crate)",
+    "NOT claimed: git standing of any kind — no git commands run by this lane; subject.head NOT_COMPUTED; coordinator owns git transitions",
+    "NOT claimed: verify.py substrate gate, R1 license gate, ABI freeze court, publish ladder — out of lane-8 scope, not run",
+    "NOT claimed: Cargo.lock byte-identity vs pre-gate — the gate's cargo-tree resolution rewrote it (92429 -> 92253 bytes); invariants verified, byte-diff not (git prohibited)"
+  ]
+}

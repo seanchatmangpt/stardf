@@ -1,0 +1,62 @@
+{
+  "machine": "darwin-arm64 (Apple Silicon, macOS 25.2.0)",
+  "date": "2026-10-31",
+  "toolchain": "cargo 1.98.0-nightly (floating nightly), release profile lto=thin codegen-units=1 panic=abort",
+  "standing": "UNVERIFIED \u2014 local min-of-5 numbers on one machine during a concurrent-lane wave; contention makes them noisy; MIN round is the receipt. Not a CI-qualified baseline.",
+  "method": "min-of-5 rounds per kernel per run; baseline records the per-kernel MIN across 3 full post-rebuild runs (2026-10-31, lane-13 completion lane, runs 1-3 back-to-back on the settled as-built tree); the columnar section is lane 15 (2026-10-31), single fresh-build run, min-of-5 per kernel. Counting-allocator GlobalAlloc with non-vacuity probe (alloc probe: deliberate alloc bumped counter to 1 in every run, gate live); pattern-scan counts are exact-checked against a literal filter before timing",
+  "intern": {
+    "terms": 200000,
+    "mint_terms_per_s": 21128,
+    "dedup_lookups_per_s": 6429318,
+    "allocs_per_round_mint": 633365,
+    "note": "mint path is quadratic-copy growth-bound (TermArena reallocs + full copy per mint); allocs/round 633365 \u2014 the growth profile, not a zero-alloc gate; dedup = BTreeMap lookups over the frozen arena (200000 allocs/round are the lookup strings)"
+  },
+  "pattern_scan": {
+    "rows": 1000000,
+    "chunk": 8,
+    "slab_mib": 61,
+    "patterns": [
+      {
+        "pattern": "s=? p=? o=?",
+        "min_gib_s": 24.243,
+        "matches_per_pass": 1000000
+      },
+      {
+        "pattern": "s=0 p=? o=?",
+        "min_gib_s": 23.674,
+        "matches_per_pass": 20
+      },
+      {
+        "pattern": "s=? p=42 o=?",
+        "min_gib_s": 24.581,
+        "matches_per_pass": 2000
+      },
+      {
+        "pattern": "s=42 p=42 o=307",
+        "min_gib_s": 23.84,
+        "matches_per_pass": 20
+      }
+    ],
+    "note": "branchless 8-row chunk scan (purrdf QuadKey model); zero allocations in every timed scan round across all 3 runs (gate: 0, hard-fail); GiB/s counts the full 64-byte Quad64 payload. This baseline's scan MIN rounds are heavily contention-depressed (run 1 ran against concurrent lane builds: 24.2-24.6 GiB/s; runs 2-3 recovered to 43-71.5 GiB/s, best observed 71.5) \u2014 MIN-across-runs is the conservative bound per method."
+  },
+  "stream_get_next": {
+    "rows": 1000000,
+    "batch_quads": 64,
+    "gib_s": 13.178,
+    "note": "StardfStream::next_batch drain of a 1M-quad slab in 64-quad batches; per-kernel MIN across 3 runs (run spread 13.2-48.7 GiB/s, contention-noisy, disclosed; runs 2-3 were 34.1/48.7). The one counted alloc/round is the disclosed per-drain slab clone that seeds CursorProducer \u2014 the drain loop itself is allocation-free by inspection of the cursor path; C-ABI get_next packaging path allocates per batch and is NOT benched here"
+  },
+  "columnar": {
+    "rows": 1000000,
+    "codec": "bench-local SoA split of Quad64 into 8 columns (s/p/o/g u32, t_ns u64, vector_clock/policy_mask u32, flat 32B digest); identical 64B/quad byte width to the AoS layout",
+    "reconciliation": "lane 7 final (2026-10-31): lane 6 landed crates/stardf-columnar (RDF five-table Parquet bridge). NOT a supersession: (1) measured BUILD_BROKEN — cargo check -p stardf-columnar exits 1 with 6 errors (vendor/alloc_probe.rs:82 realloc return type; vendor/testkit.rs:81,91,135; vendor/core/term_fixture.rs:37-38); (2) its API (DatasetView+ContentStore semantic codec, eager Vec projection in writer.rs project_read) has no Quad64-slab entry point and allocates by construction — cannot feed a zero-alloc timed-loop gate. Bench-local SoA codec retained as the columnar-transpose measurand; see columnar_bench.rs LANE-7-FINAL note",
+    "divergence": "lane 9's canonical columnar codec never landed in stardf-arrow-core (docs/RECEIPTS.md LANE-9 is the verify.py gate); codec lives in crates/stardf-arrow-bench/src/columnar_bench.rs and is disclosed bench-local",
+    "encode_gib_s": 16.959,
+    "decode_gib_s": 16.897,
+    "sum_s_column_gib_s": 70.288,
+    "aos_sum_s_row_path_gib_s": 2.496,
+    "columnar_vs_aos_scan_speedup_x": 28.2,
+    "roundtrip": "exact on 1,000,000 quads (asserted field-by-field before timing)",
+    "zero_alloc_gates": "encode/decode/scan: 0 allocations in every timed round across all 3 runs, hard-fail exit 1 (counting-allocator, non-vacuity probe live)",
+    "standing": "UNVERIFIED-local-min-of-5 (MIN round across 3 fresh-binary runs, 2026-10-31 lane-7 final; contention-noisy)"
+  }
+}

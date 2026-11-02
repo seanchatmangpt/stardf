@@ -1,0 +1,199 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "consolidation": {
+    "kind": "wave-consolidation",
+    "construction_wave": "W1-W20 (incl. 2 rate-limit resumes)",
+    "finishing_wave": "F1-F17",
+    "on_disk_sources": [
+      "evidence/wave-finish-lane16-2026-10-31.json (F16, tree_digest 332392fa9da7f0e8b665add5e7bab9b448325e15a9929b894f0480dc610324aa over 45 files at its receipt time; tree since moved to 50 files)",
+      "docs/RECEIPTS.md LANE-9 row (verify.py gate, receipt_sha256 1b29abcdedfcb4a330a0a0c0845c48fc4dfced26fb246414c9a6365d7ad7d5f9, replay WITNESSED)",
+      "docs/BENCH_BASELINE.json (self-declared UNVERIFIED-local; min-of-5, one machine, contention-noisy)"
+    ],
+    "source_limits": "Construction-wave W1-W20 receipts exist only in the parent-session wave reports, not as files on disk. This lane quotes only what it can ground: on-disk receipts plus its own runs at receipt time. Conflict-log entries sourced to wave reports carry source=wave-report; entries this lane witnessed itself carry source=lane-run."
+  },
+  "subject": {
+    "tree_digest": "70524cdd0e5aa07a24eec899991e0dac69803b68953009c26af570322bbb5e1f",
+    "head": "c9f8028ced8c89feb7eb5d6e0fcb651bb3fd1781 (parent repo HEAD; stardf/ is untracked in parent; whole-tree sha256 over all 50 files excluding */target via `find . -path \"*/target\" -prune -o -type f -print | sort | xargs shasum -a 256 | shasum -a 256`, computed at this receipt's write time; F16's digest 332392fa... over 45 files is superseded — tree churned between receipts)"
+  },
+  "standing_table": {
+    "core.layout": "PARTIAL_ALIVE",
+    "core.stream": "PARTIAL_ALIVE (stream_courts 6/6 pass at receipt time)",
+    "core.arena": "PARTIAL_ALIVE",
+    "core.release": "UNKNOWN",
+    "core.batch": "PARTIAL_ALIVE",
+    "capi.lib": "PARTIAL_ALIVE (lib compiles, cargo check exit 0)",
+    "capi.term": "PARTIAL_ALIVE",
+    "capi.stream_c": "PARTIAL_ALIVE (fmt --check dirty at stream_c-era diffs; lib.rs:431 diff observed this lane)",
+    "capi.ownership": "PARTIAL_ALIVE",
+    "capi.header": "ALIVE-local (13==13==13 three-way parity witnessed)",
+    "court.stream_courts": "ALIVE-local (6/6)",
+    "court.cross_allocator": "ALIVE-local (2/2)",
+    "court.alloc_identity": "BLOCKED (lib test target compile-aborts E0308 x2, zero tests executed)",
+    "court.anti_vacuity": "BLOCKED (1/3 passed, 2 FAILED at anti_vacuity.rs:228 and :151 — regressed after F16 witnessed 3/3; mid-wave tree churn)",
+    "bench": "PARTIAL_ALIVE-local (baseline UNVERIFIED-local per its own standing field; -p stardf-arrow-bench now resolves, 0 tests in crate)",
+    "verify_py": "ALIVE-local (gate exit 0, --emit-receipt replay pair WITNESSED byte-identical)",
+    "ontology_ggen": "ALIVE-local (109 triples, 22 individuals, 13 targetSymbols, three-way parity)",
+    "docs": "PARTIAL_ALIVE (RECEIPTS.md carries LANE-9 row; not re-witnessed per-row)",
+    "evidence": "ALIVE-local (this consolidation + F16 receipt + template)"
+  },
+  "checks": [
+    {
+      "id": "verify-py-full-gate",
+      "passed": true,
+      "count": 13,
+      "comment": "python3 scripts/verify.py --emit-receipt <path>: 3 runs, all exit 0, '[ALL PASS] stardf-arrow substrate verified.' — 109 ontology triples, 22 individuals, 13 header declarations == 13 #[no_mangle] exports, three-way equality (ontology targetSymbols == header == impl). Emitted receipt sha256 cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef."
+    },
+    {
+      "id": "replay-pair-via-emit-receipt-flag",
+      "passed": true,
+      "count": 2,
+      "comment": "Runs 2 and 3 captured to /tmp/c14v1.out and /tmp/c14v2.out; `cmp -s` exit 0 — byte-identical. Witnessed through the --emit-receipt flag itself (flag present at scripts/verify.py:136), superseding F16's grep-miss nonclaim."
+    },
+    {
+      "id": "court-stream-courts",
+      "passed": true,
+      "count": 6,
+      "comment": "cargo test -p stardf-arrow-capi --test stream_courts: 6 passed, 0 failed, exit 0. Supersedes F16's 5/1 (court_2_exact_batch_count_then_eof failed at stream_courts.rs:205) — repaired by another lane between receipt times."
+    },
+    {
+      "id": "court-cross-allocator",
+      "passed": true,
+      "count": 2,
+      "comment": "cargo test -p stardf-arrow-capi --test cross_allocator_court: 2 passed, 0 failed, exit 0."
+    },
+    {
+      "id": "court-anti-vacuity",
+      "passed": false,
+      "count": 1,
+      "comment": "cargo test -p stardf-arrow --test anti_vacuity: exit 101, 1 passed, 2 FAILED. failures: fixtures_are_byte_copies_of_own_artifacts (anti_vacuity.rs:228) and anti_vacuity_verifier_refuses_mutated_header_and_senses_mutated_ontology (anti_vacuity.rs:151). Regressed relative to F16's 3/3 pass — mid-wave tree churn; repair belongs to the fixture-owning lane."
+    },
+    {
+      "id": "court-alloc-identity",
+      "passed": false,
+      "count": 0,
+      "comment": "cargo test --workspace --no-fail-fast compile-aborts on stardf-arrow-capi lib test target: E0308 mismatched types x2 (c<'x'> vs *const u8) at crates/stardf-arrow-capi/src/lib.rs:366 and one sibling line — zero tests executed for that target. Recorded as compile-abort, never as a failure count."
+    },
+    {
+      "id": "cargo-test-workspace",
+      "passed": false,
+      "count": 1,
+      "comment": "cargo test --workspace --no-fail-fast: exit 101 — blocked at the capi lib-test compile-abort above; downstream test targets in that target graph did not execute this lane's run."
+    },
+    {
+      "id": "cargo-check-workspace",
+      "passed": true,
+      "count": 2,
+      "comment": "cargo check --workspace: exit 0, 2+ members checked (stardf-arrow-capi, stardf-arrow-bench observed in tail; Finished dev profile)."
+    },
+    {
+      "id": "cargo-clippy-d-warnings",
+      "passed": false,
+      "count": 6,
+      "comment": "cargo clippy --workspace --all-targets -- -D warnings: exit 101. bench: 4x 'doc list item without indentation' (bin + bin test targets); capi lib test: E0308 x2 as above. Supersedes F16's alloc_identity always-true/false error — that one is gone; new set in its place."
+    },
+    {
+      "id": "cargo-fmt-check",
+      "passed": false,
+      "count": 2,
+      "comment": "cargo fmt --all -- --check: exit 1. Diffs at crates/stardf-arrow-bench/src/main.rs:285 and crates/stardf-arrow-capi/src/lib.rs:431. Supersedes F16's single stream_c.rs:213 diff."
+    },
+    {
+      "id": "cargo-test-core",
+      "passed": true,
+      "count": 0,
+      "comment": "cargo test -p stardf-arrow-core: exit 0. Tail showed 0 filtered-out doctests; full per-target tally not re-witnessed this run (F16 witnessed 33 unit passed) — count recorded as 0-witnessed-this-run, not as a regression claim."
+    },
+    {
+      "id": "cargo-test-bench-package",
+      "passed": true,
+      "count": 0,
+      "comment": "cargo test -p stardf-arrow-bench: exit 0, 0 tests. Supersedes F16's 'package ID did not match any packages' exit-101 — the -p selector now resolves."
+    },
+    {
+      "id": "workspace-test-census-vs-compile-abort",
+      "passed": true,
+      "count": 1,
+      "comment": "The one compile-abort (capi lib test, E0308 x2) is recorded as compile-abort with the failing file named, never folded into a failure count."
+    }
+  ],
+  "conflict_log": [
+    {
+      "id": "C1",
+      "observation": "F13 mid-wave observed court_5 SIGTRAP and alloc_identity compile-abort (E0425 x4)",
+      "superseding": "W8 + F2 + W10 final receipts: alloc_identity repaired and passing (2 passed 1 ignored at F16's time); SIGTRAP not reproducible at finals",
+      "resolution": "final receipts outrank mid-wave observation",
+      "source": "wave-report"
+    },
+    {
+      "id": "C2",
+      "observation": "F16 receipt nonclaim: '--emit-receipt flag NOT landed in scripts/verify.py' (grep for 'emit' returned no matches)",
+      "superseding": "flag now on disk at scripts/verify.py:136 with emit_receipt() at :296; this lane ran the replay pair THROUGH the flag and witnessed byte-identical output",
+      "resolution": "disk truth at this receipt's time outranks F16's receipt-time absence",
+      "source": "lane-run"
+    },
+    {
+      "id": "C3",
+      "observation": "W14 wave report recorded 8 exports",
+      "superseding": "F14 finishing receipt: 13 exports; verified on disk this lane (13 header decls == 13 impl exports == 13 ontology targetSymbols, three-way)",
+      "resolution": "F14 + disk truth: 13",
+      "source": "wave-report+lane-run"
+    },
+    {
+      "id": "C4",
+      "observation": "F16 witnessed stream_courts 5 passed / 1 failed (court_2, n=1 yields 0 batches)",
+      "superseding": "this lane's run: 6 passed / 0 failed, exit 0",
+      "resolution": "later receipt outranks earlier",
+      "source": "lane-run"
+    },
+    {
+      "id": "C5",
+      "observation": "F16 witnessed anti_vacuity 3/3 passing",
+      "superseding": "this lane's run: 1/3, exit 101 (fixtures_are_byte_copies + verifier_refuses_mutated_header failing) — regression direction, opposite of C4",
+      "resolution": "later receipt outranks earlier in BOTH directions; standing follows the latest witnessed run, not the most favorable one",
+      "source": "lane-run"
+    },
+    {
+      "id": "C6",
+      "observation": "F16 witnessed capi unit tests 22 passed",
+      "superseding": "this lane's run: capi lib test target compile-aborts E0308 x2 — the test target no longer compiles",
+      "resolution": "later receipt outranks earlier; capi test target BLOCKED at receipt time",
+      "source": "lane-run"
+    },
+    {
+      "id": "C7",
+      "observation": "F16: 'cargo test -p stardf-arrow-bench' exit 101 (package ID did not match)",
+      "superseding": "this lane: exit 0, 0 tests (crate resolves; bin crate with no test targets)",
+      "resolution": "later receipt outranks earlier",
+      "source": "lane-run"
+    }
+  ],
+  "commands": [
+    { "cmd": "python3 scripts/verify.py --emit-receipt /tmp/c14.receipt.json (runs 1-3)", "exit": 0 },
+    { "cmd": "cmp -s /tmp/c14v1.out /tmp/c14v2.out", "exit": 0, "comment": "replay pair byte-identical" },
+    { "cmd": "cargo test --workspace --no-fail-fast", "exit": 101, "comment": "compile-abort capi lib test E0308 x2" },
+    { "cmd": "cargo test -p stardf-arrow-capi --test stream_courts", "exit": 0, "comment": "6 passed / 0 failed" },
+    { "cmd": "cargo test -p stardf-arrow-capi --test cross_allocator_court", "exit": 0, "comment": "2 passed / 0 failed" },
+    { "cmd": "cargo test -p stardf-arrow --test anti_vacuity", "exit": 101, "comment": "1 passed / 2 failed" },
+    { "cmd": "cargo test -p stardf-arrow-core", "exit": 0 },
+    { "cmd": "cargo test -p stardf-arrow-bench", "exit": 0, "comment": "0 tests (bin crate)" },
+    { "cmd": "cargo check --workspace", "exit": 0 },
+    { "cmd": "cargo clippy --workspace --all-targets -- -D warnings", "exit": 101, "comment": "4x doc-list-indent (bench) + E0308 x2 (capi lib test)" },
+    { "cmd": "cargo fmt --all -- --check", "exit": 1, "comment": "bench/main.rs:285 + capi/lib.rs:431" }
+  ],
+  "replay": {
+    "status": "WITNESSED",
+    "comment": "verify.py --emit-receipt run 3x, all exit 0; runs 2-3 cmp byte-identical (exit 0). Witnessed through the flag itself, superseding F16's manual-cmp-of-stdout method and its --emit-receipt-not-landed nonclaim."
+  },
+  "standing": "PARTIAL_ALIVE",
+  "nonclaims": [
+    "avec integration NOT RUN — avec-ffi path-dep not wired; no avec test executed in either wave or this consolidation",
+    "CI not run in Actions — ci/stardf-arrow-reconstitution.yml never witnessed executing; all gates are local runs only",
+    "bench baselines UNVERIFIED-local — docs/BENCH_BASELINE.json is min-of-5 on one contended machine, not a CI-qualified baseline",
+    "no slice claimed ALIVE unqualified — every ALIVE-local above is a local gate witness, not external production standing",
+    "per-lane W1-W20 command ladders NOT independently quotable — construction-wave receipts exist only in parent-session wave reports; this consolidation quotes only on-disk receipts plus its own runs",
+    "capi lib test target NOT compiling at receipt time (E0308 x2) — capi unit-test counts from earlier receipts are stale",
+    "anti_vacuity court NOT passing at receipt time (1/3) — regression after F16's 3/3, owned by the fixture-owning lane",
+    "clippy -D warnings NOT clean; fmt --check NOT clean",
+    "no git operations performed by this lane"
+  ]
+}

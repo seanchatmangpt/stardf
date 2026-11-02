@@ -1,0 +1,335 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! The SPARQL **active dataset** (§13) for a query or UPDATE `WHERE`.
+//!
+//! A query's `FROM` / `FROM NAMED` clauses (and an UPDATE's `USING` / `USING NAMED`)
+//! replace the store's default dataset with a custom one:
+//!
+//! - **default graph** — with no clause, the store's own default graph; with `FROM`
+//!   graphs, the *RDF-merge* of those named graphs (the store default is then
+//!   excluded). The merge is a **read-time union** — each merged graph is still read
+//!   through the ordinary indexed [`DatasetView::quads_for_pattern`] path, and the
+//!   results are unioned (BGP de-dupes triples; path evaluation de-dupes endpoints via
+//!   its `BTreeSet`s). No graph is ever materialised or mutated.
+//! - **named graphs** — with no clause, every store named graph is addressable by
+//!   `GRAPH`; with `FROM NAMED` / `USING NAMED`, exactly the listed graphs are.
+//!
+//! An IRI that names no graph (a graph with zero quads, per the implicit-existence
+//! doctrine) contributes nothing — it is silently dropped, never an error (§13.2).
+//!
+//! [`GraphMatch`] (the storage read-view's graph filter) is deliberately left as a
+//! closed three-way `Copy` enum; the dataset-clause logic lives entirely here so the
+//! indexed read path and the C-ABI are untouched.
+
+use purrdf_core::{DatasetView, GraphMatch, QuadIds, TermId, TermValue, ViewTermId};
+use purrdf_sparql_algebra::{QueryDataset, UsingClause};
+
+use crate::convert::named_node_to_value;
+use crate::{EvalError, WorkspaceAllocation, WorkspaceCapability};
+use purrdf_core::small::Shared;
+
+/// Admit named-graph support before graph lookup, enumeration or evaluation of
+/// an empty branch. The existing admitted algebra walker includes expressions,
+/// correlated EXISTS and subqueries; it is not a second query interpreter.
+pub(crate) fn require_query_graph_support<D: DatasetView>(
+    query: &purrdf_sparql_algebra::Query, dataset: &D, workspace: &WorkspaceCapability,
+    source_error: impl Fn(D::ReadError) -> EvalError,
+) -> Result<(), EvalError> {
+    if dataset.supports_named_graphs() {
+        return Ok(());
+    }
+    let clauses = query.dataset();
+    if !clauses.default.is_empty() || !clauses.named.is_empty() {
+        return dataset.require_named_graphs().map_err(source_error);
+    }
+    require_pattern_graph_support(query.pattern(), dataset, workspace, source_error)
+}
+
+pub(crate) fn require_pattern_graph_support<D: DatasetView>(
+    pattern: &purrdf_sparql_algebra::GraphPattern, dataset: &D, workspace: &WorkspaceCapability,
+    source_error: impl Fn(D::ReadError) -> EvalError,
+) -> Result<(), EvalError> {
+    if dataset.supports_named_graphs() {
+        return Ok(());
+    }
+    let mut required = false;
+    {
+        use purrdf_sparql_algebra::{
+            Flow, GraphPattern, NodeRef, Visit, walk_pre_post_with_memory,
+        };
+        let mut frame = crate::workspace::LexicalFrame::new(workspace);
+        let mut memory = purrdf_lex::allocation::Memory::new(&mut frame);
+        walk_pre_post_with_memory(
+            NodeRef::Pattern(pattern),
+            |visit, node, _| -> Result<Flow, purrdf_lex::allocation::StorageError> {
+                if visit == Visit::Enter {
+                    match node {
+                        // The resolver admits this body against its own dataset.
+                        NodeRef::Pattern(GraphPattern::Service { .. }) => return Ok(Flow::Skip),
+                        NodeRef::Pattern(GraphPattern::Graph { .. }) => {
+                            required = true;
+                            return Ok(Flow::Stop);
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(Flow::Descend)
+            },
+            &mut memory,
+        )
+        .map_err(|error| {
+            memory
+                .admission_mut()
+                .storage_error(error, "query graph support walk")
+        })?;
+    }
+    if required {
+        dataset.require_named_graphs().map_err(source_error)?;
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct GraphIdsPayload<I> {
+    values: Vec<I>,
+    _allocation: Option<WorkspaceAllocation>,
+    _control: WorkspaceAllocation,
+}
+
+/// Immutable resolved graph ids; every scope clone retains the same buffer grant.
+#[derive(Clone, Debug)]
+pub(crate) struct GraphIds<I>(Shared<GraphIdsPayload<I>>);
+
+impl<I> std::ops::Deref for GraphIds<I> {
+    type Target = [I];
+    fn deref(&self) -> &[I] {
+        &self.0.values
+    }
+}
+impl<'a, I> IntoIterator for &'a GraphIds<I> {
+    type Item = &'a I;
+    type IntoIter = std::slice::Iter<'a, I>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+impl<I: PartialEq> PartialEq for GraphIds<I> {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+impl<I: Eq> Eq for GraphIds<I> {}
+
+impl<I: Ord> GraphIds<I> {
+    fn freeze(
+        mut values: crate::AdmittedVec<I>, workspace: &WorkspaceCapability,
+    ) -> Result<Self, EvalError> {
+        values.as_mut_slice().sort_unstable();
+        let (mut values, allocation) = values.into_parts();
+        values.dedup();
+        let layout = Shared::<GraphIdsPayload<I>>::allocation_layout();
+        let control = workspace
+            .charge(u64::try_from(layout.size()).map_err(|_| EvalError::WorkspaceBoundOverflow)?)?;
+        let payload = Shared::try_new(GraphIdsPayload {
+            values,
+            _allocation: allocation,
+            _control: control,
+        })
+        .map_err(|_| EvalError::AllocationFailed {
+            construct: "active graph ids",
+        })?;
+        Ok(Self(payload))
+    }
+
+    pub(crate) fn resident(values: Vec<I>) -> Self {
+        let workspace = WorkspaceCapability::default();
+        Self::freeze(
+            crate::AdmittedVec::from_parts(values, None, &workspace),
+            &workspace,
+        )
+        .expect("resident active graph ids allocation")
+    }
+}
+
+/// How the active **default graph** is sourced.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DefaultSpec<I: ViewTermId = TermId> {
+    /// No `FROM`/`USING`: the store's own default graph.
+    StoreDefault,
+    /// `FROM`/`USING` graphs: the RDF-merge of these named graphs (sorted, deduped).
+    /// An empty vector is legal — every named IRI was absent, or only `FROM NAMED`
+    /// was given — and matches nothing.
+    Merged(GraphIds<I>),
+}
+
+/// The SPARQL active dataset (§13), resolved to view-local ids once per query/op.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ActiveDataset<I: ViewTermId = TermId> {
+    /// The active default-graph specification.
+    default: DefaultSpec<I>,
+    /// The graphs addressable by `GRAPH`. `None` = every store named graph (the
+    /// no-clause default); `Some(set)` = exactly these (an explicit `FROM NAMED` /
+    /// `USING NAMED`; possibly empty).
+    named: Option<GraphIds<I>>,
+}
+
+/// The resolved graph filter(s) for the *current* evaluation scope — almost always a
+/// single [`GraphMatch`]; a `FROM`/`USING`-merged default graph expands to one filter
+/// per merged graph (the union of which IS the RDF-merge).
+pub(crate) enum GraphScope<I: ViewTermId = TermId> {
+    /// A single filter (store default, a named graph, or `Any`). No de-dup needed.
+    One(GraphMatch<I>),
+    /// The merge of these named graphs. A consumer producing *rows* (BGP) must de-dupe
+    /// triples; a consumer collecting *endpoints* into a set (paths) gets it for free.
+    Merge(GraphIds<I>),
+}
+
+/// Resolve a list of graph IRIs to their view-local ids, dropping any that name no
+/// term (an absent graph contributes nothing — never an error), then sort+dedupe for
+/// a deterministic, duplicate-free merge set.
+fn resolve_graphs<D: DatasetView>(
+    graphs: &[purrdf_sparql_algebra::NamedNode], dataset: &D, workspace: &WorkspaceCapability,
+    source_error: &impl Fn(D::ReadError) -> EvalError,
+) -> Result<GraphIds<D::Id>, EvalError> {
+    let mut ids = crate::AdmittedVec::with_capacity(graphs.len(), workspace)?;
+    for graph in graphs {
+        let allocation = workspace.charge(
+            u64::try_from(graph.as_str().len()).map_err(|_| EvalError::WorkspaceBoundOverflow)?,
+        )?;
+        let value = crate::WorkspaceTerm::new(
+            TermValue::Iri(crate::workspace::string(
+                graph.as_str(),
+                "active graph lookup key",
+            )?),
+            allocation,
+        );
+        if let Some(id) = dataset.term_id_by_value(&value).map_err(source_error)? {
+            ids.push(id)?;
+        }
+    }
+    GraphIds::freeze(ids, workspace)
+}
+
+impl<I: ViewTermId> ActiveDataset<I> {
+    /// The store's own default dataset: the store default graph plus every named graph.
+    pub(crate) fn store_default() -> Self {
+        Self {
+            default: DefaultSpec::StoreDefault,
+            named: None,
+        }
+    }
+
+    /// Build the active dataset from a query's `FROM` / `FROM NAMED` clause. An empty
+    /// clause means "use the store's default dataset" (§13.2).
+    pub(crate) fn from_query_dataset_admitted<D: DatasetView<Id = I>>(
+        qd: &QueryDataset, dataset: &D, workspace: &WorkspaceCapability,
+        source_error: impl Fn(D::ReadError) -> EvalError,
+    ) -> Result<Self, EvalError> {
+        if qd.default.is_empty() && qd.named.is_empty() {
+            return Ok(Self::store_default());
+        }
+        dataset.require_named_graphs().map_err(&source_error)?;
+        Ok(Self {
+            default: DefaultSpec::Merged(resolve_graphs(
+                &qd.default,
+                dataset,
+                workspace,
+                &source_error,
+            )?),
+            named: Some(resolve_graphs(
+                &qd.named,
+                dataset,
+                workspace,
+                &source_error,
+            )?),
+        })
+    }
+
+    /// Build the WHERE active dataset from an UPDATE op's `USING` / `USING NAMED`
+    /// clauses (the write-path twin of [`Self::from_query_dataset_admitted`]). The caller only invokes
+    /// this when `using` is non-empty (§3.1.3: `USING` replaces `WITH`'s effect on the
+    /// WHERE dataset).
+    pub(crate) fn from_using<D: DatasetView<Id = I>>(using: &[UsingClause], dataset: &D) -> Self {
+        let mut default = Vec::new();
+        let mut named = Vec::new();
+        for u in using {
+            match u {
+                UsingClause::Default(n) => {
+                    if let Some(id) = dataset.term_id_if_ready(&named_node_to_value(n)) {
+                        default.push(id);
+                    }
+                }
+                UsingClause::Named(n) => {
+                    if let Some(id) = dataset.term_id_if_ready(&named_node_to_value(n)) {
+                        named.push(id);
+                    }
+                }
+            }
+        }
+        default.sort();
+        default.dedup();
+        Self {
+            default: DefaultSpec::Merged(GraphIds::resident(default)),
+            named: Some(GraphIds::resident(named)),
+        }
+    }
+
+    /// Scope the WHERE default graph to a single `WITH <g>` graph (named graphs stay
+    /// unrestricted). An absent `g` yields an empty default graph (the WHERE matches
+    /// nothing), matching the implicit-existence doctrine.
+    pub(crate) fn with_default_graph<D: DatasetView<Id = I>>(dataset: &D, g: &TermValue) -> Self {
+        let ids = dataset.term_id_if_ready(g).map_or_default(|id| vec![id]);
+        Self {
+            default: DefaultSpec::Merged(GraphIds::resident(ids)),
+            named: None,
+        }
+    }
+
+    /// The graph scope for the current `active_graph`. A root default-graph scope
+    /// (`GraphMatch::Default`) expands through the default spec (store default or a
+    /// merge); an in-`GRAPH` scope (`Named`) is always a single filter — the default
+    /// merge never applies inside a `GRAPH` block.
+    pub(crate) fn scope_for(&self, active_graph: GraphMatch<I>) -> GraphScope<I> {
+        match active_graph {
+            GraphMatch::Default => match &self.default {
+                DefaultSpec::StoreDefault => GraphScope::One(GraphMatch::Default),
+                DefaultSpec::Merged(gs) => GraphScope::Merge(gs.clone()),
+            },
+            other => GraphScope::One(other),
+        }
+    }
+
+    /// Whether the named graph `id` is addressable by `GRAPH` under this dataset.
+    pub(crate) fn named_allows(&self, id: I) -> bool {
+        match &self.named {
+            None => true,
+            Some(set) => set.binary_search(&id).is_ok(),
+        }
+    }
+}
+
+impl<I: ViewTermId> GraphScope<I> {
+    /// Visit every quad matching `(s, p, o)` in this scope. For a merged scope the
+    /// per-graph indexed reads are unioned in order; **no triple de-dup is applied
+    /// here** (the BGP caller de-dupes by `(s,p,o)`; endpoint-collecting callers do
+    /// not need it).
+    pub(crate) fn for_each_quad<D: DatasetView<Id = I>>(
+        &self, dataset: &D, s: Option<I>, p: Option<I>, o: Option<I>, mut f: impl FnMut(QuadIds<I>),
+    ) {
+        match self {
+            Self::One(gm) => {
+                for q in dataset.quads_for_pattern(s, p, o, *gm) {
+                    f(q);
+                }
+            }
+            Self::Merge(gs) => {
+                for &g in gs {
+                    for q in dataset.quads_for_pattern(s, p, o, GraphMatch::Named(g)) {
+                        f(q);
+                    }
+                }
+            }
+        }
+    }
+}

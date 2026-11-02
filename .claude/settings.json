@@ -1,0 +1,95 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 scripts/verify.py:*)",
+      "Bash(python3 scripts/verify_stardf_licenses.py:*)",
+      "Bash(bash scripts/verify_blake3_identity.sh:*)",
+      "Bash(python3 scripts/verify_header_freeze.py:*)",
+      "Bash(bash scripts/verify_duckdb_rehome.sh:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo package --allow-dirty:*)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(cargo publish:*)"
+    ]
+  },
+  "x-stardf-annotations": {
+    "_scope": "AUTHORITY LANE C (/Users/sac/ggen-legacy/stardf). Commands are lane-literal forms; the five courts live on disk at stardf/arrow/scripts/ and each cds to the arrow workspace root internally, so run them with cwd = stardf/arrow/. Live registry/push authority is operator-gated (see deny annotations).",
+    "Bash(python3 scripts/verify.py:*)": {
+      "drow": "D18",
+      "row": "D18 ABI-v2 (PENDING-OPERATOR; arrow stays landed as-is)",
+      "gate": "Master verifier: rdflib ontology census, header/impl parity (include/stardf_arrow.h vs #[no_mangle] exports, both directions), ontology<->header cross-check, --mutate drop-export anti-vacuity, --snapshot F4 check.",
+      "why": "Guards the LANDED ABI surface (the surface D18 governs while ABI-v2's 13-export adoption is pending)."
+    },
+    "Bash(python3 scripts/verify_stardf_licenses.py:*)": {
+      "drow": "D20",
+      "row": "D20 publish closure (first-class, ladder-judged, BLOCKED)",
+      "gate": "License-compatibility gate (P0-18/P0-19 R1 falsifier): FAILs on a P28-SIL -> MIT/Apache/MulanPSL edge without a receipt in authority/stardf/license-compat.json; unregistered dep = loud FAIL, never guessed.",
+      "why": "Publish closure requires registered license compatibility per dependency edge; feeds the publish ladder."
+    },
+    "Bash(bash scripts/verify_blake3_identity.sh:*)": {
+      "drow": "D17",
+      "row": "D17 first-class closure (honest scope: compile-green + four first-class targets)",
+      "gate": "KD-08 single-identity gate: exactly one blake3 binding across the workspace closure (real cargo tree against the real lockfile; blake3 ABSENT = exit 1, vacuous gate).",
+      "why": "Identity hygiene over the 53-crate closure that D17 scopes; one identity, loudly non-vacuous."
+    },
+    "Bash(python3 scripts/verify_header_freeze.py:*)": {
+      "drow": "D18",
+      "row": "D18 ABI-v2 (PENDING-OPERATOR; arrow stays landed as-is)",
+      "gate": "F4 header-freeze court (W4): regenerates snapshots/prototypes.snapshot from CabiExport targetSymbols; GONE/NEW drift vs committed snapshot or header = exit 1 both directions.",
+      "why": "Catches a consistently-edited ontology+header+impl triple the live parity still accepts; freezes the landed ABI surface while D18 adoption is pending."
+    },
+    "Bash(bash scripts/verify_duckdb_rehome.sh:*)": {
+      "drow": "D13",
+      "row": "D13 frozen-duckdb re-home, RESOLVED at =2.0.4 x3 (frozen-duckdb/-sys/-builder)",
+      "gate": "Fail-closed two-arm rehome court: ARM A warm-cache control, ARM B cache-absent (fork+cache REALLY renamed away, SHA-256-restored) must resolve AND compile =2.0.4 x3 registry-only.",
+      "why": "This court IS the D13 acceptance datum (cache-absent compile ALIVE = rehome, no machine-local path)."
+    },
+    "Bash(cargo check:*)": {
+      "drow": "D17",
+      "row": "D17 first-class closure (honest scope: compile-green at best for the copied ~80%)",
+      "gate": "Compile-green over the workspace.",
+      "why": "D17's scope instrument: copied crates carry NO courts, compile-green is the admitted claim class."
+    },
+    "Bash(cargo test:*)": {
+      "drow": "D17",
+      "row": "D17 first-class closure (parity scoped to the four first-class targets)",
+      "gate": "Workspace test run.",
+      "why": "First-class-target evidence for the copied closure; claim class bounded by D17."
+    },
+    "Bash(cargo clippy:*)": {
+      "drow": "D17",
+      "row": "D17 first-class closure (honest scope: compile-green at best)",
+      "gate": "Lint pass over the workspace.",
+      "why": "Compile-class gate within D17's admitted scope."
+    },
+    "Bash(cargo fmt:*)": {
+      "drow": "D17",
+      "row": "D17 first-class closure (honest scope: compile-green at best)",
+      "gate": "Formatting check.",
+      "why": "Compile-class gate within D17's admitted scope."
+    },
+    "Bash(cargo package --allow-dirty:*)": {
+      "drow": "D20",
+      "row": "D20 publish closure (first-class, ladder-judged, BLOCKED)",
+      "gate": "Local tarball packaging of the dry-run publish ladder (publish_stardf.py G1-G9+R1 receipts; witnessed 20/25 closure crates package in tier order).",
+      "why": "Publish-PREP is local-only: builds .crate artifacts, never touches the registry. The --allow-dirty flag must LEAD (`cargo package --allow-dirty ...`) for the prefix match."
+    },
+    "Bash(git push:*)": {
+      "drow": "D20",
+      "row": "D20 publish closure (BLOCKED; live acts are PENDING-OPERATOR)",
+      "gate": "DENY. Refusal boundary of the BLOCKED publish closure.",
+      "why": "No outward actuation from a lane: live publish go sits behind the operator gate (STARDF_PUBLISH_CONFIRM=ratified-v26.11.1 + --publish, scripts/publish_stardf.py:80); git push is equally an outward act."
+    },
+    "Bash(cargo publish:*)": {
+      "drow": "D20",
+      "row": "D20 publish closure (BLOCKED; live registry touch PENDING-OPERATOR)",
+      "gate": "DENY. Live crates.io registry touch is operator-gated via STARDF_PUBLISH_CONFIRM (publish_stardf.py: CONFIRM_ENV, dry-run by default).",
+      "why": "The ladder ran dry-run only this campaign (verdict BLOCKED, 3-row landing list); an agent session must not perform the live act."
+    }
+  }
+}

@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+# stardf umbrella facade — vendored from PurRDF `crates/purrdf` at rev
+# 0da0578306983da851a9073337d57e2e2c41ab3a (pinned rev, never the dirty tree),
+# slice 11 of the v26.11.1 copy sweep. Delta surface (complete, disclosed):
+# crates/stardf/VENDOR-PROVENANCE.md.
+
+[package]
+name = "stardf"
+description = "PurRDF umbrella crate: RDF 1.2 implementation, slices, and SHACL/ShEx shape validation"
+version.workspace = true
+edition.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/purrdf"
+rust-version.workspace = true
+keywords = ["rdf", "rdf-12", "shacl", "shex", "sparql"]
+categories = ["parser-implementations", "encoding", "data-structures"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+crate-type = ["rlib"]
+path = "src/lib.rs"
+# Upstream declared no [lib] name (implicit `purrdf`); the vendoring law keeps
+# lib names verbatim, so the implicit name is pinned explicitly — the same
+# posture as the stardf-testkit vendoring. The PACKAGE is the one `stardf`
+# everyone depends on; `use purrdf::…` is the verbatim lib surface.
+name = "purrdf"
+
+# Upstream [features] `sql = ["dep:purrdf-sql", "dep:purrdf-duckdb"]` and
+# `hooks = ["dep:purrdf-hooks", "sql"]` are NOT PORTED here. Gated out, loudly:
+# their backing crates are not resolvable members of this workspace yet
+# (stardf-sql landed a manifest but inherits stardf-core/stardf-rdf/stardf-shapes
+# which are not landed; stardf-duckdb and stardf-hooks are not vendored at all).
+# A feature declared without its dependency is a silent no-op — a feature that
+# enables nothing is the silent-skip this campaign bans. The features and their
+# cfg-gated `pub mod sql/duckdb/hooks` blocks land at integration once their
+# crate set resolves (gates: crates/stardf/VENDOR-PROVENANCE.md, item 6).
+
+[dependencies]
+# Re-derived module map: only the upstream umbrella's dependencies that are
+# resolvable members of the copy-sweep workspace. Every upstream dependency
+# whose crate is not yet vendored is listed with its port precondition in
+# crates/stardf/VENDOR-PROVENANCE.md (item 5) — never dropped silently.
+stardf-lex = { workspace = true }
+stardf-xsd = { workspace = true }
+stardf-iri = { workspace = true }
+stardf-events = { workspace = true }
+stardf-sparql-algebra = { workspace = true }
+
+[dev-dependencies]
+# Runs the deep-structure tests on a stack of a stated size: a fresh thread
+# natively, the running stack under a fresh floor on wasm32.
+stardf-stack = { workspace = true }
+# The timed bench (`benches/multimodal_on_demand_read.rs`). Report-only: it
+# compares the on-demand read against the materialised one over real text and
+# HNSW producers, which only the umbrella can wire together in one fixture
+# because `purrdf-retrieval` does not depend on `purrdf-hnsw`. It runs on the
+# workspace's bench harness, `purrdf_testkit::bench`. Path-only and unpublished,
+# so it is stripped from the packaged manifest.
+stardf-testkit = { workspace = true }
+# The allocation probe (`benches/pipeline_alloc.rs`): the workspace's shared
+# counting allocator and its whole-process window, for the parse/query/serialize
+# peak-bytes + RSS rows. Path-only and unpublished, so it is stripped from the
+# packaged manifest.
+stardf-alloc-probe = { workspace = true }
+# The one-home seeded generator (`purrdf_hash::mix::lcg64_next`) behind the
+# benches' shared fixture module (`benches/support/fixture.rs`). Path-only and
+# unpublished, so it is stripped from the packaged manifest.
+stardf-hash = { workspace = true }
+# Upstream dev-dependency `purrdf-core` (the doc-hidden PURREMB identity
+# fixture) is NOT ported: no stardf-core manifest exists on disk yet (the
+# stardf-core copy is mid-sweep at one src file). It joins with its gate in
+# crates/stardf/VENDOR-PROVENANCE.md item 5.
+
+# Upstream [[test]] reasoning_inspection (harness = false) and the four
+# [[bench]] tables (multimodal_on_demand_read, pipeline_e2e, pipeline_alloc)
+# are NOT PORTED: their harnesses exercise the not-yet-vendored surface
+# (reasoning/entail, retrieval/text/hnsw, rdf parse/serialize). They land with
+# their modules (VENDOR-PROVENANCE.md items 4-5).
+
+[lints]
+workspace = true

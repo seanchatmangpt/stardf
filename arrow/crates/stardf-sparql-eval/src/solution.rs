@@ -1,0 +1,2000 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! Solution sequences: the column-oriented multiset of variable bindings.
+//!
+//! A [`SolutionSeq`] is a **bag** (multiset) of [`Solution`] rows over a shared,
+//! ordered [`VarSchema`]. Duplicate rows are preserved until `DISTINCT`/`REDUCED`.
+//! Each row is a dense, inline-capacity-4 `SmallVec<[Option<SolutionTerm>; 4]>`
+//! indexed by column ordinal — see [`Solution`] for why it is not a `Vec`, which
+//! matters to anyone reasoning about where a row lives. `None` means the variable
+//! is *in the schema's domain but unbound in this row*
+//! (which `OPTIONAL`/`UNION` produce), distinct from "not a column at all".
+//!
+//! Column orientation (rather than per-row hash maps) is deliberate: multiset
+//! semantics demand cheap duplicate-preserving rows, `DISTINCT` is a whole-row
+//! tuple hash, and join keys are precomputed column ordinals rather than per-probe
+//! variable-name lookups.
+
+use purrdf_core::{TermId, ViewTermId};
+use purrdf_sparql_algebra::Variable;
+
+use crate::scratch::SolutionTerm;
+use hashbrown::HashTable;
+
+/// The ordered, shared variable schema of a [`SolutionSeq`].
+///
+/// Maps each [`Variable`] to a stable column ordinal. Column order is significant:
+/// it fixes `SELECT` result-column order and the deterministic left-then-right
+/// ordering of join outputs.
+///
+/// The [`Default`] schema has zero columns: the schema of the identity table `Z`.
+#[derive(Clone, Debug, Default)]
+pub struct VarSchema {
+    data: Option<purrdf_core::small::Shared<SchemaData>>,
+}
+
+/// Immutable column layout retaining the schema's original shared payload.
+/// Cloning this carrier allocates nothing and retains the original native grants.
+#[derive(Clone, Debug)]
+#[repr(transparent)]
+pub struct SharedSchema(VarSchema);
+
+impl std::ops::Deref for SharedSchema {
+    type Target = VarSchema;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<VarSchema> for SharedSchema {
+    fn as_ref(&self) -> &VarSchema {
+        &self.0
+    }
+}
+
+#[derive(Debug)]
+struct SchemaData {
+    cols: Vec<Variable>,
+    index: HashTable<(Variable, usize)>,
+    _allocation: Option<crate::WorkspaceAllocation>,
+    _columns: Option<crate::WorkspaceAllocation>,
+    _index: Option<crate::WorkspaceAllocation>,
+}
+
+/// Mutable construction stays execution-owned; publication freezes one payload.
+pub(crate) struct SchemaBuilder {
+    columns: crate::AdmittedVec<Variable>,
+    index: crate::AdmittedMap<Variable, usize>,
+    workspace: crate::WorkspaceCapability,
+}
+
+impl SchemaBuilder {
+    pub(crate) fn new(workspace: &crate::WorkspaceCapability) -> Self {
+        Self {
+            columns: crate::AdmittedVec::new(workspace),
+            index: crate::AdmittedMap::default(),
+            workspace: workspace.clone(),
+        }
+    }
+
+    pub(crate) fn vars(&self) -> &[Variable] {
+        &self.columns
+    }
+
+    pub(crate) fn push(&mut self, variable: Variable) -> Result<usize, crate::EvalError> {
+        let indexed = self.columns.len() > INDEXED_ABOVE;
+        if let Some(ordinal) = if indexed {
+            self.index.get(&variable).copied()
+        } else {
+            // OPT-45: small-N scan as a lane-pack + trailing_zeros, hash-staged
+            // with a confirming scalar re-check (collision-safe).
+            position_hashed(&self.columns, &variable)
+        } {
+            return Ok(ordinal);
+        }
+        let ordinal = self.columns.len();
+        self.columns.push(variable.clone())?;
+        if ordinal == INDEXED_ABOVE {
+            for (ordinal, column) in self.columns.iter().enumerate() {
+                let _ = self
+                    .index
+                    .insert_admitted(column.clone(), ordinal, &self.workspace)?;
+            }
+        } else if indexed {
+            let _ = self
+                .index
+                .insert_admitted(variable, ordinal, &self.workspace)?;
+        }
+        Ok(ordinal)
+    }
+
+    pub(crate) fn try_extend(
+        &mut self, values: impl IntoIterator<Item = Variable>,
+    ) -> Result<(), crate::EvalError> {
+        for value in values {
+            let _ = self.push(value)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn finish(self) -> Result<VarSchema, crate::EvalError> {
+        if self.columns.is_empty() {
+            return Ok(VarSchema::default());
+        }
+        let allocation = self
+            .workspace
+            .charge(crate::workspace::fallible_shared_layout::<SchemaData>()?)?;
+        let (cols, columns) = self.columns.into_parts();
+        let (index, indexed) = self.index.into_parts();
+        let data = purrdf_core::small::Shared::try_new(SchemaData {
+            cols,
+            index,
+            _allocation: Some(allocation),
+            _columns: columns,
+            _index: indexed,
+        })
+        .map_err(|_| crate::EvalError::AllocationFailed {
+            construct: "schema shared payload",
+        })?;
+        Ok(VarSchema { data: Some(data) })
+    }
+}
+
+impl PartialEq for VarSchema {
+    fn eq(&self, other: &Self) -> bool {
+        self.vars() == other.vars()
+    }
+}
+impl Eq for VarSchema {}
+impl std::hash::Hash for VarSchema {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(self.vars(), state);
+    }
+}
+
+/// Above this many columns a schema builds a hash index; at or below it, lookups
+/// scan the column vector.
+///
+/// The same argument `crate::substitute`'s `ExprSubs` makes, one layer down and on a
+/// hotter path: hashing a string to find one of three entries is slower than
+/// comparing three short strings, and it charges a heap allocation for the table.
+/// Every `Project`, `Values` and `Bgp` node builds a schema on every execution, so
+/// on the SHACL change path that table was allocated several times per focus node
+/// for a handful of columns. `Variable` is `Arc<str>`-backed and every column of a
+/// given query comes from one parse, so the scan's comparisons are usually pointer
+/// equality.
+///
+/// The threshold is not a tolerance. Above it the index is built and is
+/// authoritative, so a wide schema keeps its O(1) lookup; this only decides which
+/// representation answers, never what the answer is.
+///
+/// Below the threshold `index_of` is O(columns), so a caller MUST NOT call it
+/// once per (row, position) pair — that turns a per-template cost into a
+/// per-solution one. This is an invariant callers are responsible for, not one
+/// this type enforces: `crate::construct` and `crate::update` resolve every
+/// template position's ordinal ONCE per template, before the `for row in
+/// &seq.rows` loop, into a `TermOrdinal`/`QuadOrdinal` tree
+/// (`crate::template::resolve_term`/`resolve_triple`) that `instantiate_term`/
+/// `instantiate_predicate` then read per row instead of calling `index_of`
+/// again — see those modules' `index_of_call_count`-guarded tests, which fail if
+/// a future caller reintroduces `index_of` into a row loop.
+const INDEXED_ABOVE: usize = 8;
+
+// OPT-45 kernel home: purrdf_branchless::search, ported from bcinr
+// algorithms/linear_search_simd_u8.rs:33-46.
+pub(crate) use purrdf_branchless::search::first_equal_lane_u64x8;
+
+/// Hash-staged lane-pack lookup of `var` among `keys` (N <= 8): compare the
+/// [`purrdf_hash::fixed::hash_one`] lane pack against the target hash, take
+/// `trailing_zeros`, then CONFIRM with scalar [`Eq`] so a hash collision
+/// resolves to the true ordinal, never a wrong-but-colliding one (the
+/// OPT-45 valid-neighbor invariant).
+///
+/// Falls back to the scalar `.position()` above 8 keys (the required fallback,
+/// per OPT-45) and past any lane whose hash matches but whose scalar re-check
+/// fails, so a collision can only cost the scan, never the answer.
+// kernel home: purrdf_branchless::search::first_equal_lane_u64x8
+#[inline]
+pub(crate) fn position_hashed(keys: &[Variable], var: &Variable) -> Option<usize> {
+    if keys.len() > 8 {
+        return keys.iter().position(|candidate| candidate == var);
+    }
+    let target = purrdf_hash::fixed::hash_one(var);
+    let mut hits = 0u64;
+    for candidate in keys {
+        hits |= u64::from(purrdf_hash::fixed::hash_one(candidate) == target).wrapping_neg();
+    }
+    // Walk only the hash-hit lanes (trailing_zeros peel); each still owes the
+    // confirming scalar equality before it may answer.
+    let mut hits = hits;
+    while hits != 0 {
+        let index = hits.trailing_zeros() as usize;
+        if keys[index] == *var {
+            return Some(index);
+        }
+        hits &= hits - 1;
+    }
+    None
+}
+
+// Test-only: counts calls to `VarSchema::index_of`, process-wide. A guard against
+// a per-ROW caller of `index_of` regressing silently: a caller that resolves
+// ordinals once per template makes this counter's per-run delta independent of
+// solution-row count, while a caller that calls `index_of` once per (row,
+// position) makes it scale with row count. See
+// `crate::construct::tests::index_of_is_not_called_per_construct_row` and
+// `crate::update::tests::index_of_is_not_called_per_update_row`.
+#[cfg(test)]
+thread_local! {
+    static INDEX_OF_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+impl VarSchema {
+    /// Reset [`INDEX_OF_CALLS`] to zero.
+    pub(crate) fn reset_index_of_calls() {
+        INDEX_OF_CALLS.with(|c| c.set(0));
+    }
+
+    /// The number of `index_of` calls since the last [`Self::reset_index_of_calls`].
+    pub(crate) fn index_of_call_count() -> u64 {
+        INDEX_OF_CALLS.with(std::cell::Cell::get)
+    }
+}
+
+impl VarSchema {
+    /// Retained column/index payload. Authored variable strings remain shared.
+    pub(crate) fn retained_size_bytes(&self) -> usize {
+        self.data.as_ref().map_or(0, |data| {
+            purrdf_core::small::Shared::<SchemaData>::allocation_layout()
+                .size()
+                .saturating_add(data.cols.capacity().saturating_mul(size_of::<Variable>()))
+                .saturating_add(
+                    purrdf_core::hash::hash_table_allocation_bound::<(Variable, usize)>(
+                        data.index.capacity(),
+                    )
+                    .unwrap_or(usize::MAX),
+                )
+        })
+    }
+
+    /// Build a resident schema, keeping variables in first-seen order.
+    pub fn from_vars(vars: impl IntoIterator<Item = Variable>) -> Self {
+        Self::from_vars_admitted(vars, &crate::WorkspaceCapability::default())
+            .expect("resident schema allocation")
+    }
+
+    pub(crate) fn shared_admitted(
+        self, workspace: &crate::WorkspaceCapability,
+    ) -> Result<SharedSchema, crate::EvalError> {
+        // SchemaData already encloses its original array and control grants.
+        // Publication preserves a prior refusal without allocating another header.
+        if workspace.has_failed() {
+            return Err(crate::EvalError::WorkspaceStopped);
+        }
+        Ok(SharedSchema(self))
+    }
+
+    /// Share the existing immutable schema payload without allocating a control.
+    #[must_use]
+    pub fn shared_resident(self) -> SharedSchema {
+        SharedSchema(self)
+    }
+
+    pub(crate) fn from_vars_admitted(
+        vars: impl IntoIterator<Item = Variable>, workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        let mut builder = SchemaBuilder::new(workspace);
+        for variable in vars {
+            builder.push(variable)?;
+        }
+        builder.finish()
+    }
+
+    /// Append a caller-owned variable to a resident schema.
+    pub fn push(&mut self, variable: Variable) -> usize {
+        self.push_admitted(variable, &crate::WorkspaceCapability::default())
+            .expect("resident schema allocation")
+    }
+
+    pub(crate) fn push_admitted(
+        &mut self, variable: Variable, workspace: &crate::WorkspaceCapability,
+    ) -> Result<usize, crate::EvalError> {
+        use crate::EvalError;
+        if let Some(ordinal) = self.index_of(&variable) {
+            return Ok(ordinal);
+        }
+        let ordinal = self.len();
+        let needed = ordinal
+            .checked_add(1)
+            .ok_or(EvalError::WorkspaceBoundOverflow)?;
+        // Immutable payload replacement retains the original owner through all
+        // fallible allocation. Authored variable names remain shallow references.
+        let capacity = needed;
+        let map_capacity = if needed > INDEXED_ABOVE { needed } else { 0 };
+        let allocation = {
+            let columns = std::alloc::Layout::array::<Variable>(capacity)
+                .map_err(|_| EvalError::WorkspaceBoundOverflow)?
+                .size();
+            let index =
+                purrdf_core::hash::hash_table_allocation_bound::<(Variable, usize)>(map_capacity)
+                    .ok_or(EvalError::WorkspaceBoundOverflow)?;
+            let bytes = crate::workspace::fallible_shared_layout::<SchemaData>()?
+                .checked_add(
+                    u64::try_from(
+                        columns
+                            .checked_add(index)
+                            .ok_or(EvalError::WorkspaceBoundOverflow)?,
+                    )
+                    .map_err(|_| EvalError::WorkspaceBoundOverflow)?,
+                )
+                .ok_or(EvalError::WorkspaceBoundOverflow)?;
+            Some(workspace.charge(bytes)?)
+        };
+        {
+            let mut cols = crate::workspace::vector::<Variable>(capacity, "schema columns")?;
+            cols.extend(self.vars().iter().cloned());
+            let mut index = HashTable::new();
+            if map_capacity != 0 {
+                index
+                    .try_reserve(map_capacity, |entry: &(Variable, usize)| {
+                        purrdf_hash::fixed::hash_one(&entry.0)
+                    })
+                    .map_err(|_| EvalError::AllocationFailed {
+                        construct: "schema index",
+                    })?;
+                for (ordinal, col) in cols.iter().enumerate() {
+                    index.insert_unique(
+                        purrdf_hash::fixed::hash_one(col),
+                        (col.clone(), ordinal),
+                        |entry| purrdf_hash::fixed::hash_one(&entry.0),
+                    );
+                }
+            }
+            cols.push(variable.clone());
+            if needed > INDEXED_ABOVE {
+                index.insert_unique(
+                    purrdf_hash::fixed::hash_one(&variable),
+                    (variable, ordinal),
+                    |entry| purrdf_hash::fixed::hash_one(&entry.0),
+                );
+            }
+            let data = purrdf_core::small::Shared::try_new(SchemaData {
+                cols,
+                index,
+                _allocation: allocation,
+                _columns: None,
+                _index: None,
+            })
+            .map_err(|_| EvalError::AllocationFailed {
+                construct: "schema shared payload",
+            })?;
+            self.data = Some(data);
+        }
+        Ok(ordinal)
+    }
+
+    /// The column ordinal of `var`, if it is in the schema.
+    #[inline]
+    pub fn index_of(&self, var: &Variable) -> Option<usize> {
+        #[cfg(test)]
+        INDEX_OF_CALLS.with(|c| c.set(c.get() + 1));
+        let Some(data) = &self.data else {
+            return None;
+        };
+        if data.index.is_empty() {
+            // OPT-45: small-N scan as a lane-pack + trailing_zeros, hash-staged
+            // with a confirming scalar re-check (collision-safe).
+            position_hashed(&data.cols, var)
+        } else {
+            data.index
+                .find(purrdf_hash::fixed::hash_one(var), |entry| &entry.0 == var)
+                .map(|entry| entry.1)
+        }
+    }
+
+    /// Whether `var` is a column of this schema.
+    #[inline]
+    pub fn contains(&self, var: &Variable) -> bool {
+        self.index_of(var).is_some()
+    }
+
+    /// The columns in order.
+    #[inline]
+    pub fn vars(&self) -> &[Variable] {
+        self.data.as_ref().map_or(&[], |data| data.cols.as_slice())
+    }
+
+    /// The number of columns.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.vars().len()
+    }
+
+    /// Whether the schema has no columns.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.vars().is_empty()
+    }
+
+    /// The **ordered union** of two schemas: `self`'s columns first (in order),
+    /// then `other`'s columns not already present (in order). This is the result
+    /// schema of a binary algebra operator and matches SPARQL's deterministic
+    /// variable ordering (left operand's variables lead).
+    #[must_use]
+    pub fn union(&self, other: &Self) -> Self {
+        self.union_admitted(other, &crate::WorkspaceCapability::default())
+            .expect("resident schema union")
+    }
+
+    pub(crate) fn union_admitted(
+        &self, other: &Self, workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        if self.is_empty() {
+            return Ok(other.clone());
+        }
+        if other.vars().iter().all(|variable| self.contains(variable)) {
+            return Ok(self.clone());
+        }
+        Self::from_vars_admitted(self.vars().iter().chain(other.vars()).cloned(), workspace)
+    }
+    /// The shared variables in the left schema's original order, retaining an
+    /// unchanged immutable schema when no column is removed.
+    pub(crate) fn intersection_admitted(
+        &self, other: &Self, workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        if self.vars().iter().all(|variable| other.contains(variable)) {
+            return Ok(self.clone());
+        }
+        Self::from_vars_admitted(
+            self.vars()
+                .iter()
+                .filter(|variable| other.contains(variable))
+                .cloned(),
+            workspace,
+        )
+    }
+
+    /// The shared columns of `self` and `other`, as `(self_ordinal, other_ordinal)`
+    /// pairs in `self`'s column order. These are the join key columns and the
+    /// columns a compatibility check compares.
+    pub fn shared_columns(&self, other: &Self) -> Vec<(usize, usize)> {
+        self.vars()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| other.index_of(v).map(|j| (i, j)))
+            .collect()
+    }
+
+    pub(crate) fn shared_columns_admitted(
+        &self, other: &Self, workspace: &crate::WorkspaceCapability,
+    ) -> Result<crate::workspace::AdmittedVec<(usize, usize)>, crate::EvalError> {
+        let mut columns = crate::workspace::AdmittedVec::new(workspace);
+        for (ordinal, variable) in self.vars().iter().enumerate() {
+            if let Some(other_ordinal) = other.index_of(variable) {
+                columns.push((ordinal, other_ordinal))?;
+            }
+        }
+        Ok(columns)
+    }
+}
+
+/// One solution mapping: a dense row indexed by [`VarSchema`] column ordinal.
+/// `None` = the variable is unbound in this row.
+///
+/// A small-vector with inline capacity 4: most queries bind ≤4-8 variables, so
+/// the common row lives inline with no heap allocation and spills to the heap
+/// only for wider schemas. Derefs to `&[Option<SolutionTerm>]`, so indexing,
+/// iteration, slicing, and `&[Option<SolutionTerm>]` parameters are unchanged.
+pub type Solution<I = TermId> = purrdf_core::SmallVec<[Option<SolutionTerm<I>>; 4]>;
+
+/// One immutable row whose clone retains its admitted cell owner.
+#[derive(Clone, Debug)]
+pub struct RetainedRow<I: ViewTermId = TermId> {
+    storage: RowStorage<I>,
+}
+
+#[derive(Clone, Debug)]
+enum RowStorage<I: ViewTermId> {
+    Resident(Solution<I>),
+    // SmallVec provides one zero niche. Keep one nonresident alternative so
+    // ordinary rows retain its layout even as owned payload kinds vary.
+    Owned(RowOwner<I>),
+}
+
+#[derive(Clone, Debug)]
+enum RowOwner<I: ViewTermId> {
+    Shared(purrdf_core::small::Shared<RowPayload<I>>),
+    Tracked(crate::workspace::NativeSharedWorkspace<TrackedRow<I>>),
+}
+
+#[derive(Debug)]
+enum RowCells<I: ViewTermId> {
+    Resident {
+        cells: Solution<I>,
+        _allocation: Option<crate::WorkspaceAllocation>,
+    },
+    Shared(purrdf_core::small::Shared<RowPayload<I>>),
+}
+
+#[derive(Debug)]
+struct TrackedRow<I: ViewTermId> {
+    // Cell ownership is flat and shared independently of changed metadata.
+    cells: crate::workspace::NativeSharedWorkspace<RowCells<I>>,
+    evidence: crate::evidence_exec::RowEvidence,
+}
+
+#[derive(Debug)]
+struct RowPayload<I: ViewTermId> {
+    cells: Solution<I>,
+    _allocation: crate::WorkspaceAllocation,
+}
+
+impl<I: ViewTermId> std::ops::Deref for RetainedRow<I> {
+    type Target = Solution<I>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        match &self.storage {
+            RowStorage::Resident(cells) => cells,
+            RowStorage::Owned(RowOwner::Shared(payload)) => &payload.cells,
+            RowStorage::Owned(RowOwner::Tracked(payload)) => match &*payload.cells {
+                RowCells::Resident { cells, .. } => cells,
+                RowCells::Shared(payload) => &payload.cells,
+            },
+        }
+    }
+}
+impl<I: ViewTermId> PartialEq for RetainedRow<I> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+impl<I: ViewTermId> Eq for RetainedRow<I> {}
+impl<I: ViewTermId> std::hash::Hash for RetainedRow<I> {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash(self.as_slice(), state);
+    }
+}
+impl<'a, I: ViewTermId> IntoIterator for &'a RetainedRow<I> {
+    type Item = &'a Option<SolutionTerm<I>>;
+    type IntoIter = std::slice::Iter<'a, Option<SolutionTerm<I>>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<I: ViewTermId> RetainedRow<I> {
+    /// Physical attachments include original rank and query-owner lifetimes,
+    /// even when their public evidence record is default-supported.
+    #[inline]
+    pub(crate) fn has_evidence_attachment(&self) -> bool {
+        matches!(self.storage, RowStorage::Owned(RowOwner::Tracked(_)))
+    }
+
+    /// Copy an existing attachment without materializing virtual metadata on
+    /// ordinary rows. Tracked owners keep the original fallible attachment path.
+    #[inline]
+    pub(crate) fn with_evidence_from(
+        self, source: &Self, workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        if !self.has_evidence_attachment() && !source.has_evidence_attachment() {
+            return Ok(self);
+        }
+        self.with_evidence(source.evidence().clone(), workspace)
+    }
+
+    /// Compute a dependency attachment before constructing its output cells.
+    /// Only physically ordinary operands have no attachment to combine.
+    #[inline]
+    pub(crate) fn combined_evidence(
+        &self, other: &Self, law: purrdf_core::evidence::EvidenceCombination,
+    ) -> Result<Option<crate::evidence_exec::RowEvidence>, crate::EvalError> {
+        if !self.has_evidence_attachment() && !other.has_evidence_attachment() {
+            return Ok(None);
+        }
+        self.evidence().combine(other.evidence(), law).map(Some)
+    }
+
+    /// Borrow evidence while retaining its original query-local dictionary.
+    #[must_use]
+    pub fn evidence(&self) -> &crate::evidence_exec::RowEvidence {
+        match &self.storage {
+            RowStorage::Owned(RowOwner::Tracked(payload)) => &payload.evidence,
+            RowStorage::Resident(_) | RowStorage::Owned(RowOwner::Shared(_)) => {
+                &crate::evidence_exec::VIRTUAL_ROW_EVIDENCE
+            }
+        }
+    }
+
+    /// Move an immutable row and its evidence through an operator together.
+    ///
+    /// # Errors
+    /// Returns original native admission or allocation refusal before changing
+    /// ownership. Ordinary virtual evidence allocates nothing.
+    #[inline]
+    pub fn with_evidence(
+        mut self, evidence: crate::evidence_exec::RowEvidence,
+        workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        if evidence.is_virtual() && !self.has_evidence_attachment() {
+            return Ok(self);
+        }
+        self.attach_evidence(evidence, workspace)?;
+        Ok(self)
+    }
+
+    /// Publish an actual optional attachment without creating a virtual record.
+    /// `None` is a caller's proof that the original row needs no replacement.
+    #[inline]
+    pub(crate) fn with_optional_evidence(
+        self, evidence: Option<crate::evidence_exec::RowEvidence>,
+        workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        match evidence {
+            Some(evidence) => self.with_evidence(evidence, workspace),
+            None => Ok(self),
+        }
+    }
+
+    fn attach_evidence(
+        &mut self, evidence: crate::evidence_exec::RowEvidence,
+        workspace: &crate::WorkspaceCapability,
+    ) -> Result<(), crate::EvalError> {
+        if self.evidence().same_attachment(&evidence) {
+            return Ok(());
+        }
+        let existing_cells = match &self.storage {
+            RowStorage::Owned(RowOwner::Tracked(payload)) => Some(payload.cells.clone()),
+            RowStorage::Resident(_) | RowStorage::Owned(RowOwner::Shared(_)) => None,
+        };
+        let first_attachment = existing_cells.is_none();
+        let cells = match existing_cells {
+            Some(cells) => cells,
+            None => {
+                let allocation = match &self.storage {
+                    RowStorage::Resident(cells) if workspace.is_bounded() => {
+                        let spill = if cells.spilled() {
+                            std::alloc::Layout::array::<Option<SolutionTerm<I>>>(cells.capacity())
+                                .map_err(|_| crate::EvalError::WorkspaceBoundOverflow)?
+                                .size()
+                        } else {
+                            0
+                        };
+                        Some(
+                            workspace.charge(
+                                u64::try_from(spill)
+                                    .map_err(|_| crate::EvalError::WorkspaceBoundOverflow)?,
+                            )?,
+                        )
+                    }
+                    RowStorage::Resident(_) | RowStorage::Owned(RowOwner::Shared(_)) => None,
+                    RowStorage::Owned(RowOwner::Tracked(_)) => {
+                        unreachable!("ordinary first attachment")
+                    }
+                };
+                crate::workspace::NativeSharedWorkspace::new_admitted(
+                    RowCells::Resident {
+                        cells: Solution::new(),
+                        _allocation: allocation,
+                    },
+                    workspace,
+                )?
+            }
+        };
+        let mut tracked = crate::workspace::NativeSharedWorkspace::new_admitted(
+            TrackedRow { cells, evidence },
+            workspace,
+        )?;
+        if first_attachment {
+            // Both controls are admitted before moving the existing cell owner.
+            // On refusal the original row and all its grants remain untouched.
+            let cells = tracked
+                .get_mut()
+                .and_then(|payload| payload.cells.get_mut())
+                .ok_or_else(|| {
+                    crate::error::NativeDiagnostic::error(
+                        crate::error::NativeDiagnosticKind::Internal,
+                        "fresh tracked row controls are unexpectedly shared",
+                        workspace,
+                    )
+                })?;
+            match std::mem::replace(&mut self.storage, RowStorage::Resident(Solution::new())) {
+                RowStorage::Resident(original) => {
+                    let RowCells::Resident { cells, .. } = cells else {
+                        unreachable!("fresh original cell capsule is resident")
+                    };
+                    *cells = original;
+                }
+                RowStorage::Owned(RowOwner::Shared(payload)) => *cells = RowCells::Shared(payload),
+                RowStorage::Owned(RowOwner::Tracked(_)) => {
+                    unreachable!("first attachment has ordinary cells")
+                }
+            }
+        }
+        self.storage = RowStorage::Owned(RowOwner::Tracked(tracked));
+        Ok(())
+    }
+
+    pub(crate) fn combine_evidence(
+        &mut self, evidence: &crate::evidence_exec::RowEvidence,
+        law: purrdf_core::evidence::EvidenceCombination, workspace: &crate::WorkspaceCapability,
+    ) -> Result<(), crate::EvalError> {
+        if !self.has_evidence_attachment() && evidence.is_virtual() {
+            return Ok(());
+        }
+        let evidence = self.evidence().combine(evidence, law)?;
+        self.attach_evidence(evidence, workspace)
+    }
+
+    /// Move an already-owned resident cell buffer without cloning its spill.
+    pub(crate) fn from_resident(cells: Solution<I>) -> Self {
+        Self {
+            storage: RowStorage::Resident(cells),
+        }
+    }
+
+    /// Worker transport moves cells and evidence together, never detaching ids.
+    pub(crate) fn into_resident_parts(
+        mut self,
+    ) -> Result<(Solution<I>, crate::evidence_exec::RowEvidence), Self> {
+        if let RowStorage::Owned(RowOwner::Tracked(payload)) = &mut self.storage
+            && let Some(payload) = payload.get_mut()
+            && let Some(RowCells::Resident {
+                cells,
+                _allocation: None,
+            }) = payload.cells.get_mut()
+        {
+            return Ok((std::mem::take(cells), std::mem::take(&mut payload.evidence)));
+        }
+        match self.storage {
+            RowStorage::Resident(cells) => {
+                Ok((cells, crate::evidence_exec::RowEvidence::default()))
+            }
+            storage @ RowStorage::Owned(_) => Err(Self { storage }),
+        }
+    }
+
+    /// Share an admitted cell owner, or admit a fresh exact cell copy before
+    /// cloning a resident row. Internal clones must preserve this distinction.
+    pub(crate) fn clone_admitted(
+        &self, workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        match &self.storage {
+            RowStorage::Owned(_) => Ok(self.clone()),
+            RowStorage::Resident(cells) => {
+                Self::from_cells(cells.len(), cells.iter().copied(), workspace)
+            }
+        }
+    }
+
+    pub(crate) fn from_cells(
+        width: usize, cells: impl Iterator<Item = Option<SolutionTerm<I>>>,
+        workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        Self::try_from_cells(width, cells.map(Ok), workspace)
+    }
+
+    pub(crate) fn try_from_cells(
+        width: usize,
+        cells: impl Iterator<Item = Result<Option<SolutionTerm<I>>, crate::EvalError>>,
+        workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        Self::try_build(width, workspace, |row| {
+            let mut count = 0;
+            for cell in cells {
+                if count == width {
+                    return Err(crate::EvalError::WorkspaceBoundOverflow);
+                }
+                row[count] = cell?;
+                count += 1;
+            }
+            if count != width {
+                return Err(crate::EvalError::WorkspaceBoundOverflow);
+            }
+            Ok(())
+        })
+    }
+
+    pub(crate) fn try_build(
+        width: usize, workspace: &crate::WorkspaceCapability,
+        fill: impl FnOnce(&mut Solution<I>) -> Result<(), crate::EvalError>,
+    ) -> Result<Self, crate::EvalError> {
+        let spill = if width > 4 {
+            std::alloc::Layout::array::<Option<SolutionTerm<I>>>(width)
+                .map_err(|_| crate::EvalError::WorkspaceBoundOverflow)?
+                .size()
+        } else {
+            0
+        };
+        let allocation = if workspace.is_bounded() {
+            Some(
+                workspace.charge(
+                    crate::workspace::fallible_shared_layout::<RowPayload<I>>()?
+                        .checked_add(
+                            u64::try_from(spill)
+                                .map_err(|_| crate::EvalError::WorkspaceBoundOverflow)?,
+                        )
+                        .ok_or(crate::EvalError::WorkspaceBoundOverflow)?,
+                )?,
+            )
+        } else {
+            None
+        };
+        let mut row = Solution::new();
+        row.try_reserve_exact(width)
+            .map_err(|_| crate::EvalError::AllocationFailed {
+                construct: "solution row cells",
+            })?;
+        row.resize(width, None);
+        fill(&mut row)?;
+        assert_eq!(
+            row.len(),
+            width,
+            "an admitted row builder keeps its declared width"
+        );
+        Ok(Self {
+            storage: match allocation {
+                Some(allocation) => RowStorage::Owned(RowOwner::Shared(
+                    purrdf_core::small::Shared::try_new(RowPayload {
+                        cells: row,
+                        _allocation: allocation,
+                    })
+                    .map_err(|_| crate::EvalError::AllocationFailed {
+                        construct: "solution row shared owner",
+                    })?,
+                )),
+                None => RowStorage::Resident(row),
+            },
+        })
+    }
+}
+
+/// Immutable row metadata; extraction keeps each row's cell owner.
+#[derive(Clone, Debug)]
+pub struct RowBag<I: ViewTermId = TermId> {
+    storage: BagStorage<I>,
+    search_evidence: crate::evidence_exec::RowEvidence,
+    may_have_row_attachments: bool,
+}
+
+impl<I: ViewTermId> PartialEq for RowBag<I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+impl<I: ViewTermId> Eq for RowBag<I> {}
+
+#[cfg(test)]
+impl<I: ViewTermId> FromIterator<Solution<I>> for RowBag<I> {
+    fn from_iter<T: IntoIterator<Item = Solution<I>>>(rows: T) -> Self {
+        rows.into_iter().collect::<Vec<_>>().into()
+    }
+}
+
+#[derive(Clone, Debug)]
+enum BagStorage<I: ViewTermId> {
+    Resident(Vec<RetainedRow<I>>),
+    Shared {
+        payload: purrdf_core::small::Shared<BagPayload<I>>,
+        length: usize,
+    },
+}
+
+#[derive(Debug)]
+struct BagPayload<I: ViewTermId> {
+    rows: Vec<RetainedRow<I>>,
+    _vector: Option<crate::WorkspaceAllocation>,
+    _allocation: crate::WorkspaceAllocation,
+}
+
+impl<I: ViewTermId> std::ops::Deref for RowBag<I> {
+    type Target = [RetainedRow<I>];
+    fn deref(&self) -> &Self::Target {
+        match &self.storage {
+            BagStorage::Resident(rows) => rows,
+            BagStorage::Shared { payload, length } => &payload.rows[..*length],
+        }
+    }
+}
+impl<I: ViewTermId> RowBag<I> {
+    /// A false summary proves physical row attachments are absent. Publication
+    /// records actual tracked storage, including owned-default and ranked rows;
+    /// narrowing can conservatively retain true. Search evidence is independent.
+    #[inline]
+    pub(crate) fn may_have_evidence_attachment(&self) -> bool {
+        self.may_have_row_attachments
+    }
+
+    /// The original search attestation, retained even when this bag is empty.
+    #[must_use]
+    pub fn search_evidence(&self) -> &crate::evidence_exec::RowEvidence {
+        &self.search_evidence
+    }
+
+    pub(crate) fn retain_search_evidence(&mut self, evidence: crate::evidence_exec::RowEvidence) {
+        self.search_evidence = evidence;
+    }
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> usize {
+        match &self.storage {
+            BagStorage::Resident(rows) => rows.capacity(),
+            BagStorage::Shared { payload, .. } => payload.rows.capacity(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn push_resident_fixture(&mut self, row: Solution<I>) {
+        let BagStorage::Resident(rows) = &mut self.storage else {
+            panic!("resident fixture mutation requires a resident bag");
+        };
+        rows.push(RetainedRow::from_resident(row));
+    }
+    /// Move the existing resident buffer and its original search declaration.
+    /// A bounded bag returns its unchanged owner instead of shedding admission.
+    pub(crate) fn into_resident_rows(
+        self,
+    ) -> Result<(Vec<RetainedRow<I>>, crate::evidence_exec::RowEvidence), Self> {
+        match self.storage {
+            BagStorage::Resident(rows) => Ok((rows, self.search_evidence)),
+            storage @ BagStorage::Shared { .. } => Err(Self {
+                storage,
+                search_evidence: self.search_evidence,
+                may_have_row_attachments: self.may_have_row_attachments,
+            }),
+        }
+    }
+
+    /// Narrow an immutable operational bag without allocating after a governor
+    /// stop. The shared original allocation remains fully charged until its
+    /// final owner dies; no discarded cells escape through the narrowed view.
+    pub(crate) fn truncate(&mut self, length: usize) {
+        match &mut self.storage {
+            BagStorage::Resident(rows) => rows.truncate(length),
+            BagStorage::Shared {
+                length: current, ..
+            } => *current = (*current).min(length),
+        }
+    }
+    /// Consume the internally generated destination-to-source permutation.
+    /// A resident vector is moved in place without cloning its cell spills.
+    /// Operational output keeps the immutable row/cell owners in its builder.
+    pub(crate) fn ordered_admitted(
+        self, mut order: crate::workspace::AdmittedVec<usize>,
+        workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        assert_eq!(
+            order.len(),
+            self.len(),
+            "the sorting permutation covers its input"
+        );
+        match self.storage {
+            BagStorage::Resident(mut rows) if !workspace.is_bounded() => {
+                // The ordinal merge produced each index exactly once. Marking
+                // visited slots in its existing array needs no new work list.
+                for root in 0..rows.len() {
+                    if order[root] == root {
+                        continue;
+                    }
+                    let empty = || RetainedRow {
+                        storage: RowStorage::Resident(Solution::new()),
+                    };
+                    let saved = std::mem::replace(&mut rows[root], empty());
+                    let mut slot = root;
+                    loop {
+                        let source = order[slot];
+                        order.as_mut_slice()[slot] = slot;
+                        if source == root {
+                            rows[slot] = saved;
+                            break;
+                        }
+                        let moved = std::mem::replace(&mut rows[source], empty());
+                        rows[slot] = moved;
+                        slot = source;
+                    }
+                }
+                Ok(Self {
+                    storage: BagStorage::Resident(rows),
+                    search_evidence: self.search_evidence,
+                    may_have_row_attachments: self.may_have_row_attachments,
+                })
+            }
+            storage => {
+                let source = Self {
+                    storage,
+                    search_evidence: self.search_evidence,
+                    may_have_row_attachments: self.may_have_row_attachments,
+                };
+                let mut rows = RowsBuilder::new(workspace);
+                for &ordinal in &order {
+                    rows.push_row(source[ordinal].clone_admitted(workspace)?)?;
+                }
+                let mut ordered = rows.finish()?;
+                ordered.search_evidence = source.search_evidence;
+                Ok(ordered)
+            }
+        }
+    }
+}
+
+impl<I: ViewTermId> From<Vec<Solution<I>>> for RowBag<I> {
+    fn from(rows: Vec<Solution<I>>) -> Self {
+        Self {
+            search_evidence: crate::evidence_exec::RowEvidence::default(),
+            may_have_row_attachments: false,
+            storage: BagStorage::Resident(
+                rows.into_iter()
+                    .map(|row| RetainedRow {
+                        storage: RowStorage::Resident(row),
+                    })
+                    .collect(),
+            ),
+        }
+    }
+}
+impl<I: ViewTermId> Default for RowBag<I> {
+    fn default() -> Self {
+        Self {
+            storage: BagStorage::Resident(Vec::new()),
+            search_evidence: crate::evidence_exec::RowEvidence::default(),
+            may_have_row_attachments: false,
+        }
+    }
+}
+impl<'a, I: ViewTermId> IntoIterator for &'a RowBag<I> {
+    type Item = &'a RetainedRow<I>;
+    type IntoIter = std::slice::Iter<'a, RetainedRow<I>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+/// A consuming iterator cannot detach cells from their leases.
+#[derive(Debug)]
+pub struct RowBagIntoIter<I: ViewTermId> {
+    storage: BagIteration<I>,
+    search_evidence: crate::evidence_exec::RowEvidence,
+}
+
+impl<I: ViewTermId> RowBagIntoIter<I> {
+    /// Retain the original search scope through consuming delivery, including
+    /// a zero-row iterator whose scope cannot be carried by an emitted row.
+    #[must_use]
+    pub fn search_evidence(&self) -> &crate::evidence_exec::RowEvidence {
+        &self.search_evidence
+    }
+}
+#[derive(Debug)]
+enum BagIteration<I: ViewTermId> {
+    Resident(std::vec::IntoIter<RetainedRow<I>>),
+    Shared {
+        rows: purrdf_core::small::Shared<BagPayload<I>>,
+        position: usize,
+        length: usize,
+    },
+}
+impl<I: ViewTermId> Iterator for RowBagIntoIter<I> {
+    type Item = RetainedRow<I>;
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.storage {
+            BagIteration::Resident(rows) => rows.next(),
+            BagIteration::Shared {
+                rows,
+                position,
+                length,
+            } => {
+                if *position == *length {
+                    return None;
+                }
+                let row = rows.rows.get(*position)?.clone();
+                *position += 1;
+                Some(row)
+            }
+        }
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let left = match &self.storage {
+            BagIteration::Resident(rows) => rows.len(),
+            BagIteration::Shared {
+                position, length, ..
+            } => length - position,
+        };
+        (left, Some(left))
+    }
+}
+impl<I: ViewTermId> ExactSizeIterator for RowBagIntoIter<I> {}
+impl<I: ViewTermId> IntoIterator for RowBag<I> {
+    type Item = RetainedRow<I>;
+    type IntoIter = RowBagIntoIter<I>;
+    fn into_iter(self) -> Self::IntoIter {
+        RowBagIntoIter {
+            search_evidence: self.search_evidence,
+            storage: match self.storage {
+                BagStorage::Resident(rows) => BagIteration::Resident(rows.into_iter()),
+                BagStorage::Shared { payload, length } => BagIteration::Shared {
+                    rows: payload,
+                    position: 0,
+                    length,
+                },
+            },
+        }
+    }
+}
+
+pub(crate) struct RowsBuilder<I: ViewTermId> {
+    may_have_row_attachments: bool,
+    rows: crate::workspace::AdmittedVec<RetainedRow<I>>,
+    workspace: crate::WorkspaceCapability,
+}
+impl<I: ViewTermId> std::ops::Deref for RowsBuilder<I> {
+    type Target = [RetainedRow<I>];
+    fn deref(&self) -> &Self::Target {
+        &self.rows
+    }
+}
+impl<I: ViewTermId> RowsBuilder<I> {
+    /// Merge an alternative witness in the original admitted survivor payload.
+    pub(crate) fn combine_evidence(
+        &mut self, ordinal: usize, evidence: &crate::evidence_exec::RowEvidence,
+    ) -> Result<(), crate::EvalError> {
+        let row = &mut self.rows.as_mut_slice()[ordinal];
+        row.combine_evidence(
+            evidence,
+            purrdf_core::evidence::EvidenceCombination::Alternatives,
+            &self.workspace,
+        )?;
+        self.may_have_row_attachments |= row.has_evidence_attachment();
+        Ok(())
+    }
+    pub(crate) fn new(workspace: &crate::WorkspaceCapability) -> Self {
+        Self {
+            rows: crate::workspace::AdmittedVec::new(workspace),
+            workspace: workspace.clone(),
+            may_have_row_attachments: false,
+        }
+    }
+    pub(crate) fn from_storage(
+        rows: crate::workspace::AdmittedVec<RetainedRow<I>>, workspace: &crate::WorkspaceCapability,
+    ) -> Self {
+        // Transferred buffers may have been arbitrarily edited outside this
+        // immutable bag home; recompute the physical proof once at ingress.
+        let may_have_row_attachments = rows.iter().any(RetainedRow::has_evidence_attachment);
+        Self {
+            rows,
+            workspace: workspace.clone(),
+            may_have_row_attachments,
+        }
+    }
+    pub(crate) fn push_row(&mut self, row: RetainedRow<I>) -> Result<(), crate::EvalError> {
+        let attached = row.has_evidence_attachment();
+        self.rows.push(row)?;
+        self.may_have_row_attachments |= attached;
+        Ok(())
+    }
+    pub(crate) fn push_cells(
+        &mut self, width: usize, cells: impl Iterator<Item = Option<SolutionTerm<I>>>,
+    ) -> Result<(), crate::EvalError> {
+        let row = RetainedRow::from_cells(width, cells, &self.workspace)?;
+        // This constructor publishes cells only, never evidence attachments.
+        self.rows.push(row)
+    }
+    pub(crate) fn finish(self) -> Result<RowBag<I>, crate::EvalError> {
+        let allocation = if self.workspace.is_bounded() {
+            Some(
+                self.workspace
+                    .charge(crate::workspace::fallible_shared_layout::<BagPayload<I>>()?)?,
+            )
+        } else {
+            None
+        };
+        let (rows, vector) = self.rows.into_parts();
+        Ok(RowBag {
+            search_evidence: crate::evidence_exec::RowEvidence::default(),
+            may_have_row_attachments: self.may_have_row_attachments,
+            storage: match allocation {
+                Some(allocation) => {
+                    let length = rows.len();
+                    BagStorage::Shared {
+                        payload: purrdf_core::small::Shared::try_new(BagPayload {
+                            rows,
+                            _vector: vector,
+                            _allocation: allocation,
+                        })
+                        .map_err(|_| {
+                            crate::EvalError::AllocationFailed {
+                                construct: "row bag shared owner",
+                            }
+                        })?,
+                        length,
+                    }
+                }
+                None => BagStorage::Resident(rows),
+            },
+        })
+    }
+}
+
+/// A multiset (bag) of [`Solution`]s over a shared [`VarSchema`].
+///
+/// `rows.len()` is the solution cardinality; duplicate rows are preserved
+/// (multiset semantics) until an explicit `DISTINCT`/`REDUCED`.
+#[derive(Clone, Debug)]
+pub struct SolutionSeq<I: ViewTermId = TermId> {
+    /// The shared variable schema — the reason a row carries only its cells and no
+    /// per-row map of variable names (see [`Solution`] for the row's own storage).
+    pub schema: SharedSchema,
+    /// The solution rows (a bag — duplicates significant).
+    pub rows: RowBag<I>,
+}
+
+impl<I: ViewTermId> SolutionSeq<I> {
+    /// Restore an observable column layout without adding an algebra scope
+    /// barrier. Driver-only columns follow the requested logical columns.
+    pub(crate) fn reorder_like_admitted(
+        mut self, target: &VarSchema, workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        if self.schema.vars() == target.vars() {
+            return Ok(self);
+        }
+        let out = target.union_admitted(&self.schema, workspace)?;
+        if out.vars() == self.schema.vars() {
+            return Ok(self);
+        }
+        let mut columns = crate::workspace::AdmittedVec::new(workspace);
+        for variable in out.vars() {
+            columns.push(self.schema.index_of(variable))?;
+        }
+        let mut rows = RowsBuilder::new(workspace);
+        for row in &self.rows {
+            let reordered = RetainedRow::from_cells(
+                columns.len(),
+                columns
+                    .iter()
+                    .map(|column| column.and_then(|column| row[column])),
+                workspace,
+            )?;
+            rows.push_row(reordered.with_evidence_from(row, workspace)?)?;
+        }
+        let search = self.rows.search_evidence.clone();
+        self.rows = rows.finish()?;
+        self.rows.search_evidence = search;
+        self.schema = out.shared_admitted(workspace)?;
+        Ok(self)
+    }
+}
+
+impl VarSchema {
+    /// The shared empty schema.
+    ///
+    /// The empty schema is a constant, and it is reached on every execution: an
+    /// empty BGP is the identity table `Z`, and the unit sequence that represents it
+    /// seeds every group pattern that starts from nothing. Minting it charged one
+    /// heap allocation per call — on the SHACL change path, several per focus node —
+    /// for a value that is the same every time.
+    ///
+    /// Shared by an immutable native owner rather than cloned; no caller can
+    /// obtain mutable access to the published schema:
+    /// schema is built, wrapped, and thereafter only read. This is the same
+    /// process-wide-constant device `crate::bgp` uses for the `rdf:reifies` lookup
+    /// value and for the single-pattern join order.
+    pub fn empty_shared() -> SharedSchema {
+        static EMPTY: std::sync::OnceLock<SharedSchema> = std::sync::OnceLock::new();
+        EMPTY
+            .get_or_init(|| Self::default().shared_resident())
+            .clone()
+    }
+}
+
+/// How many distinct column layouts one worker keeps interned.
+///
+/// A layout is a plan constant — the projected variable list of a `SELECT`, the
+/// variables of a `VALUES` block — so a workload's whole vocabulary of layouts is
+/// small and bounded by the queries it runs. Reaching the cap clears rather than
+/// evicts, because the table memoizes a pure function of the variable list and
+/// losing it costs one reconstruction rather than a wrong answer.
+const INTERNED_SCHEMA_CAP: usize = 1_024;
+
+/// [`INTERNED_SCHEMAS`]' table: each entry is the column list a layout was built
+/// from, beside the layout itself.
+type InternedLayouts = HashTable<(Box<[Variable]>, SharedSchema)>;
+
+thread_local! {
+    /// Column layouts, interned per worker and keyed by their CONTENT.
+    ///
+    /// A `VarSchema` is a pure function of its variable list, and that list is a
+    /// plan constant — but the node it belongs to is a fresh heap temporary on every
+    /// execution, so a memo keyed by node address would be reading an address that a
+    /// later allocation can reuse. Keying by content sidesteps that entirely: the
+    /// question "what is the layout for these columns" has the same answer forever,
+    /// whoever asks and from whichever node.
+    ///
+    /// A `HashTable` rather than a `HashMap` so the probe can hash the
+    /// caller's BORROWED slice and compare against the stored layout's columns —
+    /// owning a key to look one up would be the allocation this exists to remove.
+    static INTERNED_SCHEMAS: std::cell::RefCell<(InternedLayouts, crate::plan_memory::InternerCharge)> =
+        const {
+            std::cell::RefCell::new((HashTable::new(), crate::plan_memory::InternerCharge::new()))
+        };
+}
+
+/// The hash of a column layout, as [`INTERNED_SCHEMAS`] keys it.
+fn layout_hash(vars: &[Variable]) -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = crate::DetHasher::default().build_hasher();
+    hasher.write_usize(vars.len());
+    for var in vars {
+        hasher.write(var.as_str().as_bytes());
+        hasher.write_u8(0xff);
+    }
+    hasher.finish()
+}
+
+impl VarSchema {
+    /// The shared [`VarSchema`] for the column layout `vars`, interned per worker.
+    ///
+    /// Building one costs a `Vec`, an `Arc`, and — above the index threshold — a hash
+    /// table, at every `Project` and `VALUES` node, on every execution. The layout is
+    /// a plan constant, so on a path that runs one query per focus node that is the
+    /// same three allocations repeated per focus node for an identical answer.
+    ///
+    /// The layout is stored beside the column list it was built from, and the probe
+    /// compares against THAT rather than against the layout's own columns.
+    /// [`Self::from_vars`] drops later duplicates, so a request for `?s ?s` yields a
+    /// one-column layout — which does not equal the two-column list it was asked
+    /// for. Comparing against the stored request keeps such a lookup a hit instead
+    /// of a permanent miss that re-inserts on every call. `SELECT ?s ?s` is legal
+    /// and the crate has a test for it, so this is a real case and not a defensive
+    /// one.
+    ///
+    /// Every insert charges its estimated retained size — the stored
+    /// request's columns plus the layout's own — to the crate's internal
+    /// per-worker interner memory observer, and a cap-triggered
+    /// clear credits the whole table back, so this per-worker table is no longer
+    /// memory a deployment's `CacheLimits` cannot see.
+    pub fn interned(vars: &[Variable]) -> SharedSchema {
+        let hash = layout_hash(vars);
+        INTERNED_SCHEMAS.with(|table| {
+            let mut table = table.borrow_mut();
+            let (table, charge) = &mut *table;
+            if let Some((_, schema)) = table.find(hash, |(key, _)| &**key == vars) {
+                return schema.clone();
+            }
+            if table.len() >= INTERNED_SCHEMA_CAP {
+                table.clear();
+                charge.clear();
+            }
+            let schema = Self::from_vars(vars.iter().cloned()).shared_resident();
+            let bytes = size_of::<Box<[Variable]>>()
+                .saturating_add(vars.len().saturating_mul(size_of::<Variable>()))
+                .saturating_add(size_of::<SharedSchema>())
+                .saturating_add(size_of::<Self>())
+                .saturating_add(schema.vars().len().saturating_mul(size_of::<Variable>()));
+            table.insert_unique(hash, (Box::from(vars), schema.clone()), |(key, _)| {
+                layout_hash(key)
+            });
+            charge.add(bytes);
+            schema
+        })
+    }
+}
+
+impl<I: ViewTermId> SolutionSeq<I> {
+    /// An empty sequence over `schema` (zero solutions).
+    pub fn empty(schema: SharedSchema) -> Self {
+        Self {
+            schema,
+            rows: RowBag::default(),
+        }
+    }
+
+    /// The **unit** sequence: one solution that binds nothing (the algebra identity
+    /// table `Z`, i.e. the result of the empty BGP). Joining with `Z` is the
+    /// identity, so this is the correct seed for an empty group pattern.
+    pub fn unit() -> Self {
+        Self::unit_admitted(&crate::WorkspaceCapability::resident())
+            .expect("resident identity-row allocation")
+    }
+
+    pub(crate) fn unit_admitted(
+        workspace: &crate::WorkspaceCapability,
+    ) -> Result<Self, crate::EvalError> {
+        let mut rows = RowsBuilder::new(workspace);
+        rows.push_cells(0, std::iter::empty())?;
+        Ok(Self {
+            schema: if workspace.is_bounded() {
+                VarSchema::default().shared_admitted(workspace)?
+            } else {
+                VarSchema::empty_shared()
+            },
+            rows: rows.finish()?,
+        })
+    }
+
+    /// The number of solutions (multiset cardinality).
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Whether the sequence has no solutions.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+}
+
+/// Whether two solutions are **compatible** over their shared columns: every
+/// variable bound in *both* must be bound to the same [`SolutionTerm`]. A variable
+/// unbound (`None`) in either row is compatible with anything.
+///
+/// `shared` is the precomputed `(a_ordinal, b_ordinal)` column pairing (see
+/// [`VarSchema::shared_columns`]). This is the predicate underlying `Join`,
+/// `LeftJoin`, and `Minus`.
+///
+/// Out of line, so the join check is one compiled function rather than a fragment
+/// of each `Join`, `LeftJoin` and `Minus` loop.
+#[must_use]
+#[inline(never)]
+pub fn compatible<I: ViewTermId>(
+    a: &[Option<SolutionTerm<I>>], b: &[Option<SolutionTerm<I>>], shared: &[(usize, usize)],
+) -> bool {
+    shared.iter().all(|&(ia, ib)| match (a[ia], b[ib]) {
+        (Some(x), Some(y)) => x == y,
+        // `None` (unbound) is compatible with anything.
+        _ => true,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn var(name: &str) -> Variable {
+        Variable::new(name)
+    }
+    use purrdf_core::TermId;
+
+    fn term(i: u32) -> Option<SolutionTerm> {
+        Some(SolutionTerm::Existing(
+            TermId::from_index(i).expect("stored term index is representable"),
+        ))
+    }
+
+    /// **The two lookup representations answer identically, on both sides of the
+    /// threshold and across the crossing.**
+    ///
+    /// [`INDEXED_ABOVE`] chooses between scanning the column vector and consulting a
+    /// hash index. That choice is invisible only if both answer the same for every
+    /// column and every non-column, so this drives a schema one variable at a time
+    /// from empty to well past the threshold and checks every ordinal after each
+    /// push — including the ordinals assigned BEFORE the index existed, which the
+    /// crossing has to carry over rather than renumber.
+    #[test]
+    fn schema_lookup_agrees_on_both_sides_of_the_index_threshold() {
+        let names: Vec<String> = (0..INDEXED_ABOVE * 3).map(|i| format!("v{i}")).collect();
+        let mut schema = VarSchema::default();
+        for (expected_ordinal, name) in names.iter().enumerate() {
+            assert_eq!(schema.push(var(name)), expected_ordinal);
+            assert!(
+                schema.len() <= INDEXED_ABOVE
+                    || schema
+                        .data
+                        .as_ref()
+                        .is_some_and(|data| !data.index.is_empty()),
+                "a schema wider than the threshold must have built its index"
+            );
+            assert!(
+                schema.len() > INDEXED_ABOVE
+                    || schema
+                        .data
+                        .as_ref()
+                        .is_none_or(|data| data.index.is_empty()),
+                "a schema at or below the threshold must not have allocated an index"
+            );
+            // Every column placed so far, including those numbered before the
+            // crossing, still resolves to the ordinal it was given.
+            for (ordinal, seen) in names[..=expected_ordinal].iter().enumerate() {
+                assert_eq!(
+                    schema.index_of(&var(seen)),
+                    Some(ordinal),
+                    "column {seen} moved at width {}",
+                    schema.len()
+                );
+                assert!(schema.contains(&var(seen)));
+            }
+            assert_eq!(schema.index_of(&var("absent")), None);
+            assert!(!schema.contains(&var("absent")));
+        }
+    }
+
+    /// Push `vars` one at a time and, after EVERY push, assert every DISTINCT
+    /// column pushed so far still resolves to the ordinal it was assigned. A
+    /// repeated variable in `vars` does not grow `distinct_seen` (mirroring
+    /// [`VarSchema::push`]'s own dedup), so this doubles as the duplicate-column
+    /// case when `vars` repeats an entry — e.g. `SELECT ?s ?s`.
+    ///
+    /// Checking after every push means every assertion runs against whichever
+    /// representation the schema holds at that width — scan below
+    /// [`INDEXED_ABOVE`], hash index above it — so a `vars` list that starts
+    /// below the threshold and ends above it exercises [`VarSchema::index_of`]
+    /// on BOTH sides for the identical schema instance, including for a column
+    /// whose ordinal was assigned before the index existed.
+    fn check_index_of_agrees(vars: Vec<Variable>) {
+        let mut schema = VarSchema::default();
+        let mut distinct_seen: Vec<Variable> = Vec::new();
+        for v in vars {
+            let before_len = schema.len();
+            let ordinal = schema.push(v.clone());
+            if schema.len() > before_len {
+                distinct_seen.push(v.clone());
+            }
+            assert!(
+                schema.len() <= INDEXED_ABOVE
+                    || schema
+                        .data
+                        .as_ref()
+                        .is_some_and(|data| !data.index.is_empty()),
+                "a schema wider than the threshold must have built its index"
+            );
+            assert!(
+                schema.len() > INDEXED_ABOVE
+                    || schema
+                        .data
+                        .as_ref()
+                        .is_none_or(|data| data.index.is_empty()),
+                "a schema at or below the threshold must not have allocated an index"
+            );
+            assert_eq!(
+                schema.index_of(&v),
+                Some(ordinal),
+                "the just-pushed column {} did not resolve to its own ordinal",
+                v.as_str()
+            );
+            for (expected_ordinal, seen) in distinct_seen.iter().enumerate() {
+                assert_eq!(
+                    schema.index_of(seen),
+                    Some(expected_ordinal),
+                    "column {} moved at width {}",
+                    seen.as_str(),
+                    schema.len()
+                );
+            }
+        }
+    }
+
+    /// `INDEXED_ABOVE` only decides WHICH representation of the schema
+    /// answers `index_of` (a linear scan versus a hash index) — never WHAT the
+    /// answer is. That equivalence holds only if `Variable`'s `Eq` agrees with
+    /// its `Hash`, which this test asserts directly rather than leaving
+    /// implicit. Table-driven over every width from 1 to 16 (straddling
+    /// [`INDEXED_ABOVE`] on both sides), each width run twice: once with
+    /// `width` distinct columns, and once with the FIRST column immediately
+    /// repeated before the rest — the `SELECT ?s ?s` shape [`VarSchema::interned`]'s
+    /// doc comment names as the case a debug assertion catches, and the case
+    /// [`VarSchema::push`]'s own dedup exists to handle.
+    #[test]
+    fn index_of_agrees_across_the_threshold_for_every_width_1_to_16() {
+        for width in 1..=16usize {
+            let distinct: Vec<Variable> = (0..width).map(|i| var(&format!("v{i}"))).collect();
+
+            // Plain case: `width` distinct columns, no duplicates.
+            check_index_of_agrees(distinct.clone());
+
+            // Duplicate case: the first column pushed twice in a row before the
+            // rest — `SELECT ?s ?s, ...` — which must still end up with exactly
+            // `width` columns and the same ordinals as the plain case.
+            let mut with_dup = vec![distinct[0].clone(), distinct[0].clone()];
+            with_dup.extend(distinct.into_iter().skip(1));
+            check_index_of_agrees(with_dup);
+        }
+    }
+
+    /// A repeated variable is still deduplicated once the index is authoritative.
+    #[test]
+    fn schema_dedups_above_the_index_threshold() {
+        let wide: Vec<Variable> = (0..INDEXED_ABOVE * 2)
+            .map(|i| var(&format!("v{i}")))
+            .collect();
+        let mut schema = VarSchema::from_vars(wide.clone());
+        let width = schema.len();
+        assert!(
+            width > INDEXED_ABOVE,
+            "the fixture must cross the threshold"
+        );
+        for (ordinal, v) in wide.iter().enumerate() {
+            assert_eq!(
+                schema.push(v.clone()),
+                ordinal,
+                "re-push must not add a column"
+            );
+        }
+        assert_eq!(schema.len(), width);
+    }
+
+    #[test]
+    fn schema_dedups_preserving_first_seen_order() {
+        let s = VarSchema::from_vars([var("a"), var("b"), var("a"), var("c")]);
+        assert_eq!(s.len(), 3);
+        assert_eq!(s.vars(), &[var("a"), var("b"), var("c")]);
+        assert_eq!(s.index_of(&var("b")), Some(1));
+        assert_eq!(s.index_of(&var("z")), None);
+    }
+
+    #[test]
+    fn schema_union_is_ordered_left_then_new_right() {
+        let left = VarSchema::from_vars([var("a"), var("b")]);
+        let right = VarSchema::from_vars([var("b"), var("c"), var("d")]);
+        let u = left.union(&right);
+        // left's columns first, then right's not-already-present, in order.
+        assert_eq!(u.vars(), &[var("a"), var("b"), var("c"), var("d")]);
+    }
+
+    #[test]
+    fn shared_columns_pairs_by_ordinal() {
+        let left = VarSchema::from_vars([var("a"), var("b"), var("c")]);
+        let right = VarSchema::from_vars([var("c"), var("a")]);
+        // shared in LEFT order: a(0)~right1, c(2)~right0.
+        assert_eq!(left.shared_columns(&right), vec![(0, 1), (2, 0)]);
+    }
+
+    /// [`VarSchema::interned`] keys its memo by the REQUESTED column
+    /// list, not the resulting layout, specifically so a `SELECT ?s ?s` request
+    /// stays a cache hit (see that method's doc comment). Nothing would fail before
+    /// this test if the comparison silently reverted to comparing the stored
+    /// layout's OWN columns instead of the request it was built from: a request
+    /// for `[?s, ?s]` would still return a correct one-column layout, just
+    /// without ever hitting the memo, so the bug would be invisible to every
+    /// test that only checks the answer. This locks both directions: a repeated
+    /// identical request returns the IDENTICAL `Arc` (proving the memo — not
+    /// just the answer — is shared), and swapping two columns' order returns a
+    /// DIFFERENT `Arc` with different column order (the control proving the key
+    /// is order-sensitive, not a set that would conflate `[?a, ?b]` with
+    /// `[?b, ?a]`).
+    #[test]
+    fn interned_key_is_the_request_not_a_set_of_the_result() {
+        let dup = [var("e6_s"), var("e6_s")];
+        let first = VarSchema::interned(&dup);
+        let second = VarSchema::interned(&dup);
+        assert!(
+            core::ptr::eq(
+                first.data.as_deref().unwrap(),
+                second.data.as_deref().unwrap()
+            ),
+            "a repeated `SELECT ?s ?s` request must hit the same memo entry twice"
+        );
+        assert_eq!(
+            first.vars(),
+            &[var("e6_s")],
+            "the duplicate must still collapse to one column"
+        );
+
+        let ab = [var("e6_a"), var("e6_b")];
+        let ba = [var("e6_b"), var("e6_a")];
+        let layout_ab = VarSchema::interned(&ab);
+        let layout_ba = VarSchema::interned(&ba);
+        assert!(
+            !core::ptr::eq(
+                layout_ab.data.as_deref().unwrap(),
+                layout_ba.data.as_deref().unwrap()
+            ),
+            "[?a, ?b] and [?b, ?a] are different column orders and must not share a layout"
+        );
+        assert_eq!(layout_ab.vars(), &[var("e6_a"), var("e6_b")]);
+        assert_eq!(layout_ba.vars(), &[var("e6_b"), var("e6_a")]);
+    }
+
+    /// `VarSchema::interned`'s per-worker table retains bytes that must stay
+    /// charged against the observer for as long as the table holds them —
+    /// `INTERNED_SCHEMA_CAP` bounds the table's ENTRY count but not its
+    /// bytes against the SAME `PlanMemoryStats`
+    /// a caller already reads to bound `PlanCache`'s retained plan bytes
+    /// ([`crate::plan_memory::interner_memory_observer`]). This is a MOVING
+    /// assertion, not a smoke test: it first proves interning grows the
+    /// observer's total, then interns several `INTERNED_SCHEMA_CAP` MULTIPLES
+    /// worth of distinct layouts (several full clear cycles) and asserts the
+    /// total stays bounded to roughly one table's worth of entries rather than
+    /// the far larger number ever inserted — the property that only holds if
+    /// the cap-triggered clear actually credits the observer back down each
+    /// cycle.
+    #[test]
+    fn interning_schemas_moves_the_thread_local_memory_observer() {
+        let observer = crate::plan_memory::interner_memory_observer();
+        let before = observer.stats().retained_bytes;
+
+        for i in 0..8 {
+            let _ = VarSchema::interned(&[var(&format!("f4_schema_grow_{i}"))]);
+        }
+        let after_growth = observer.stats().retained_bytes;
+        let grown = after_growth.saturating_sub(before);
+        assert!(
+            grown > 0,
+            "inserting new layouts must grow the observer's retained bytes \
+             (before: {before}, after growth: {after_growth})"
+        );
+        let per_entry = (grown / 8).max(1);
+
+        let cycles = 3;
+        let total_inserted = INTERNED_SCHEMA_CAP * cycles;
+        for i in 0..total_inserted {
+            let _ = VarSchema::interned(&[var(&format!("f4_schema_fill_{i}"))]);
+        }
+        let after_fill = observer.stats().retained_bytes;
+        // Generous (2x) bound on ONE table's worth of entries: without
+        // credit-on-clear, `total_inserted` (three full tables) would instead be
+        // charged in full.
+        let bound = per_entry.saturating_mul(INTERNED_SCHEMA_CAP * 2);
+        assert!(
+            after_fill <= bound,
+            "a cap-triggered clear must keep the observer's total bounded to \
+             roughly one table's worth of entries, not the {total_inserted} \
+             layouts ever inserted (after fill: {after_fill}, bound: {bound})"
+        );
+    }
+
+    #[test]
+    fn compatible_requires_equality_on_shared_bound_columns() {
+        let shared = [(0usize, 0usize)];
+        assert!(compatible(&[term(1)], &[term(1)], &shared));
+        assert!(!compatible(&[term(1)], &[term(2)], &shared));
+        // None is compatible with anything.
+        assert!(compatible(&[None], &[term(2)], &shared));
+        assert!(compatible(&[term(1)], &[None], &shared));
+        assert!(compatible::<TermId>(&[None], &[None], &shared));
+    }
+
+    #[test]
+    fn unit_sequence_has_one_empty_solution() {
+        use purrdf_core::evidence::{EvidenceRecord, Frame, InformationMap, SearchCompleteness};
+        use purrdf_lex::allocation::{Memory, Resident};
+
+        assert_eq!(
+            size_of::<crate::workspace::NativeSharedWorkspace<TrackedRow<TermId>>>(),
+            size_of::<usize>(),
+            "native row controls need only the original shared pointer"
+        );
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(
+            size_of::<RetainedRow<TermId>>(),
+            40,
+            "ordinary rows retain their original physical stride"
+        );
+
+        let z = SolutionSeq::<TermId>::unit();
+        assert_eq!(z.len(), 1);
+        assert!(z.schema.is_empty());
+        assert!(z.rows[0].is_empty());
+        assert!(!z.rows.may_have_evidence_attachment());
+
+        let workspace = crate::WorkspaceCapability::default();
+        let owner = crate::evidence_exec::QueryEvidence::new(&workspace).unwrap();
+        let incomplete = EvidenceRecord::from_parts(
+            &InformationMap::default(),
+            SearchCompleteness::Undetermined,
+            &Frame::default(),
+            &[],
+            &[],
+            &mut Memory::new(&mut Resident),
+        )
+        .unwrap();
+        let owned = owner
+            .with_completeness(
+                &owner.retain(&incomplete).unwrap(),
+                SearchCompleteness::Complete,
+                None,
+            )
+            .unwrap();
+        assert!(owned.is_default());
+        assert!(!owned.is_virtual());
+        let ranked = crate::RowEvidence::default()
+            .with_original_rank(core::num::NonZeroU64::new(1).unwrap());
+        for evidence in [owned.clone(), ranked] {
+            let mut builder = RowsBuilder::<TermId>::new(&workspace);
+            builder.push_cells(0, std::iter::empty()).unwrap();
+            builder
+                .combine_evidence(0, &crate::RowEvidence::default())
+                .unwrap();
+            assert!(!builder.may_have_row_attachments);
+            builder.combine_evidence(0, &evidence).unwrap();
+            let mut bag = builder.finish().unwrap();
+            assert!(bag.may_have_evidence_attachment());
+            assert!(bag[0].evidence().is_default());
+            assert!(!bag[0].evidence().is_virtual());
+            let clone = bag.clone();
+            assert!(clone.may_have_evidence_attachment());
+            let mut order = crate::AdmittedVec::new(&workspace);
+            order.push(0).unwrap();
+            bag = bag.ordered_admitted(order, &workspace).unwrap();
+            assert!(bag.may_have_evidence_attachment());
+            // Narrowing may keep a conservative true but cannot fabricate a
+            // false absence proof while any physical attachment survives.
+            bag.truncate(0);
+            assert!(bag.is_empty());
+            assert!(bag.may_have_evidence_attachment());
+        }
+
+        // Resident extraction permits arbitrary edits. Re-entry recomputes the
+        // summary from the actual rows instead of trusting their prior bag.
+        let (mut rows, search) = z.rows.into_resident_rows().unwrap();
+        assert!(search.is_virtual());
+        rows[0] = RetainedRow::from_resident(Solution::new())
+            .with_evidence(owned.clone(), &workspace)
+            .unwrap();
+        let storage = crate::AdmittedVec::from_parts(rows, None, &workspace);
+        let bag = RowsBuilder::from_storage(storage, &workspace)
+            .finish()
+            .unwrap();
+        assert!(bag.may_have_evidence_attachment());
+        let (mut rows, _) = bag.into_resident_rows().unwrap();
+        rows[0] = RetainedRow::from_resident(Solution::new());
+        let storage = crate::AdmittedVec::from_parts(rows, None, &workspace);
+        let mut bag = RowsBuilder::from_storage(storage, &workspace)
+            .finish()
+            .unwrap();
+        assert!(!bag.may_have_evidence_attachment());
+        bag.retain_search_evidence(owned.clone());
+        assert!(!bag.may_have_evidence_attachment());
+        assert!(!bag.search_evidence().is_virtual());
+        bag.search_evidence()
+            .combine(
+                &owned,
+                purrdf_core::evidence::EvidenceCombination::Conjunction,
+            )
+            .expect("original search and declaration keep the same query owner");
+        let mut empty = RowBag::<TermId>::default();
+        empty.retain_search_evidence(owned);
+        assert!(!empty.may_have_evidence_attachment());
+        assert!(!empty.search_evidence().is_virtual());
+    }
+}
+
+#[cfg(test)]
+mod opt45_tests {
+    //! OPT-45 differential courts: the lane-pack kernels must equal the scalar
+    //! `.position()` oracle exactly (a DIFFERENT formulation — linear walk with
+    //! a per-element branch) on hit, miss, duplicate and fallback shapes.
+
+    use super::*;
+
+    fn oracle(keys: &[Variable], var: &Variable) -> Option<usize> {
+        keys.iter().position(|candidate| candidate == var)
+    }
+
+    fn var(name: &str) -> Variable {
+        Variable::new(name)
+    }
+
+    #[test]
+    fn lane_pack_kernel_matches_scalar_first_hit() {
+        // Duplicate lanes: lowest index wins; padding zero lanes must never
+        // answer when the target hash is zero.
+        let lanes = [7u64, 0, 7, 0, 9, 7, 0, 1];
+        assert_eq!(first_equal_lane_u64x8(&lanes, 7), Some(0));
+        assert_eq!(first_equal_lane_u64x8(&lanes, 0), Some(1));
+        assert_eq!(first_equal_lane_u64x8(&lanes, 9), Some(4));
+        assert_eq!(first_equal_lane_u64x8(&lanes, 42), None);
+        assert_eq!(first_equal_lane_u64x8(&[], 0), None);
+        assert_eq!(first_equal_lane_u64x8(&[0u64; 8], 0), Some(0));
+    }
+
+    #[test]
+    fn position_hashed_matches_oracle_all_widths() {
+        // N = 0..=10 covers every small-N pack width, the N == 8 boundary, and
+        // the required >8 scalar fallback.
+        for n in 0..=10usize {
+            let keys: Vec<Variable> = (0..n).map(|i| var(&format!("?v{i}"))).collect();
+            for probe in 0..=n {
+                let target = var(&format!("?v{probe}"));
+                assert_eq!(
+                    position_hashed(&keys, &target),
+                    oracle(&keys, &target),
+                    "n={n} probe={probe}"
+                );
+            }
+            // A miss that shares prefixes with real keys.
+            let miss = var(&format!("?v{n}x"));
+            assert_eq!(position_hashed(&keys, &miss), oracle(&keys, &miss));
+        }
+    }
+
+    #[test]
+    fn position_hashed_duplicates_and_first_hit() {
+        let keys: Vec<Variable> = ["?a", "?b", "?a", "?c", "?b", "?a", "?d", "?a"]
+            .iter()
+            .map(|name| var(name))
+            .collect();
+        for probe in &keys {
+            assert_eq!(position_hashed(&keys, probe), oracle(&keys, probe));
+        }
+        // First occurrence, not last.
+        assert_eq!(position_hashed(&keys, &var("?a")), Some(0));
+        assert_eq!(position_hashed(&keys, &var("?b")), Some(1));
+    }
+
+    /// The OPT-45 valid-neighbor court: `purrdf_hash::fixed::hash_one` CAN
+    /// collide, and `position_hashed` must still answer with the TRUE ordinal
+    /// of the probed variable, never the ordinal of a hash twin. Deterministic
+    /// brute-force search over generated variable names finds two distinct
+    /// names with colliding hashes (bounded; loud failure if no pair appears
+    /// within budget), then both twins are probed against packs containing
+    /// both — tight, split by an interleaved key — and each probe must return
+    /// its own ordinal.
+    #[test]
+    fn position_hashed_resolves_hash_collision_to_true_ordinal() {
+        // Deterministic collision search: linear probe over ?c0..?cN, keeping
+        // one stored name per hash. `?c…` names are generated, never parsed
+        // input; the budget is generous relative to the 64-bit hash space
+        // (birthday bound ~2^32) but finite, so the failure mode when the
+        // hash is NOT a collision-capable function is a loud panic, not a
+        // silent skip.
+        const BUDGET: u64 = 1 << 22;
+        let mut seen: purrdf_core::FastMap<u64, Variable> = purrdf_core::FastMap::default();
+        let (twin_a, twin_b) = {
+            let mut pair = None;
+            for i in 0..BUDGET {
+                let variable = var(&format!("?c{i}"));
+                let hash = purrdf_hash::fixed::hash_one(&variable);
+                if let Some(first) = seen.insert(hash, variable.clone()) {
+                    pair = Some((first, variable));
+                    break;
+                }
+            }
+            pair.unwrap_or_else(|| {
+                panic!(
+                    "no hash collision found among {BUDGET} generated names; \
+                     purrdf_hash::fixed::hash_one is not behaving as a \
+                     collision-capable 64-bit hash"
+                )
+            })
+        };
+        assert_ne!(twin_a, twin_b, "twins must be distinct variables");
+        assert_eq!(
+            purrdf_hash::fixed::hash_one(&twin_a),
+            purrdf_hash::fixed::hash_one(&twin_b),
+            "the found pair must actually collide"
+        );
+
+        // Pack containing both twins: each must resolve to its OWN ordinal
+        // (first-occurrence semantics from the scalar oracle, preserved).
+        let keys = vec![twin_a.clone(), twin_b.clone()];
+        assert_eq!(position_hashed(&keys, &twin_a), Some(0));
+        assert_eq!(position_hashed(&keys, &twin_b), Some(1));
+
+        // Twins separated by an interleaved non-colliding key, both sides of
+        // the split, must still land on their own slots.
+        let interleaved = vec![twin_b.clone(), var("?mid"), twin_a.clone()];
+        assert_eq!(position_hashed(&interleaved, &twin_a), Some(2));
+        assert_eq!(position_hashed(&interleaved, &twin_b), Some(0));
+
+        // At the >8 fallback boundary the collision walk is bypassed entirely;
+        // a wide pack of twins-and-neighbors must still answer per-variable.
+        let wide: Vec<Variable> = (0..9)
+            .map(|i| var(&format!("?w{i}")))
+            .chain([twin_a.clone(), twin_b.clone()])
+            .collect();
+        assert_eq!(position_hashed(&wide, &twin_a), Some(9));
+        assert_eq!(position_hashed(&wide, &twin_b), Some(10));
+    }
+
+    #[test]
+    fn schema_push_small_n_matches_oracle_across_threshold() {
+        // End-to-end court on the wired [`Schema::push`] fallback: the wired
+        // lookup must agree with a scalar `.position()` oracle over the whole
+        // build sequence, across the INDEXED_ABOVE crossing.
+        let workspace = crate::WorkspaceCapability::resident();
+        let mut builder = SchemaBuilder::new(&workspace);
+        let mut built: Vec<Variable> = Vec::new();
+        for i in 0..(INDEXED_ABOVE * 2 + 3) {
+            let name = format!("?v{i}");
+            let variable = var(&name);
+            let got = builder.push(variable.clone()).expect("push succeeds");
+            assert_eq!(got, built.len(), "fresh ordinal for {name}");
+            built.push(variable.clone());
+            // Every column, including those pushed before the index existed.
+            for (want, probe) in built.iter().enumerate() {
+                assert_eq!(builder.push(probe.clone()).expect("push succeeds"), want);
+            }
+        }
+    }
+}

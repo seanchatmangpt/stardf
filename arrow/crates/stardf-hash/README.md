@@ -1,0 +1,747 @@
+<!--
+SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+-->
+
+<p align="center">
+  <a href="https://github.com/Blackcat-Informatics/purrdf">
+    <img src="https://raw.githubusercontent.com/Blackcat-Informatics/purrdf/main/docs/purrdf-logo.svg" alt="PurRDF logo" width="120" height="120">
+  </a>
+</p>
+
+# `purrdf-hash` — Zero-Dependency BLAKE3, MD5, SHA-1, SHA-3, SHAKE, CRC-32 and a Fixed-Key Table Hasher
+
+[![crates.io](https://img.shields.io/crates/v/purrdf-hash.svg)](https://crates.io/crates/purrdf-hash)
+[![docs.rs](https://docs.rs/purrdf-hash/badge.svg)](https://docs.rs/purrdf-hash)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0%20OR%20MulanPSL--2.0-blue.svg)](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MIT)
+[![Repository](https://img.shields.io/badge/repo-Blackcat--Informatics%2Fpurrdf-181717.svg)](https://github.com/Blackcat-Informatics/purrdf)
+
+`purrdf-hash` is the PurRDF toolkit's digest leaf: the SPARQL `MD5()`,
+`SHA1()` and `SHA3-*()` built-ins, OpenPGP v4 key fingerprints and Datalog
+derivation identities all compute through it, and `fixed::FixedHasher` is
+the workspace's in-memory table hasher. It has **no runtime dependencies**,
+allocates nothing, and builds for `wasm32-unknown-unknown`.
+
+| Module | Algorithm | Specification | Output |
+|---|---|---|---|
+| `blake3` | BLAKE3 hash, keyed hash, key derivation and XOF | BLAKE3 §2.1–2.6 | 32 bytes or caller-selected length |
+| `md5` | MD5 | RFC 1321 | 16 bytes |
+| `sha1` | SHA-1 | FIPS 180-4 | 20 bytes |
+| `sha3` | SHA3-224 / 256 / 384 / 512, Keccak-f[1600] | FIPS 202 | 28 / 32 / 48 / 64 bytes |
+| `sha3` | SHAKE128 / 256 | FIPS 202 | caller-selected byte length |
+| `crc32` | CRC-32/ISO-HDLC | reflected `0xEDB88320`, init and xorout `0xFFFFFFFF` | `u32` |
+
+`frame` is the workspace's length framing: `frame_le` appends a field as its
+length in eight little-endian bytes followed by its bytes, `frame_le_into`
+streams exactly those bytes into any `Digest`, and `frame_be_labelled` is the
+big-endian label-and-value framing three published identities were minted
+with. Every preimage and wire encoding in the workspace frames through it, and
+`purrdf-hash-conformance` replays its frozen answers on every target.
+
+## BLAKE3 modes and output
+
+`blake3::keyed_hash(&key, data)` authenticates bytes with a 32-byte key.
+`blake3::derive_key(context, material)` returns 32 derived key bytes, with a
+unique application-specific context string. `Hasher::new_keyed` and
+`Hasher::new_derive_key` accept repeated `update` calls; the compact
+`RecordHasher` supports the same constructors. Reset starts a new message
+under the same key and mode.
+
+`hash_xof`, `keyed_hash_xof` and `derive_key_xof` fill caller-provided output
+storage. For incremental output, `finalize_xof()` returns an owned reader
+with `fill`, `position`, `set_position` and `std::io::Read`. Seeking and
+cloning a reader never rehash the input or change the hasher. Output lengths
+share a prefix; the ordinary digest is the first 32 bytes. The output limit
+is 2^64 - 1 bytes, and `fill` refuses an overflowing range before mutation.
+
+## Owned secret storage
+
+`wipe_secret` overwrites every supplied slot with its default value, observes
+those stores with `black_box`, and applies a compiler fence. `SecretArray`
+provides allocation-free ownership of a complete array, explicit cleanup at
+last use, and cleanup on drop, including cloned owners and unwinding. SHAKE
+absorbers, readers, buffered input and permutation scratch use this same home;
+Ed25519 re-exports it. Caller-owned copies, historical compiler copies,
+registers, spills and the external SHA-2 implementation remain outside this
+controlled-storage guarantee; it does not promise physical memory erasure.
+
+## SHA-2 is the `sha2` crate
+
+`purrdf-hash` implements no SHA-2. The workspace's one SHA-2 implementation is
+the external `sha2` crate, which the crates that need it depend on directly:
+the SHA-256 content identities and query provenance, and `purrdf-ed25519`'s
+SHA-512. The workspace keeps that one SHA-2 rather than a second, native one,
+so `purrdf-hash` keeps its zero runtime dependencies.
+
+## Shared kernels
+
+Beside the digests, the crate is the home of the small specified kernels every
+other crate uses, each the workspace's one implementation (`helpers-ledger.toml`
+names the job, and `purrdf-hash-conformance` replays their frozen vectors
+natively and on wasm32):
+
+| Module | What it holds |
+|---|---|
+| `hex` | Base16 (RFC 4648 §8) in either case: `Lower`/`Upper` (`Display`), `encode`, `encode_into`, `encode_to_slice` and their uppercase siblings; `decode` (the `xsd:hexBinary` lexical space), `decode_canonical`, `decode_32`, `decode_32_canonical`, `nibble`, `parse_u32`; and `Digest32`, the 32-byte digest value every content identity wraps |
+| `frame` | Length framing: `frame_le`, `frame_le_into`, `frame_be_labelled` |
+| `Domain` (crate root) | The registered hash domain-separation string (see [Hash domains](#hash-domains)) |
+| `fnv` | FNV-1a 64-bit: `BASIS`, `PRIME`, `fnv1a64`, and `fold` into a caller's state |
+| `mix` | SplitMix64 (`splitmix64_next`, the published counter stream; `splitmix64_step`, the self-composed stream; `splitmix64_finalize`; `GOLDEN_GAMMA`); the signed-unit draws that map a 64-bit draw onto an exact binary64 in `[-1, 1)` (`signed_unit`, `signed_unit_next`, `signed_unit_step` and their `_nonzero` forms); and the 64-bit linear congruential generator with Knuth's MMIX multiplier (`lcg64_next`, `LCG64_MULTIPLIER`, `LCG64_MMIX_INCREMENT`) |
+| `dispatch` | The `Backend` trait every family of named execution paths implements (`selected`, `is_available`, `all_available`, `name`) and `PURRDF_REQUIRE_SIMD_PATHS`, the one variable a test run sets to require paths: `1` for every path the host is expected to run, or a `family:path` list; `vector_backend!`, which declares a family of named paths and its `Backend` impl from one list |
+| `default_from_new!`, `debug_non_exhaustive!` (crate root) | The impl macros every crate shares: a `Default` that is the type's `const` or non-derived `new` (or another named constructor, `T => name`), and a `Debug` that shows the named fields and elides the rest |
+
+## Usage
+
+```rust
+use purrdf_hash::md5::Md5;
+use purrdf_hash::sha1::Sha1;
+use purrdf_hash::sha3::Sha3_256;
+use purrdf_hash::crc32::Crc32;
+
+// One shot.
+let digest: [u8; 32] = Sha3_256::digest(b"abc");
+assert_eq!(digest.len(), 32);
+let md5: [u8; 16] = Md5::digest(b"abc");
+assert_eq!(md5[..4], [0x90, 0x01, 0x50, 0x98]);
+assert_eq!(Crc32::checksum(b"123456789"), 0xCBF4_3926);
+
+// Streaming: any split of the input gives the same answer.
+let mut sha1 = Sha1::new();
+sha1.update(b"ab");
+sha1.update(b"c");
+assert_eq!(sha1.finalize(), Sha1::digest(b"abc"));
+```
+
+Every fixed-output hasher also implements the object-safe `Digest` trait, so an
+algorithm chosen at run time can be driven through `&mut dyn Digest`.
+
+SHAKE uses a distinct absorber and reader because its output has no fixed
+length. Finalization consumes the absorber; successive `squeeze` calls
+continue the same stream, including across rate boundaries. Empty input and
+output calls are supported, and no call allocates.
+
+```rust
+use purrdf_hash::sha3::Shake256;
+
+let mut shake = Shake256::new();
+shake.update(b"ab");
+shake.update(b"c");
+let mut reader = shake.finalize();
+let mut first = [0; 32];
+let mut next = [0; 200];
+reader.squeeze(&mut first);
+reader.squeeze(&mut next);
+let mut whole = [0; 232];
+Shake256::digest(b"abc", &mut whole);
+assert_eq!(first, whole[..32]);
+assert_eq!(next, whole[32..]);
+```
+
+## Execution paths
+
+| Algorithm | Paths | Selected when |
+|---|---|---|
+| BLAKE3 | SSE2 / SSSE3 / AVX2 / AVX-512, NEON, wasm SIMD128, portable | See the capability table below; streaming and one-shot use the same kernels |
+| SHA-1 | x86 SHA extensions (`sha1rnds4`, `sha1nexte`, `sha1msg1/2`) | x86-64 with `sha`, `ssse3`, `sse4.1` |
+| | Armv8 SHA1 instructions (`sha1c/p/m`, `sha1h`, `sha1su0/1`) | AArch64 with SHA1 |
+| | portable | otherwise |
+| CRC-32 | `pclmulqdq` folding, 64 bytes per step, Barrett reduction | x86-64 with `pclmulqdq`, `sse4.1` |
+| | Armv8 CRC32 instructions | AArch64 with CRC32 |
+| | Armv8 `pmull` folding finished by CRC32 | never (available to tests and the bench; not yet measured on Arm hardware) |
+| | slicing-by-16 tables | otherwise |
+| MD5 | portable (a strict serial dependency chain) | always |
+| SHA-3 / SHAKE | portable Keccak-f[1600] | always |
+
+Paths are chosen by run-time CPU detection, and every path computes the same
+bytes: the fixed-output digest suite replays 14,097 frozen answers per algorithm
+against each path the host can run. SHAKE separately replays four complete
+512-byte NIST examples and 16 independent boundary and long-output answers.
+Every constant — MD5's sine table, SHA-3's round constants, rotation offsets and lane permutation,
+the CRC tables and the carry-less folding and Barrett constants — is computed
+at compile time from its definition rather than typed.
+
+All `unsafe` code lives in one private module (the processor kernels, their
+detection, their vector loads and the table hasher's AES block); the rest of
+the crate is
+`#![deny(unsafe_code)]`.
+
+MD5 and SHA-1 are here because protocols name them, not as security
+primitives: both are broken for collision resistance.
+
+## SHA-3: expose the fixed permutation to the compiler
+
+Keccak-f[1600] has 25 lanes of 64 bits and exactly 24 rounds. The implementation
+fuses the rho rotation and pi permutation: each destination takes a fixed
+source lane, applies its theta correction, and rotates by a fixed amount.
+Expanding those 25 lane expressions makes both indices and rotation counts
+compile-time constants, allowing immediate rotations and removing indexed
+schedule loads. The constants are still generated from the FIPS 202 equations.
+
+Two rounds are expanded per loop iteration to expose instruction scheduling
+across round boundaries. Expanding all 24 rounds increased code size and
+performed worse in the measured x86 workloads. This changes instruction
+scheduling only: every specified round and bit operation remains present.
+All four SHA-3 output widths replay independent frozen differential vectors.
+
+## BLAKE3: mathematics and implementation
+
+This module implements hashing, keyed hashing, key derivation and extended output from the
+[BLAKE3 specification, §2](https://github.com/BLAKE3-team/BLAKE3-specs/blob/master/blake3.pdf).
+All paths retain the specified **seven rounds**, 1,024-byte chunks, tree
+shape, counters and domain flags. Optimizations change how operations are
+scheduled and data is buffered; they never change the digest function.
+[PROVENANCE.md](PROVENANCE.md) records the specification and oracle sources.
+
+### Compression and message schedule
+
+A compression state has sixteen 32-bit words. A quarter round takes four
+state words `(a, b, c, d)` and two message words `(x, y)` and applies:
+
+```text
+a = a + b + x        d = rotr(d XOR a, 16)
+c = c + d            b = rotr(b XOR c, 12)
+a = a + b + y        d = rotr(d XOR a,  8)
+c = c + d            b = rotr(b XOR c,  7)
+```
+
+Every addition is modulo `2^32`. Four independent column quarter rounds
+precede four diagonal quarter rounds. Between rounds, the sixteen message
+words follow the permutation
+`[2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8]`.
+The seven schedules are composed at compile time. Explicit round calls let
+the compiler resolve message indices without a dynamic scheduling loop.
+The first eight output words are `v[i] XOR v[i+8]`; the second eight are
+`v[i+8] XOR input_cv[i]`. Chaining values use the first eight words, while
+extended output uses all sixteen. Keyed mode starts chunks and parents at the
+caller key and sets `KEYED_HASH` on every compression. Derivation first hashes
+the context with `DERIVE_KEY_CONTEXT`, then uses its 32-byte result as the key
+for material hashing under `DERIVE_KEY_MATERIAL`. Extended output repeats the
+root compression with an independent output-block counter.
+
+The default x86 short-message and stream-finalization paths use scalar ARX.
+Four independent scalar quarter-round chains let the processor schedule work
+without the vector single-block dependency chain. On x86-64, a small inline
+assembly helper pins rotation to the two-operand `ROR` instruction. In the
+measured native-CPU build, LLVM's BMI2 `RORX` choice and register allocation
+nearly doubled the 1 KiB path's latency; retaining the destination register
+removed that regression. The helper declares its flag clobber and has no memory
+or stack effects. Native tests compare all four rotations with Rust integer
+arithmetic; other architectures and Miri use `rotate_right` directly.
+
+
+On x86, a single-block kernel places the four independent quarter rounds
+in four SIMD lanes. Lane shuffles turn columns into diagonals and back.
+SSSE3 implements the 8- and 16-bit rotations with byte shuffles, and the
+others with shifts and OR. The AVX-512F/VL path uses native lane rotations
+and selects message words with vector permutations. These are distinct
+schedules of the same arithmetic, checked against the portable compressor.
+
+### Independent chunks and SIMD tree reduction
+
+Blocks within a chunk form a serial chain. Different chunks are independent:
+chunk `j` uses counter `j`, starts with the specified IV, and sets
+`CHUNK_START` and `CHUNK_END` at its first and last block. A parent hashes
+its two 32-byte child chaining values with counter zero and `PARENT` set.
+Only the final compression sets `ROOT`. A root digest is consequently not
+interchangeable with an intermediate chaining value.
+
+The AVX-512F batch kernel puts the same state word from sixteen chunks into
+one vector. Contiguous block loads are transposed using 32-bit and 64-bit
+interleaves followed by 128-bit lane shuffles. This avoids sixteen strided
+gathers for every message block. Each vector arithmetic instruction then
+advances sixteen independent chunk computations.
+
+Parent reductions remain in vector registers. Even and odd child lanes
+become the left and right halves of each parent message. The live lane count
+contracts through the tree. For an incomplete batch, completed chunk lanes
+are preserved while longer chunks finish; an unmatched child is carried to
+the next level. This preserves BLAKE3's required tree: each left subtree is
+complete, has a power-of-two number of chunks, and is at least as large as
+its right sibling. Final child chaining values are retained so `ROOT` is
+applied exactly once, rather than trying to recover a root from a finalized
+non-root chaining value.
+
+Full AVX-512 batches additionally collect up to 256 chunk chaining values
+before reducing parents. Sixteen parent lanes can then combine children
+across neighbouring batches, avoiding repeated reductions with mostly idle
+lanes. The bounded CV workspace is 8 KiB; the narrower paths retain their
+64-chunk workspace.
+
+A complete four-chunk AVX-512 batch uses a different register basis: each
+512-bit state register holds four quarter-round lanes for each of four chunks.
+The message rows are `[0,2,4,6]`, `[1,3,5,7]`, `[14,8,10,12]` and
+`[15,9,11,13]` within each chunk. Conjugating the specification's permutation
+into this basis gives seven vector permutation operations between rounds.
+The `b` row finishes last in each quarter round. Leaving it stationary at the
+column/diagonal boundary lets the other three row shuffles overlap its final
+operations. Counters and block lengths are built once; only the START/END lanes
+change between blocks. A pair of parent nodes uses the corresponding 256-bit
+layout. A complete-subtree entry keeps this path separate from partial-input
+padding, avoiding a 4 KiB stack frame observed in the combined caller's assembly.
+These are scheduling and storage changes; all seven specified rounds remain.
+
+The narrower kernels share their ARX round schedule, length flags and
+chunk handling. AVX-512VL reuses the four-lane source for partial batches through
+4 KiB and for four-parent reductions. SSE2 and NEON use four independent chunk lanes; AVX2 uses
+eight; wasm SIMD uses four. Full batches read directly from caller memory,
+with uniform block lengths and flags: they avoid both a padded copy and per-lane tail masks. Partial
+batches retain padding and masks to preserve exact final-chunk semantics.
+Their contiguous loads are transposed with 32-bit and 64-bit interleaves and
+lane shuffles. Up to 64 chunk chaining values are reduced together; an
+eight-lane parent level switches to four lanes before individual parent
+compressions become necessary. NEON and wasm SIMD also
+vectorize the four quarter rounds within a single block, so short identities
+benefit without needing multiple chunks.
+
+| Target capability | Chunk lanes | Single-block path |
+|---|---:|---|
+| x86 SSE2 (runtime detected on 32-bit; baseline on x86-64) | 4 | SSE2 shifts, OR and lane shuffles |
+| x86-64 SSSE3 | 4 | Byte-shuffle rotations |
+| x86-64 AVX2 | 8 | AVX2 message permutations and byte-shuffle rotations |
+| x86-64 AVX-512F/VL | 4 or 16 | Native lane rotations and vector permutations |
+| Little-endian AArch64 NEON | 4 | NEON quarter rounds |
+| wasm32 SIMD128 | 4 | SIMD quarter rounds |
+| Other targets, including baseline wasm32 | 1 | Portable 32-bit ARX |
+
+The portable compressor uses 32-bit wrapping addition, XOR and rotation;
+it does not require 64-bit multiplication or vector instructions. This is
+also the independent arithmetic reference for the hardware kernels.
+Runtime feature checks guard the x86 kernels. NEON and wasm SIMD are
+compiled only when enabled for those targets. SIMD width and CPU availability
+never affect bytes.
+Default x86 hashes through 1 KiB use scalar ARX: on the measured processor,
+four independent scalar quarter-round chains schedule faster than the single
+vector chain of within-block SIMD. Default streams use that same short-input
+path. Backend-forcing APIs retain the named single-block kernels for tests
+and measurement; the choice for other architectures remains their native path.
+The leaf crate creates no threads. `hash_with_join` accepts the caller's
+`Join` implementation and minimum input size for scheduling; below that
+threshold it runs the ordinary SIMD path. The crate still owns the canonical
+split, chunk counters and ROOT flag. GTS implements this seam with its shared
+Rayon pool, while a threadless caller can run both closures sequentially.
+The scheduler and threshold affect performance only.
+
+### Streaming is a first-class path
+
+```rust
+use purrdf_hash::blake3::{hash, Hasher, RecordHasher};
+
+let mut stream = Hasher::new();
+stream.update(b"ab");
+stream.update(b"");
+stream.update(b"c");
+assert_eq!(stream.finalize(), hash(b"abc"));
+
+// Finalization is a snapshot: appending remains valid.
+stream.update(b"d");
+assert_eq!(stream.finalize(), hash(b"abcd"));
+stream.reset(); // Reuses storage; this is not secure erasure.
+assert_eq!(stream.finalize(), hash(b""));
+
+// The same function with smaller state for short, framed identities.
+let mut record = RecordHasher::new();
+record.update(b"abc");
+assert_eq!(record.finalize(), hash(b"abc"));
+```
+
+`Hasher` accumulates small writes into a 16 KiB batch so they can fill sixteen
+parallel chunks. Large updates are processed directly from the input slice.
+If an update ends at a complete aligned subtree, its final compression inputs
+are retained as a pending `Output`; its message bytes need no copy into the
+buffer. Finalization adds ROOT, while a later nonempty update converts that
+output to a chaining value before appending. This also avoids repeatedly
+splitting a 16 KiB write into 8-, 4-, 2- and 1-chunk subtrees.
+
+`RecordHasher` uses the same streaming engine with a 1 KiB buffer. Its lower
+initialization and stack cost suit short identities; it does not batch small
+writes into sixteen chunks. Both expose `update`, non-consuming `finalize`,
+`reset`, cloning, the common `Digest` trait, and `std::io::Write`. Encoders
+can write directly into either hasher without a digest-specific writer adapter.
+`flush` preserves the message; a digest snapshot does not require flushing. Reset changes counters and
+valid lengths without clearing storage, making reuse across records cheap.
+Buffer capacity is an execution choice, not a digest or wire-format choice.
+
+The streaming tree stores at most 54 pending subtree chaining values for
+inputs shorter than `2^64` bytes. A completed aligned subtree is merged while
+its count has trailing zero bits, the same carry operation as binary
+addition. Storage is bounded independently of input length: a fixed input
+buffer and `54 * 32` bytes for tree chaining values, plus a pending output and counters. Large updates
+consume the largest complete subtree aligned to the current chunk counter
+directly from caller memory, retaining a partial suffix or final compression inputs for root finalization.
+This batches parent reductions without enlarging the streaming buffer. No whole
+message buffering or heap allocation is required. Input-length overflow is
+rejected before processing the update.
+
+### Evidence and performance boundaries
+
+The frozen oracle contains **18,214** public-API answers from `blake3` 1.8.5:
+8,214 patterned inputs cover every length through 8,192 bytes and
+power-of-two boundaries through 1 MiB; another 10,000 seeded random inputs
+cover irregular trees through 64 KiB, with starting offsets from 0 to 31.
+Both streaming buffer sizes replay it with irregular splits and empty
+updates on every backend the host can execute. `backend::Blake3Backend`
+allows tests and benchmarks to force a backend, so AVX-512 cannot mask an
+SSE2 or AVX2 defect. Counter-carry and unaligned-input tests independently
+compare the narrow kernels with scalar chunk computations. Separate checks cover snapshots, reset and cloned streams.
+Native Rust executes the complete frozen corpus. The focused WASM lane checks
+actual backend selection and compares the explicit simd128 kernel with the
+portable implementation; it does not replay the full oracle. See
+[WASM test ownership](../../docs/WASM_TESTING.md).
+
+Separately, all **35 official BLAKE3 cases** replay the complete 131-byte
+hash, keyed-hash and derive-key answers on every available backend and both
+stream buffers, natively and on scalar/SIMD WASM. These checks cover split
+updates, reset, cloned readers and seek boundaries. Long Unicode contexts,
+megabyte output and high output-counter carries compare every available
+backend with portable arithmetic. Overflowing output ranges are refused
+before mutation. These are correctness checks, with no timing claim.
+
+A paired measurement on an AMD Ryzen AI Max+ 395, compiling with
+`target-cpu=native`, opt-level 3, thin LTO and one codegen unit, compared fresh
+stream states over a 1 MiB message with `blake3` 1.8.5. Twelve samples alternated
+execution order. The [raw samples and per-algorithm distributions](https://github.com/Blackcat-Informatics/purrdf/blob/main/docs/benchmarks/hash-comparison-2026-09-28/README.md)
+include baseline and native builds and their source/compiler receipts.
+
+> Measured on an AMD Ryzen AI Max+ 395, 2026-09-28; table-key rows are retracted as
+> invalid acceptance evidence — see
+> `docs/benchmarks/hash-optimization-2026-09-28/`. Numbers retained for provenance.
+
+| Update size | Removed crate median | PurRDF stream median |
+|---|---:|---:|
+| 8 bytes | 1,793.4 µs | 517.0 µs |
+| 64 bytes | 1,250.3 µs | 154.9 µs |
+| 1 KiB | 1,243.2 µs | 117.5 µs |
+| 16 KiB | 110.5 µs | 113.4 µs |
+| 64 KiB | 95.7 µs | 95.8 µs |
+
+These measurements describe this workload and host, not a universal speedup
+or an ISA throughput guarantee. In particular, batching benefits tiny writes
+while large writes and fresh short messages have different costs.
+`benches/digests.rs` measures one-shot hashing and both stream capacities,
+with fresh and reused states, across message lengths and update sizes. The
+`blake3-backends` group forces each available backend for one-shot and
+streaming measurements. For an older x86 instruction baseline, compile with
+`RUSTFLAGS="-C target-cpu=x86-64"`; forcing SSE2 in a native-CPU build does
+not constrain the surrounding compiler-generated code to SSE2. These runs
+still measure the host microarchitecture, not an older processor:
+
+```sh
+cargo bench -p purrdf-hash-conformance --bench digests -- blake3
+cargo bench -p purrdf-hash-conformance --bench digests -- blake3-backends
+cargo test -p purrdf-hash-conformance --test blake3
+```
+
+## Fixed-key table hasher
+
+`fixed::FixedHasher` is a `Hasher`, and `fixed::FixedState` is the
+`BuildHasher` for `HashMap<K, V, FixedState>`. The keys are compile-time
+constants derived from `⌊2^64/φ⌋`, with no run-time seeding, so a build
+hashes equal inputs equally on every run.
+
+The RDF term interner uses `FixedHasher::hash_terminal(tag, bytes)` when a
+tagged byte slice is the whole key. This avoids streaming state updates for
+ordinary IRIs while preserving a separate generic `Hasher` path for compound
+terms. Borrowed lookup, stored-term rehash and frozen lookup must all call the
+same terminal function. Its result is an in-memory table hash only.
+
+```rust
+use core::hash::BuildHasher;
+use std::collections::HashMap;
+use purrdf_hash::fixed::FixedState;
+
+let mut map: HashMap<&str, u32, FixedState> = HashMap::with_hasher(FixedState::new());
+map.insert("http://example.org/p", 1);
+assert_eq!(FixedState::new().hash_one(7u32), FixedState::new().hash_one(7u32));
+```
+
+| Input | Portable build | AES build |
+|---|---|---|
+| Integers | Folded multiply into a 64-bit state | One AES round into a 128-bit state |
+| 0–16 byte slices | Packed words, two independently seeded folds and a length term | Packed words and length domain, one AES absorption |
+| 17–32 byte slices | Two folds plus rotated tail words | Sequential first/last 16-byte absorption |
+| Longer slices | Four independent multiply lanes | Four independent AES lanes, then absorption |
+| Streaming finalization | One folded multiply | Two AES rounds, then low 64 bits |
+
+For an AES integer update, `S = R(S XOR block, K)`. Finalization is
+`low64(R(R(S, F0), F1))`, where `R` is the hardware AES encryption round.
+Thus the final integer passes through three rounds before truncation. Two
+rounds gave good average avalanche but failed structured high-bit collision
+tests. The 17–32-byte path absorbs the first and last blocks sequentially,
+mixing the byte length into the state before them. Merging one-round lanes
+by addition also failed sparse-key tests and is not used. Longer independent
+lanes retain their extra diffusion before merging. The terminal IRI operation
+uses the sequential AES path at 17–32 bytes and its separately tested folded
+finalizer at other lengths.
+
+For a portable two-word update, let `F(x, k)` XOR the low and high halves
+of the 128-bit product `x * k`. The update is
+`S = F(S XOR first, K_A) XOR F(second XOR PAIR_X, K_B) XOR length_term`.
+The second lane has its own dense offset from the same fixed key schedule.
+Leaving that lane unseeded permits a structured cancellation:
+`F(0, k) = 0` and `F(2^64 - 1, k) = 2^64 - 1` for every nonzero `k`.
+An all-ones high word can then cancel an all-ones word in the next field.
+Seeding both lanes removes that zero/all-ones special case while retaining
+two independent multiplies; constant metadata can still be folded at compile
+time. Successive folds also passed the quality tests, but their dependency
+chain was slower for packed triple keys. The regression tests exercise wide
+integer fields and byte fields on the portable implementation even when the
+host selects AES. The public offsets do not provide resistance to deliberately
+constructed collisions.
+
+RDF blank nodes, short literals and embedded triples pack their typed fields
+into one or two integer blocks. The metadata includes lengths, scope or full
+64-bit datatype identity, language presence and text direction. Packed triple
+IDs retain all 64 bits on the global path. `pack_short_bytes` uses fixed-size
+loads and shifts; variable-length copies were measurably more expensive.
+Borrowed, stored, global and frozen lookups share the same protocol.
+
+AES selection is made at compile time. On 32-bit targets (i686, wasm32), the
+portable 128-bit product is built from 32-bit multiplies with identical output.
+Both functions are pinned by their own frozen self-vectors. The portable vectors
+record the seeded-lane law; the AES vectors also pin its short-terminal fallback. Avalanche,
+collision and χ² distribution requirements are the same for both paths.
+Hardware width and instruction availability do not establish throughput: compare
+the concrete caller protocols and complete workloads using the maintained
+comparison scripts described in `docs/design/purrdf-simd.md`.
+
+Because the function depends on the build, a table hash must never be
+persisted, sent over the wire or used as a content address. Use a digest
+for any of those. The keys are public, so the hasher offers no resistance
+to deliberately colliding input.
+
+## Hash domains
+
+A hash domain is the byte string that names one preimage family: it opens the
+preimage (or is its named `domain` part), so a digest of one structure can never
+be read as a digest of another. Every domain in the workspace is a
+`purrdf_hash::Domain` constant registered next to the construction it separates:
+
+```rust
+use purrdf_hash::{Domain, blake3};
+
+const RECORD_DOMAIN: Domain = Domain::new(b"purrdf-example/record/v1");
+
+let mut hasher = blake3::Hasher::new();
+hasher.update(RECORD_DOMAIN.as_bytes());
+hasher.update(b"payload");
+let _digest = hasher.finalize();
+```
+
+The contract, held by `scripts/check-hash-domains.py` on every `make check`:
+
+* **Unique and prefix-free.** No two registered domains are equal, and none is
+  a byte-prefix of another.
+* **Spelt through `Domain`.** A domain-shaped literal (one holding a NUL, a
+  version token such as `-v1`, `/v2` or `.v1`, or the bytes of a registered
+  domain) handed straight to a hasher, or declared as a string domain constant,
+  fails the gate.
+* **One family per domain.** A registered domain that opens hashers in two
+  functions of its file fails the gate, unless a `hash-domain` variant row in
+  `helpers-ledger.toml` declares it with a documented reason. A published
+  identity digest computed with no domain at all is recorded the same way.
+* **Never renamed.** A domain's bytes are part of every digest computed under
+  it, and those digests are published: content addresses, cache keys, proof and
+  artifact identities, golden files. The spellings below are frozen, whatever
+  convention they follow. A changed preimage layout gets a new domain; the old
+  spelling is never reused for a different layout.
+
+**Convention for a new domain: `purrdf-<crate>/<purpose>/v<N>`**, for example
+`purrdf-text/index/v2`. Today's spellings vary: NUL-terminated dotted paths,
+hyphenated, dotted, spaced, slashed and colon-separated versions, unversioned
+slashed paths, colon-prefixed tags and bare words. The slashed form
+`purrdf-<crate>/…` is the most widely used namespaced spelling: the
+`purrdf-sparql-eval`, `purrdf-hnsw`, `purrdf-geo`, `purrdf-text` and
+`purrdf-shapes` domains all open with it. It names the owning crate, so two
+crates can never coin the same domain; it keeps the purpose, which is itself
+hyphenated, unambiguous; and it puts the version last, where a layout change
+bumps it. A version is a decimal without leading zeros. The gate refuses a pair
+that would prefix each other (`…/v1` beside `…/v10`), so a family that keeps two
+versions registered at once never spells one as the other's prefix.
+
+The registry: every registered domain, generated by
+`python3 scripts/check-hash-domains.py --write-readme` and checked against the
+source on every run.
+
+<!-- hash-domain-registry:begin (generated by scripts/check-hash-domains.py --write-readme) -->
+
+| Domain bytes | Constant | Defined in |
+|---|---|---|
+| `b"COMPSIG-MLDSA65-Ed25519-SHA512"` | `LABEL` | `crates/gts/src/cose/composite.rs` |
+| `b"CompositeAlgorithmSignatures2025"` | `PREFIX` | `crates/gts/src/cose/composite.rs` |
+| `b"assertion"` | `ASSERTION_KIND` | `crates/gts/src/examples/agent_memory.rs` |
+| `b"citation"` | `CITATION_KIND` | `crates/markdown/src/identity.rs` |
+| `b"exact-symbolic-operation-image-points/v1"` | `SYMBOLIC_POINTS_DOMAIN` | `crates/geo-kernel/src/prepared.rs` |
+| `b"five-full-baselines-minimum-collision-cost-v1"` | `BASELINE_LAW` | `crates/text/src/profile.rs` |
+| `b"gts-mmr-leaf-v1"` | `LEAF_DOMAIN` | `crates/gts/src/mmr.rs` |
+| `b"gts-mmr-parent-v1"` | `PARENT_DOMAIN` | `crates/gts/src/mmr.rs` |
+| `b"gts-mmr-root-v1"` | `ROOT_DOMAIN` | `crates/gts/src/mmr.rs` |
+| `b"gts-segment-heads-v1"` | `SEGMENT_HEADS_DOMAIN` | `crates/gts/src/replication.rs` |
+| `b"lexical-transparent-controls-letter-dot-colon-v3"` | `LEXICAL_LAW` | `crates/text/src/profile.rs` |
+| `b"merkle-root\x1f"` | `MERKLE_ROOT_DOMAIN` | `crates/slice/src/cache.rs` |
+| `b"path-snapshot-edge-set-v1"` | `PATH_SNAPSHOT_DOMAIN_V1` | `crates/sparql-eval/src/path_relation.rs` |
+| `b"path-witness-identifier-v1"` | `PATH_ID_DOMAIN_V1` | `crates/sparql-eval/src/path_relation.rs` |
+| `b"phase:bundle"` | `BUNDLE_PHASE` | `crates/slice/src/cache.rs` |
+| `b"phase:parse"` | `PARSE_PHASE` | `crates/slice/src/cache.rs` |
+| `b"phase:reason"` | `REASON_PHASE` | `crates/slice/src/cache.rs` |
+| `b"phase:shacl"` | `SHACL_PHASE` | `crates/slice/src/cache.rs` |
+| `b"phase:syntax"` | `SYNTAX_PHASE` | `crates/slice/src/cache.rs` |
+| `b"positional-grams-1-2-3-relative-offsets-emoji-endpoints-rarest-anchor-v1"` | `SUBSTRING_LAW` | `crates/text/src/profile.rs` |
+| `b"purrdf-core/accepted-row/v1"` | `ACCEPTANCE_DOMAIN` | `crates/rdf-core/src/evidence/accepted.rs` |
+| `b"purrdf-core/composite-snapshot/v1"` | `(inline)` | `crates/rdf-core/src/ir/composite.rs` |
+| `b"purrdf-core/dataset-state/v1"` | `STATE_DOMAIN` | `crates/rdf-core/src/ir/canon/state.rs` |
+| `b"purrdf-core/delta-snapshot/v1"` | `(inline)` | `crates/rdf-core/src/ir/mutable/delta_view.rs` |
+| `b"purrdf-core/evidence-aggregate-column/v1"` | `(inline)` | `crates/rdf-core/src/evidence.rs` |
+| `b"purrdf-core/evidence-annotation/v1"` | `ANNOTATION_DOMAIN` | `crates/rdf-core/src/evidence/ledger/row.rs` |
+| `b"purrdf-core/evidence-frame/v1"` | `FRAME_DOMAIN` | `crates/rdf-core/src/evidence/frame.rs` |
+| `b"purrdf-core/evidence-reason/v1"` | `REASON_DOMAIN` | `crates/rdf-core/src/evidence/reason.rs` |
+| `b"purrdf-core/evidence-record/v1"` | `RECORD_DOMAIN` | `crates/rdf-core/src/evidence/record.rs` |
+| `b"purrdf-core/paged-snapshot/v1"` | `(inline)` | `crates/rdf-core/src/ir/paged/mod.rs` |
+| `b"purrdf-core/paged-stack-snapshot/v1"` | `(inline)` | `crates/rdf-core/src/ir/paged/stack.rs` |
+| `b"purrdf-core/residue-snapshot/v1"` | `RESIDUE` | `crates/rdf-core/src/ir/pipeline_bundle.rs` |
+| `b"purrdf-core/segmented-stack-snapshot/v1"` | `(inline)` | `crates/rdf-core/src/ir/segmented/stack.rs` |
+| `b"purrdf-core/snapshot/dictionary/v1"` | `(inline)` | `crates/rdf-core/src/ir/frozen_terms.rs` |
+| `b"purrdf-core/snapshot/graphs/v1"` | `GRAPHS` | `crates/rdf-core/src/source.rs` |
+| `b"purrdf-core/snapshot/rows/v1"` | `ROWS` | `crates/rdf-core/src/source.rs` |
+| `b"purrdf-datalog restricted chase witness v1"` | `WITNESS_DIGEST_TAG` | `crates/datalog/src/chase.rs` |
+| `b"purrdf-datalog-contract-v1"` | `CONTRACT_DIGEST_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-dl-clause-ir-v3"` | `CLAUSE_IR_DIGEST_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-guarded-dl-clause-ir-v1"` | `GUARDED_CLAUSE_IR_DIGEST_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-guarded-dl-clause-ir-v2"` | `NATIVE_GUARDED_CLAUSE_IR_DIGEST_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-guarded-triple-clause-ir-v1"` | `GUARDED_TRIPLE_CLAUSE_IR_DIGEST_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-guarded-triple-clause-ir-v2"` | `NATIVE_GUARDED_TRIPLE_CLAUSE_IR_DIGEST_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-ordered-dl-clause-ir-v3"` | `ORDERED_CLAUSE_IR_DIGEST_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-ordered-triple-clause-ir-v3"` | `ORDERED_TRIPLE_CLAUSE_IR_DIGEST_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-partial-model-v1"` | `PARTIAL_MODEL_DOMAIN` | `crates/datalog/src/seminaive/session.rs` |
+| `b"purrdf-datalog-plan-identity-v1"` | `PLAN_IDENTITY_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-proof-v2"` | `PROOF_ENCODING_TAG` | `crates/datalog/src/proof.rs` |
+| `b"purrdf-datalog-scheduled-contract-v1"` | `SCHEDULED_CONTRACT_DIGEST_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-triple-clause-ir-v1"` | `TRIPLE_CLAUSE_IR_DIGEST_TAG` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-datalog-triple-proof-v2"` | `TRIPLE_PROOF_ENCODING_TAG` | `crates/datalog/src/proof.rs` |
+| `b"purrdf-datalog/demand-predicates/v1"` | `NAMESPACE` | `crates/datalog/src/demand.rs` |
+| `b"purrdf-datalog/never-derive-declarations/v1"` | `(inline)` | `crates/datalog/src/admission.rs` |
+| `b"purrdf-datalog/never-derive-plan/v1"` | `DOMAIN` | `crates/datalog/src/cache.rs` |
+| `b"purrdf-dl-service-proof-v2"` | `SERVICE_ENCODING_TAG` | `crates/entail/src/reasoner/proof.rs` |
+| `b"purrdf-dl-service-proof-v3"` | `PREPARATION_SERVICE_ENCODING_TAG` | `crates/entail/src/reasoner/proof.rs` |
+| `b"purrdf-entail-refutation-native-canonical-proof-v1"` | `REFUTATION_EVIDENCE` | `crates/entail/src/engine.rs` |
+| `b"purrdf-entail-refutation-no-guards-v1"` | `REFUTATION_GUARDS` | `crates/entail/src/engine.rs` |
+| `b"purrdf-entail-refutation-scenario-v1"` | `REFUTATION_SCENARIO` | `crates/entail/src/engine.rs` |
+| `b"purrdf-entail-refutation-source-v1"` | `REFUTATION_SOURCE` | `crates/entail/src/engine.rs` |
+| `b"purrdf-geo-kernel/carrier-bindings/v1"` | `PROFILE_BINDING_DOMAIN` | `crates/geo-kernel/src/binding.rs` |
+| `b"purrdf-geo-kernel/continuous-image-law/v1"` | `IMAGE_LAW_DOMAIN` | `crates/geo-kernel/src/operation/geometry.rs` |
+| `b"purrdf-geo-kernel/continuous-image-source/v1"` | `IMAGE_SOURCE_DOMAIN` | `crates/geo-kernel/src/operation/geometry.rs` |
+| `b"purrdf-geo-kernel/coordinate-operation-law/v1"` | `OPERATION_LAW` | `crates/geo-kernel/src/operation.rs` |
+| `b"purrdf-geo-kernel/coordinate-operation/v1"` | `OPERATION_BINDING` | `crates/geo-kernel/src/operation.rs` |
+| `b"purrdf-geo-kernel/cover-law/v2"` | `COVER_DOMAIN` | `crates/geo-kernel/src/cells/cover.rs` |
+| `b"purrdf-geo-kernel/exact-carrier-source/v1"` | `SOURCE_DOMAIN` | `crates/geo-kernel/src/prepared.rs` |
+| `b"purrdf-geo-kernel/exact-surface-reference-view/v1"` | `SURFACE_VIEW_DOMAIN` | `crates/geo-kernel/src/prepared.rs` |
+| `b"purrdf-geo-kernel/execution-policy/v1"` | `POLICY_DOMAIN` | `crates/geo-kernel/src/profile.rs` |
+| `b"purrdf-geo-kernel/geometry-metric-certificate/v1"` | `GEOMETRY_METRIC_CERTIFICATE` | `crates/geo-kernel/src/ellipsoidal.rs` |
+| `b"purrdf-geo-kernel/geometry-metric-law/v1"` | `GEOMETRY_METRIC_LAW` | `crates/geo-kernel/src/ellipsoidal.rs` |
+| `b"purrdf-geo-kernel/grid-profile/v1"` | `GRID_PROFILE` | `crates/geo-kernel/src/cells/profile.rs` |
+| `b"purrdf-geo-kernel/identified-surface-topology/v3"` | `LAW` | `crates/geo-kernel/src/atlas/relate.rs` |
+| `b"purrdf-geo-kernel/native-arrangement-fragment/v1"` | `FRAGMENT_DOMAIN` | `crates/geo-kernel/src/atlas/arcs/arrangement.rs` |
+| `b"purrdf-geo-kernel/native-arrangement-node/v1"` | `NODE_DOMAIN` | `crates/geo-kernel/src/atlas/arcs/arrangement.rs` |
+| `b"purrdf-geo-kernel/native-datum/v1"` | `DATUM_DOMAIN` | `crates/geo-kernel/src/profile.rs` |
+| `b"purrdf-geo-kernel/offset-materialization-law/v1"` | `LAW` | `crates/geo-kernel/src/buffer/materialize.rs` |
+| `b"purrdf-geo-kernel/operation-chain/v1"` | `OPERATION_CHAIN` | `crates/geo-kernel/src/operation.rs` |
+| `b"purrdf-geo-kernel/operation-image-curve/v1"` | `SOURCE_DOMAIN` | `crates/geo-kernel/src/operation/geometry/curve.rs` |
+| `b"purrdf-geo-kernel/operation-image-point/v1"` | `POINT_DOMAIN` | `crates/geo-kernel/src/operation/geometry/point.rs` |
+| `b"purrdf-geo-kernel/physical-offset/v1"` | `OFFSET` | `crates/geo-kernel/src/buffer.rs` |
+| `b"purrdf-geo-kernel/point-cell-index/v1"` | `INDEX_DOMAIN` | `crates/geo-kernel/src/cells/index.rs` |
+| `b"purrdf-geo-kernel/prepared-geographic-geometry/v1"` | `PREPARED_DOMAIN` | `crates/geo-kernel/src/prepared.rs` |
+| `b"purrdf-geo-kernel/reference-binding/v1"` | `BINDING_DOMAIN` | `crates/geo-kernel/src/profile.rs` |
+| `b"purrdf-geo-kernel/semantic-law/v1"` | `LAW_DOMAIN` | `crates/geo-kernel/src/profile.rs` |
+| `b"purrdf-geo-kernel/transform-certificate/v1"` | `TRANSFORM_CERTIFICATE` | `crates/geo-kernel/src/operation.rs` |
+| `b"purrdf-geo-kernel/transform-output-grid-law/v1"` | `GRID_LAW` | `crates/geo-kernel/src/operation/grid.rs` |
+| `b"purrdf-geo-kernel/transverse-mercator-parameters/v1"` | `TRANSVERSE_PARAMETER` | `crates/geo-kernel/src/operation.rs` |
+| `b"purrdf-geo/geographic-index-law/v1"` | `LAW` | `crates/geo-kernel/src/index/geographic.rs` |
+| `b"purrdf-geo/geographic-index-source/v1"` | `CONTENT` | `crates/geo-kernel/src/index/geographic.rs` |
+| `b"purrdf-geo/geographic-index/v1"` | `INDEX` | `crates/geo-kernel/src/index/geographic.rs` |
+| `b"purrdf-geo/index-source/v1"` | `DIGEST_DOMAIN` | `crates/geo-kernel/src/index.rs` |
+| `b"purrdf-hnsw/space-generation-v1"` | `SPACE_GENERATION_DOMAIN` | `crates/hnsw/src/relation.rs` |
+| `b"purrdf-json-document-v1"` | `DOCUMENT_DOMAIN` | `crates/json/src/profile.rs` |
+| `b"purrdf-json-profile-v1"` | `PROFILE_DOMAIN` | `crates/json/src/profile.rs` |
+| `b"purrdf-mime/document/v1"` | `DOCUMENT_DOMAIN` | `crates/mime/src/profile.rs` |
+| `b"purrdf-mime/profile/v1"` | `PROFILE_DOMAIN` | `crates/mime/src/profile.rs` |
+| `b"purrdf-owl-dl-contract-v1"` | `CONTRACT_DIGEST_TAG` | `crates/entail/src/owl_dl/proof.rs` |
+| `b"purrdf-owl-dl-proof-v3"` | `PROOF_ENCODING_TAG` | `crates/entail/src/owl_dl/proof.rs` |
+| `b"purrdf-owl-dl-proof-v4"` | `SCHEMA_PROOF_ENCODING_TAG` | `crates/entail/src/owl_dl/proof.rs` |
+| `b"purrdf-owl-dl-proof-v5"` | `CURRENT_PROOF_ENCODING_TAG` | `crates/entail/src/owl_dl/proof.rs` |
+| `b"purrdf-owl-dl-proof-v6"` | `MERGE_PROOF_ENCODING_TAG` | `crates/entail/src/owl_dl/proof.rs` |
+| `b"purrdf-owl-dl-proof-v7"` | `INTRODUCTION_PROOF_ENCODING_TAG` | `crates/entail/src/owl_dl/proof.rs` |
+| `b"purrdf-retrieval/scoped-fused-row/v1"` | `(inline)` | `crates/retrieval/src/scope.rs` |
+| `b"purrdf-segmented-block-v1\0"` | `SEGMENTED_BLOCK_DOMAIN` | `crates/rdf-core/src/ir/segmented/mod.rs` |
+| `b"purrdf-segmented-node-v1\0"` | `SEGMENTED_NODE_DOMAIN` | `crates/rdf-core/src/ir/segmented/mod.rs` |
+| `b"purrdf-segmented-requests-v2\0"` | `SEGMENTED_REQUESTS_DOMAIN` | `crates/rdf-core/src/ir/segmented/mod.rs` |
+| `b"purrdf-segmented-snapshot-v1\0"` | `SEGMENTED_SNAPSHOT_DOMAIN` | `crates/rdf-core/src/ir/segmented/mod.rs` |
+| `b"purrdf-shapes/class-membership-snapshot/v1"` | `(inline)` | `crates/shapes/src/class_membership.rs` |
+| `b"purrdf-shapes/data-view-snapshot/v1"` | `(inline)` | `crates/shapes/src/data_view.rs` |
+| `b"purrdf-shapes/product/class-catalog"` | `CLASS_CATALOG_DOMAIN` | `crates/shapes/src/product/identity.rs` |
+| `b"purrdf-shapes/rule-execution/v1"` | `(inline)` | `crates/shapes/src/sparql/coordinates.rs` |
+| `b"purrdf-shapes/rule-program/v1"` | `(inline)` | `crates/shapes/src/srl/identity.rs` |
+| `b"purrdf-shapes/schema-compilation-key/v1"` | `SCHEMA_KEY_SALT` | `crates/shapes/src/json_schema.rs` |
+| `b"purrdf-sparql-algebra/node-identity/v1"` | `NODE` | `crates/sparql-algebra/src/identity.rs` |
+| `b"purrdf-sparql-algebra/query-identity/v1"` | `QUERY` | `crates/sparql-algebra/src/identity.rs` |
+| `b"purrdf-sparql-algebra/update-identity/v1"` | `UPDATE` | `crates/sparql-algebra/src/identity.rs` |
+| `b"purrdf-sparql-eval/aggregate-registry"` | `CONTENT_DOMAIN` | `crates/sparql-eval/src/agg_fn.rs` |
+| `b"purrdf-sparql-eval/bound-request/v1"` | `(inline)` | `crates/sparql-eval/src/engine/coordinates.rs` |
+| `b"purrdf-sparql-eval/embedding-space-generation/v1"` | `SPACE_GENERATION_DOMAIN` | `crates/sparql-eval/src/knn/mod.rs` |
+| `b"purrdf-sparql-eval/embedding-space-vectors-generation/v1"` | `VECTORS_GENERATION_DOMAIN` | `crates/sparql-eval/src/knn/mod.rs` |
+| `b"purrdf-sparql-eval/execution-coordinates/v1"` | `(inline)` | `crates/sparql-eval/src/engine/coordinates.rs` |
+| `b"purrdf-sparql-eval/extension-env"` | `CONTENT_DOMAIN` | `crates/sparql-eval/src/extension_env.rs` |
+| `b"purrdf-sparql-eval/property-function-registry"` | `CONTENT_DOMAIN` | `crates/sparql-eval/src/property_fn_plan.rs` |
+| `b"purrdf-sparql-eval/update-context/v1"` | `(inline)` | `crates/sparql-eval/src/update.rs` |
+| `b"purrdf-sparql-eval/user-function-registry"` | `CONTENT_DOMAIN` | `crates/sparql-eval/src/user_fn.rs` |
+| `b"purrdf-text-analysis-profile-v2\0"` | `PROFILE_DOMAIN` | `crates/text/src/profile.rs` |
+| `b"purrdf-text/dictionary-lattice/v2"` | `DICTIONARY_DOMAIN` | `crates/text/src/segment.rs` |
+| `b"purrdf-text/index/v6"` | `INDEX_DIGEST_DOMAIN` | `crates/text/src/index.rs` |
+| `b"purrdf-text/resolved-analyzer/v4\0"` | `ANALYZER_DOMAIN` | `crates/text/src/analysis.rs` |
+| `b"purrdf-text/source/v2"` | `SOURCE_DIGEST_DOMAIN` | `crates/text/src/index.rs` |
+| `b"purrdf-text/surface-generation/v2\0"` | `GENERATION_DOMAIN` | `crates/text/src/surface.rs` |
+| `b"purrdf-text/surface-literal/v1\0"` | `LITERAL_DOMAIN` | `crates/text/src/surface.rs` |
+| `b"purrdf-text/surface-source/v1\0"` | `SOURCE_DOMAIN` | `crates/text/src/surface.rs` |
+| `b"purrdf-text/triples/index/v3"` | `TRIPLE_INDEX_DIGEST_DOMAIN` | `crates/text/src/index.rs` |
+| `b"purrdf-text/triples/source/v2"` | `TRIPLE_SOURCE_DIGEST_DOMAIN` | `crates/text/src/index.rs` |
+| `b"purrdf-toml-document-v1"` | `DOCUMENT_DOMAIN` | `crates/toml/src/profile.rs` |
+| `b"purrdf-toml-profile-v1"` | `PROFILE_DOMAIN` | `crates/toml/src/profile.rs` |
+| `b"purrdf-xsd/date-time-representation/v1"` | `(inline)` | `crates/xsd/src/temporal.rs` |
+| `b"purrdf.pipeline-root.v1"` | `PIPELINE_ROOT_DOMAIN` | `crates/rdf-core/src/ir/pipeline_bundle.rs` |
+| `b"purrdf.purremb.v1.artifact\0"` | `D_ARTIFACT` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.chunking\0"` | `D_CHUNKING` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.external-binding\0"` | `D_EXTERNAL` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.external-contract\0"` | `D_EXTERNAL_CONTRACT` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.family\0"` | `D_FAMILY` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.family-contract\0"` | `D_FAMILY_CONTRACT` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.index\0"` | `D_INDEX` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.index-guard\0"` | `D_INDEX_GUARD` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.matrix\0"` | `D_MATRIX` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.matrix-content\0"` | `D_MATRIX_CONTENT` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.projection\0"` | `D_PROJECTION` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.projection-content\0"` | `D_PROJECTION_CONTENT` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.relation-role\0"` | `D_RELATION_ROLE` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.target\0"` | `D_TARGET` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.target-identity\0"` | `D_TARGET_IDENTITY` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.target-set\0"` | `D_TARGET_SET` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf.purremb.v1.vector-space\0"` | `D_SPACE` | `crates/rdf-core/src/ir/embedding/identity.rs` |
+| `b"purrdf/direct-geodesic-certificate/v1"` | `DIRECT_CERTIFICATE` | `crates/geo-kernel/src/geodesic/direct.rs` |
+| `b"purrdf/inverse-geodesic-certificate/v1"` | `INVERSE_CERTIFICATE` | `crates/geo-kernel/src/geodesic/inverse.rs` |
+| `b"purrdf/point-distance-certificate/v1"` | `POINT_CERTIFICATE` | `crates/geo-kernel/src/metric.rs` |
+| `b"purrdf/source-record/v1"` | `RECORD` | `crates/rdf-core/src/source.rs` |
+| `b"purrdf/source-row/v1"` | `ROW` | `crates/rdf-core/src/source.rs` |
+| `b"purrdf/source-version/v1"` | `SOURCE_VERSION` | `crates/rdf-core/src/source.rs` |
+| `b"purrdf/triples/source-row/v1"` | `TRIPLE_ROW` | `crates/rdf-core/src/source.rs` |
+| `b"purrdf:evidence:v1"` | `EVIDENCE_ID_DOMAIN` | `crates/retrieval/src/id.rs` |
+| `b"purrdf:fusion-profile:v1"` | `FUSION_PROFILE_ID_DOMAIN` | `crates/retrieval/src/id.rs` |
+| `b"purrdf:plan:v1"` | `PLAN_ID_DOMAIN` | `crates/retrieval/src/id.rs` |
+| `b"references-once-emoji-protect-caseless-scoped-accents-v3"` | `ORDERED_LAW` | `crates/text/src/profile.rs` |
+| `b"section"` | `SECTION_KIND` | `crates/markdown/src/identity.rs` |
+| `b"stem-then-whole-egc-prefix-first-oversized-intact-v1"` | `BOUNDING_LAW` | `crates/text/src/profile.rs` |
+| `b"structure"` | `STRUCTURE_KIND` | `crates/markdown/src/identity.rs` |
+| `b"toolcall"` | `TOOLCALL_KIND` | `crates/gts/src/examples/agent_memory.rs` |
+| `b"unit"` | `UNIT_KIND` | `crates/markdown/src/identity.rs` |
+
+<!-- hash-domain-registry:end -->
+
+## License
+
+`MIT OR Apache-2.0 OR MulanPSL-2.0`.

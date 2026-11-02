@@ -1,0 +1,470 @@
+{
+ "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+ "lane": "11-license-carriage (r2, post-c4r tree)",
+ "date": "2026-10-31",
+ "subject": {
+  "head": "724d542540b497f2928a63b5aece9b37aef4019b",
+  "branch": "fix/v26.9.29-ci-gates",
+  "tree_digest": "ed5bb8f45470f777f9d59a4c69781f2cf2ebe09f82f6c599a5d14cc727946d9d",
+  "tree_digest_files": 12178,
+  "tree_digest_method": "house method: prefix-relative inside stardf/arrow, find|sort|xargs shasum -a 256|shasum -a 256",
+  "git_state": "WORKING TREE UNCOMMITTED (concurrent lanes; coordinator owns commits)"
+ },
+ "scope": "Every v26.11.1 first-class-closure crate tarball legally self-contained; Unicode-3.0/BSD-3-Clause conjunct crates carry third-party notice dirs; R1 gate exit 0 restored.",
+ "canonical_texts": {
+  "source": "crates/stardf-hash/licenses/",
+  "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+  "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c",
+  "census": "66/66 closure-crate license texts byte-identical to canonical (22 crates x 3)"
+ },
+ "checks": [
+  {
+   "id": "r1-gate-restored-exit-0",
+   "passed": true,
+   "count": 2,
+   "comment": "R1 was RED at lane start (baseline exit 1: stardf-arrow -> frozen-duckdb-sys and -> frozen-duckdb-builder 'not in license register - loudly-missing'; the contract's R1-exit-0 precondition was stale - lane 01-duckdb-pins added those keys to [workspace.dependencies] after the prior lane-11 external registration sweep). Fix: both registered in authority/stardf/license-compat.json (MIT read at lock-resolved registry manifests, Cargo.lock checksums cited, admitted on the same-day operator blanket sign-off basis as frozen-duckdb itself; coordinator ratification requested in nonclaims). Post-fix: exit 0 PASS, re-witnessed after all lane edits."
+  },
+  {
+   "id": "canonical-census-66-texts",
+   "passed": true,
+   "count": 66,
+   "comment": "shasum -a 256 over LICENSE-{MIT,APACHE,MULAN} across all 22 closure+witness crates: 66/66 identical to crates/stardf-hash/licenses/ canonical, 0 mismatches."
+  },
+  {
+   "id": "provenance-notice-scan-duckdb-added",
+   "passed": true,
+   "count": 1,
+   "comment": "crates/stardf-scan-duckdb/PROVENANCE.md written - the one carriage gap on the current tree (lane-02 crate had licenses/ but no root provenance notice). sha256 values embedded are re-read from disk; list gate shows PROVENANCE.md + 3 LICENSE + NOTICE rows, exit 0."
+  },
+  {
+   "id": "package-list-gate-22-crates",
+   "passed": true,
+   "count": 22,
+   "comment": "cargo package --list --allow-dirty: 22/22 exit 0 both passes; lic=3 + provenance rows in every list. Replay pair: per-crate lists byte-identical across passes (witnessed diff clean)."
+  },
+  {
+   "id": "real-tarball-gate-leaf-crates",
+   "passed": true,
+   "count": 3,
+   "comment": "Full offline packaging of the 3 publishable leaves: stardf-hash 145882 B, stardf-columnar 135460 B, stardf-alloc-probe 34641 B; 3 LICENSE + NOTICE + provenance rows witnessed INSIDE each tarball; far under the 10MB ceiling; tarball carriage rows replay-identical across repackaging."
+  },
+  {
+   "id": "conjunct-third-party-notices-packaged",
+   "passed": true,
+   "count": 3,
+   "comment": "stardf-lex (third-party libyaml-emitter MIT rows, Unicode-3.0, WHATWG), stardf-iri (third-party Unicode-3.0 + unicode/LICENSES + REUSE.toml + PROVENANCE; UCD 16/17 bulk data excluded per manifest), stardf-core (third-party Unicode-3.0 + vendor/unicode Blocks.txt.license + LICENSES): rows witnessed inside package lists, exit 0."
+  },
+  {
+   "id": "full-package-blockers-classified",
+   "passed": false,
+   "count": 19,
+   "comment": "Full offline packaging REFUSED for the 19 non-leaf closure crates, two classes, both outside lane-11 file leases: (1) manifest-verify: closure crates with INTERNAL path-only deps - arrow-core/capi (avec-arrow git dep), sql/duckdb/toml (stardf-core), n3 (stardf-rdf), stardf-rs (stardf-arrow-rs + stardf-rdf); (2) offline-resolution: =26.11.1 dual-keyed deps not yet on crates.io (bench, scan-duckdb, branchless, lex, iri, xsd, cdt, events, deflate, stack, testkit) - crates.io bootstrap is leaf-first (hash, alloc-probe, columnar), coordinator/CI phase. Carriage for these is witnessed at --list level."
+  }
+ ],
+ "errors": [
+  {
+   "code": "FULL_PACKAGE_OFFLINE_REFUSED_19_NONLEAF",
+   "message": "cargo package (full, offline) exit 101 for the 19 non-leaf closure crates; class 1 = unversioned internal/git deps in closure manifests (avec-arrow on arrow-core/capi; stardf-core on sql/duckdb/toml; stardf-rdf on n3; stardf-arrow-rs + stardf-rdf on stardf-rs), class 2 = =26.11.1 deps unresolved offline pre-bootstrap. Per-crate rows in per_crate[].publish_blocker. Real publish needs leaf-first crates.io bootstrap (coordinator phase)."
+  }
+ ],
+ "commands": [
+  {
+   "cmd": "python3 scripts/verify_stardf_licenses.py (baseline, pre-edit)",
+   "exit": 1,
+   "comment": "2 FAIL rows - contract precondition stale"
+  },
+  {
+   "cmd": "python3 (register edit: frozen-duckdb-sys/-builder into authority/stardf/license-compat.json)",
+   "exit": 0
+  },
+  {
+   "cmd": "python3 scripts/verify_stardf_licenses.py (post-fix, re-witnessed after all edits)",
+   "exit": 0,
+   "comment": "PASS (all dependency edges registered and ungated)"
+  },
+  {
+   "cmd": "cargo package --list --allow-dirty -p <22 specs>, passes 1+2",
+   "exit": 0,
+   "comment": "22/22 exit 0 both passes; lists byte-identical (replay pair)"
+  },
+  {
+   "cmd": "cargo package --no-verify --allow-dirty --offline -p stardf-hash/columnar/alloc-probe (+ replay)",
+   "exit": 0,
+   "comment": "3 real tarballs; carriage rows inside; replay-identical"
+  },
+  {
+   "cmd": "cargo package --no-verify --allow-dirty --offline -p <19 non-leaf specs>",
+   "exit": 101,
+   "comment": "classified refusal (errors[0])"
+  },
+  {
+   "cmd": "shasum -a 256 census 22 crates x 3 license texts",
+   "exit": 0,
+   "comment": "66/66 canonical-identical"
+  },
+  {
+   "cmd": "house tree digest",
+   "exit": 0,
+   "comment": "ed5bb8f4... over 12178 files at receipt time"
+  },
+  {
+   "cmd": "git rev-parse HEAD",
+   "exit": 0,
+   "comment": "724d542540b497f2928a63b5aece9b37aef4019b"
+  }
+ ],
+ "per_crate": [
+  {
+   "crate": "stardf-arrow-core",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep(s) avec-arrow"
+  },
+  {
+   "crate": "stardf-arrow-capi",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep(s) avec-arrow"
+  },
+  {
+   "crate": "stardf-arrow-bench",
+   "declared": "MIT",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-arrow-core =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-columnar",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "YES 135460 B, carriage rows inside, replay-identical",
+   "publish_blocker": "see /tmp/lane11_stardf-columnar.log"
+  },
+  {
+   "crate": "stardf-sql",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep(s) stardf-core"
+  },
+  {
+   "crate": "stardf-n3",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep(s) stardf-rdf"
+  },
+  {
+   "crate": "stardf-scan-duckdb",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-arrow-core =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-duckdb",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep(s) stardf-core"
+  },
+  {
+   "crate": "stardf-hash",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 2,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "YES 145882 B, carriage rows inside, replay-identical",
+   "publish_blocker": "see /tmp/lane11_stardf-hash.log"
+  },
+  {
+   "crate": "stardf-branchless",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-hash =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-lex",
+   "declared": "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND MIT AND Unicode-3.0 AND BSD-3-Clause",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 3,
+    "tp": 4,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-hash =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-iri",
+   "declared": "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 3,
+    "tp": 1,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-hash =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-xsd",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-hash =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-cdt",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-events =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-events",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-hash =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-deflate",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 2,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-hash =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-stack",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-hash =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-testkit",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 2,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: stardf-hash =26.11.1 not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-alloc-probe",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "YES 34641 B, carriage rows inside, replay-identical",
+   "publish_blocker": "see /tmp/lane11_stardf-alloc-probe.log"
+  },
+  {
+   "crate": "stardf-toml",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 1,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep(s) stardf-core"
+  },
+  {
+   "crate": "stardf-rs",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 1,
+    "tp": 0,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep(s) stardf-arrow-rs"
+  },
+  {
+   "crate": "stardf-core",
+   "declared": "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "carriage_rows": {
+    "lic": 3,
+    "prov": 2,
+    "tp": 1,
+    "notice": 1
+   },
+   "replay_lists_byte_identical": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep(s) stardf-branchless"
+  }
+ ],
+ "per_crate_note": "Rows built mechanically from witnessed gate outputs (list files parsed at build time; declared licenses read from each crate's manifest, license.workspace resolved to the workspace tri-license; blockers parsed from the real cargo logs).",
+ "replay": {
+  "status": "WITNESSED",
+  "comment": "List-gate replay pair byte-identical over all 22 specs; leaf tarball carriage rows replay-identical; R1 re-witnessed after all edits."
+ },
+ "standing": "PARTIAL_ALIVE",
+ "nonclaims": [
+  "no live publish (dry-run packaging only; registry untouched)",
+  "no git state-changing commands (coordinator owns commits/tags)",
+  "the frozen-duckdb-sys/-builder compatibility receipts extend the 2026-10-31 operator blanket sign-off to two same-family MIT crates; operator ratification of the extension is requested, not presumed - if refused, the receipts move to draft_receipts_pending_operator and R1 returns to exit 1",
+  "publish flags/versions/descriptions/dual-key metadata are lanes 07/08 leases - untouched",
+  "real tarballs witnessed for 3 leaves only; the other 17 closure crates carry list-level carriage witnesses, so 'self-contained tarball' for them is an inference from package lists, not a built-tarball witness",
+  "stardf-arrow-bench declared license remains MIT-only while 3 license files are present (files precede arbitration; manifest change is a lane 07 lease)",
+  "crates/stardf-arrow (stardf-arrow-rs) is an internal member (path-only key) with NO license carriage on disk (no licenses/, no PROVENANCE) - out of the declared footprint, recorded as observation, not actuated",
+  "contract closure list omits stardf-duckdb, but stardf-rs's optional sql feature requires it at =26.11.1 on crates.io - footprint discrepancy disclosed for coordinator arbitration",
+  "cargo check --workspace not re-run by this lane; no Rust sources touched (register rows + 1 PROVENANCE.md + 1 gate script + this receipt)",
+  "crates/PROVENANCE-one-package.md referenced by the root manifest comment does not exist on disk (pre-existing drift, carried from the r1 receipt)",
+  "vendored NOTICE.txt/inventory.json reference upstream-layout paths that do not resolve in this tree (upstream-verbatim content, upstream-relative paths - carried from r1 receipt)",
+  "tree digest is prefix-relative inside stardf/arrow; comparable only against receipts using the same convention",
+  "tarballs in target/package/ are gate artifacts in a gitignored build dir, not lane deliverables"
+ ]
+}

@@ -1,0 +1,110 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "kind": "lane-receipt",
+  "lane": "G10 (scan-courts re-witness, in-workspace)",
+  "date": "2026-10-31",
+  "branch": "fix/v26.9.29-ci-gates",
+  "subject": {
+    "method": "per-file sha256 over the exact scan surface + workspace manifests; NO git commands run by this lane (coordinator owns git), so no head SHA is cited",
+    "digests_before_and_after_both_runs_byte_identical": {
+      "Cargo.lock": "6d96fbf664a3c9ae1c011fe16af347ca5eac59007f13cbc6db710717d1af3846",
+      "Cargo.toml": "992ab0bd7d78d5194f76a6cb5f3de0e114ecb0db71f6884f1395268a562a65e9",
+      "crates/stardf-scan-duckdb/Cargo.toml": "62ff74f2edeb19c114d193ebb5f03dcc443c214337ee40c5e3e1c9e4e5869fc5",
+      "crates/stardf-scan-duckdb/src/lib.rs": "1ea646744475b64b871cc96a7d46ff8e3cf68a996c832c260a6f79a31efbc271",
+      "crates/stardf-scan-duckdb/tests/scan_courts.rs": "cb15512b9263c2a8dcc7412caaae0999cd92e8e3f22372ad093a7983ab313a19"
+    }
+  },
+  "purpose": "Re-witness the landed scan courts on the post-G02/G03 tree: cargo test -p stardf-scan-duckdb --locked (6 courts in tests/scan_courts.rs + 6 in-crate tests), receipt all counts + the C6 mutant flip status, plus the just columnar-oracle exit receipt.",
+  "poll": {
+    "target": "G02 decouple lane + G03 ladder settling on the shared checkout",
+    "method": "bounded poll on real observables: ps census of cargo/rustc/ld processes whose command line touches stardf/arrow/target, plus find census of new .rs/.toml/Cargo.lock files; 20s interval",
+    "observed": "21:35:35-21:43:20 PDT: interleaved activity witnessed (peak 22 busy procs at 21:35:35; bursts at 21:38/21:40/21:43; G02-class manifest landings stabilized at 5 code files: root Cargo.toml, Cargo.lock, stardf-sparql-algebra/Cargo.toml, stardf-shapes/Cargo.toml, stardf-rdf-core/Cargo.toml; G04 falsifier lane + publish dry-runs wrote evidence/ concurrently). Quiet window reached 21:45:26: 3 consecutive polls with 0 busy procs. Courts dispatched at 21:45+.",
+    "settle_verdict": "SETTLED"
+  },
+  "checks": [
+    {
+      "id": "scan-crate-full-test-run-locked",
+      "passed": true,
+      "count": 12,
+      "comment": "cargo test -p stardf-scan-duckdb --locked -> exit 0. In-crate lib tests: 6 passed / 0 failed / 0 ignored (pushdown_stays_disabled_per_f05, missing_files_are_a_typed_refusal, absent_table_parameter_is_a_typed_refusal, unknown_table_is_a_typed_refusal, terms_rows_carry_the_dense_ids_kinds_and_named_graph_flags, five_table_counts_and_values_match_the_canonical_projection). Integration courts tests/scan_courts.rs: 6 passed / 0 failed / 0 ignored (C1-C6). Doc-tests: 0. Lock file honored (--locked, no manifest drift)."
+    },
+    {
+      "id": "scan-courts-integration-rerun-2nd-witness",
+      "passed": true,
+      "count": 6,
+      "comment": "cargo test -p stardf-scan-duckdb --locked --test scan_courts -- --nocapture -> exit 0, 6 passed / 0 failed / 0 ignored. Second independent witnessing run of the court suite on the same digests."
+    },
+    {
+      "id": "c1-count-parity",
+      "passed": true,
+      "count": 5,
+      "comment": "c1_count_parity_across_all_five_tables ok: SELECT count(*) through stardf_scan() == read_parquet == ceil(n/64) slab arithmetic across all five tables (terms, quads, reifiers, annotations, blobs)."
+    },
+    {
+      "id": "c2-value-parity-order-by-pinned",
+      "passed": true,
+      "count": 1,
+      "comment": "c2_value_parity_pinned_by_order_by ok: SELECT * row-set equality scan vs parquet oracle, ORDER BY pinned (known upstream C2 engine defect owned by lane 02/SDK worked around by the deterministic-order harness documented in the test header, witnessed 2026-10-31)."
+    },
+    {
+      "id": "c3-pushdown-flip",
+      "passed": true,
+      "count": 1,
+      "comment": "c3_pushdown_flip_loud_skip_until_enabled ok, LOUD SKIP with stated reason (witnessed via --nocapture): '[SKIP] c3 pushdown flip: supports_pushdown() = false (the landed W2e divergence: the frozen-duckdb 2.0.4 SDK exposes no complex-filter pushdown surface, lib.rs F05 note) - the filtered-row-set + mutant-catch legs run only when this flips true'. The skip is the landed design (SCAN-COMPLETION 5 C3: loud [SKIP] with reason until W2e), never a faked pass."
+    },
+    {
+      "id": "c4-empty-input",
+      "passed": true,
+      "count": 1,
+      "comment": "c4_empty_input_yields_zero_rows_clean ok: zero-quad fixture -> zero rows, clean exit through the FFI boundary."
+    },
+    {
+      "id": "c5-typed-bind-error",
+      "passed": true,
+      "count": 3,
+      "comment": "c5_typed_bind_error_not_panic ok, three typed-refusal legs witnessed via --nocapture: dataset-io ('Binder Error: stardf_scan bind.files: reading terms.parquet failed'), profile ('bind.profile: profile validation refused: columnar terms.lex is malformed: row 288 is not valid UTF-8'), table-required ('the required named parameter table is absent; one of terms, quads, reifiers, annotations, blobs'). Typed BindInfo::set_error texts, no panic across the C ABI."
+    },
+    {
+      "id": "c6-mutant-flip-status",
+      "passed": true,
+      "count": 1,
+      "comment": "c6_drop_one_row_mutant_is_caught ok = FLIP WITNESSED IN-RUN. The court is self-witnessing by design (scan_courts.rs:829-840): it materializes the full world (pinned expectation) and a mutant world via the Mutant::DropOneRow knob (real Parquet bytes, quads = N-1, asserted mutant_pinned[1] == pinned[1] - 1), proves the scan tracks the mutant world faithfully (scan == parquet on the mutant root), then asserts THE FLIP: parity() against the pinned expectation MUST return Err (a pass would be VACUOUS GATE = FAIL) and the error must be the pinned-count leg. All legs held. External shim-court of the C6 court source itself: NOT RUN (not required by the court's design; noted as nonclaim)."
+    },
+    {
+      "id": "columnar-oracle-gate",
+      "passed": true,
+      "count": 1,
+      "comment": "just columnar-oracle -> exit 0. Tier-3 in-process registration mode; fixture counts (generator projection) terms,quads,reifiers,annotations,blobs = 1030,400,108,108,9; counts parity OK engine == generator projection; types OK terms(id)=BIGINT, terms(lex)=VARCHAR, blobs(bytes)=BLOB; integrity OK (all quads s/p/o/g reference the terms dictionary, blob digests unique); scan parity OK stardf_scan() == read_parquet() == generator projection (1030,400,108,108,9). Note: the fixture generator now materializes 1030/400/108/108/9, superseding the 6,3,0,0,2 floor witness cited in SCAN-COMPLETION 1 - the retarget at the columnar writer anticipated by that doc's C1 note has landed."
+    }
+  ],
+  "errors": [],
+  "commands": [
+    {
+      "cmd": "cargo test -p stardf-scan-duckdb --locked",
+      "exit": 0,
+      "comment": "run 1, 21:46 PDT window; 6 lib + 6 courts + 0 doc-tests, 0 failed"
+    },
+    {
+      "cmd": "cargo test -p stardf-scan-duckdb --locked --test scan_courts -- --nocapture",
+      "exit": 0,
+      "comment": "run 2 (2nd witness + C3/C5 stderr capture); 6 courts, 0 failed"
+    },
+    {
+      "cmd": "just columnar-oracle",
+      "exit": 0,
+      "comment": "bash scripts/check-columnar-oracle.sh; counts=1030,400,108,108,9"
+    }
+  ],
+  "replay": {
+    "status": "NOT_RUN",
+    "comment": "court suite itself run twice on byte-identical subjects (both green, counts identical); the verify.py byte-identical replay pair is not part of this lane's gate"
+  },
+  "standing": "ALIVE",
+  "nonclaims": [
+    "C3 filtered-row-set + mutant-catch legs ALIVE (loud-SKIP by landed design until supports_pushdown flips true; F05 W2e divergence)",
+    "external shim-court non-vacuity of the C6 court source (the in-court flip assert is the designed mechanism and was witnessed)",
+    "workspace-green ladder (fmt/clippy/check/verify.py) standing for the whole tree - G03's gate, not this lane's",
+    "publish/portable-receipt standing (B3-gated, W5)",
+    "any git operation by this lane (none run; no head SHA cited)"
+  ]
+}

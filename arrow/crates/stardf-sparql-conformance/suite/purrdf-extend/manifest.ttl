@@ -1,0 +1,513 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+#
+# The PurRDF EXTEND conformance suite: eight RDF-1.2 / PurRDF
+# capabilities that incumbent SPARQL engines (e.g. rdflib) cannot express,
+# all PASSING on the native NativeSparqlEngine.
+#
+#   1. triple-term binding   — a quoted triple flows as a first-class solution value
+#   2. reifier querying      — bind a reifier + its inner s/p/o from the side-table
+#   3. annotation querying   — bind a reifier's annotation value
+#   4. standpoint poset      — ext:heldIn is poset-aware (held / not-held controls)
+#   5. loss-aware CONSTRUCT   — dropping the reifier layer emits an in-band
+#                               ext:ProjectionLoss declaration (+ no-loss control)
+#   6. world × standpoint     — a named-graph world triple joins a standpoint-held
+#                               reifier, proving both scoping axes in one query
+#   7. ADJUST() timezone math — SPARQL 1.2's ADJUST(value, timezone) over
+#                               xsd:dateTime/xsd:date/xsd:time: an existing-offset
+#                               shift (including an xsd:date day rollover), the
+#                               empty-string timezone-removal encoding, the
+#                               inclusive +-PT14H boundary, and an out-of-range
+#                               offset left unbound (a SPARQL expression error)
+#   8. SEP-0002 temporal arithmetic — the date/time/duration operator table
+#                               through the shipped parser/algebra/engine/
+#                               results-serializer stack: instant - instant,
+#                               instant + yearMonthDuration with a Gregorian
+#                               month-end clamp, same-subtype and
+#                               mixed-subtype duration addition (the
+#                               result-datatype tag rule is syntactic on the
+#                               operand tags, not on the computed components),
+#                               duration x integer scaling, duration /
+#                               duration by value-commensurability, a
+#                               mixed-timezone instant difference left unbound
+#                               (the SRX writer omitting the binding
+#                               entirely), the total duration `=` alongside
+#                               the still-indeterminate `<`, and a FILTER over
+#                               a computed duration threshold excluding the
+#                               indeterminate row rather than comparing it
+#                               false
+#
+# Beyond the eight capabilities above, this manifest also carries a handful of
+# admission/surface proofs for other branch work that a vendored suite cannot
+# exercise:
+#
+#   * VERSION "1.2" — a positive EVALUATION case (not merely syntax): proves
+#     the version prologue is not just parsed but actually ADMITTED, letting
+#     the query run to completion.
+#   * VERSION "1.2-basic" — the Basic profile (SPARQL 1.2 Query specification
+#     §4.3.1) is ENFORCED, not merely parsed: a within-profile query still
+#     answers (:versionBasicEval), while a query using an RDF 1.2 triple term
+#     (:versionBasicTripleTerm), a reifying triple that desugars onto one
+#     (:versionBasicReifyingTriple), a ground triple term in VALUES
+#     (:versionBasicValuesTripleTerm), or one of the "Functions on Triple
+#     Terms" (:versionBasicTripleFunction) is refused at evaluation admission,
+#     naming the offending construct.
+#   * AGG(<iri>, args…) — the custom-aggregate call surface. Syntax: a
+#     positive case for the one-or-more-args call shape, and a negative case
+#     for the zero-args form (a genuine parse-time arity rule — SPARQL 1.2's
+#     "positional args only, one-or-more" — not a registry-dependent
+#     admission check). A third negative case, `:aggStarNonCount`, pins the
+#     sibling rule for the OTHER aggregate surface: `'*'` is the spec's empty
+#     exprlist, and the grammar admits it in exactly one production
+#     (`Count`) — `SUM(*)` and friends are hard syntax errors, not a silent
+#     row count.
+#
+#     EVALUATION, for the closed first-party statistical set (`MEDIAN`,
+#     `PERCENTILE`, `STDDEV`, `STDDEV_POP`, `VARIANCE`, `VAR_POP`, `MODE`,
+#     `FIRST`, `LAST`, `TOPK` — `purrdf_sparql_eval::stat_agg`), is a per-case
+#     concern via the harness-loader-only `purrdf:aggregateNamespace`
+#     predicate (`SparqlTestCase::aggregate_namespace`, decoded by
+#     `crate::manifest::load` and registered by `crate::run::run` for exactly
+#     the cases that declare it — see both files' doc comments for why this
+#     is PER-CASE rather than a harness-wide constant like `EXT_NS`/`REL_NS`).
+#     `:aggStatMedianPercentile`/`:aggStatMoments`/`:aggStatFirstLast`/
+#     `:aggStatTopk`/`:aggStatMode` below compute real answers for all ten
+#     names, cross-checked against the same fixture shapes
+#     `crates/sparql-eval/tests/aggregate_function_e2e.rs` already covers at
+#     the Rust-engine level — this closes the SAME set at the conformance-
+#     manifest level, the surface a namespace-is-just-a-string harness has no
+#     structural reason to leave uncovered.
+#   * GROUP_CONCAT determinism — an exact-string pin of the row-order-dependent
+#     concatenation (see `purrdf_sparql_eval::modifier`'s "Aggregate
+#     semantics" docs), exercised through this harness's own
+#     Turtle-load/evaluate path rather than only the in-process engine tests.
+#   * RDF 1.2 base direction in SRX (:baseDirection) — a `STRLANGDIR(...)`
+#     query whose expected `.srx` is constructed directly from the SPARQL 1.2
+#     Query Results XML Format spec's own §2.3.1 worked example (the قطة/`ar`/
+#     `rtl` literal, and the spec's DEFAULT root-declared `xmlns:its`/
+#     `its:version` style — see `crates/sparql-results/src/xml.rs`'s module
+#     docs). No vendored W3C `.srx` fixture carries a directional literal at
+#     all (upstream `w3c/rdf-tests` only exercises base direction via `.srj`),
+#     so this closes that fixture gap end to end: engine → writer → this
+#     spec-derived expected file, byte-pinned further in
+#     `crates/sparql-conformance/tests/results_spec_byte_pins.rs`.
+#   * LATERAL (SEP-0006) — the specification's own text carries no LATERAL
+#     production; the one documented definition is SEP-0006's, implemented in
+#     Apache Jena 4.7.0. `:lateralSubselectStar`/`:lateralOptionalSubselect`/
+#     `:lateralSubselectScope` are the SEP's own three worked examples (the
+#     third is the scoping oracle: a right-hand sub-SELECT that does not
+#     project the correlating variable is NOT correlated, proving the
+#     Project-boundary narrowing rather than mere textual substitution).
+#     `:lateralSharedVarInjection` pins that a left-scope variable reused on
+#     the right is injected as a constant. `:lateralSyntaxBasic` and
+#     `:lateralSyntaxScopeViolation` (the SEP's own illegal BIND example)
+#     pin the SEP-0006 scope restriction at parse time.
+#   * EXISTS/NOT EXISTS (SEP-0007, "defensible EXISTS") — six evaluation cases
+#     proving the per-row definition-path substitution the specification's own
+#     `Replace`/Values-Insertion mechanism requires, plus two negative-syntax
+#     cases pinning the in-scope-set restriction at parse time.
+#     `:existsGraphVariableCorrelated` is the Graph-substitution shape (`GRAPH
+#     ?g { … }` with `?g` bound from the row being filtered — the vendored
+#     `w3c-sparql11/exists/exists-graph-variable` case's own self-referencing
+#     `qt:data`/`qt:graphData` shape, copied byte-for-byte, including its second
+#     `:p` row bound to a graph that holds NOTHING: a `?g` left unresolved by
+#     substitution enumerates every named graph instead of the row's own,
+#     wrongly finding the OTHER row's graph a match). `:existsOptionalPadding`/
+#     `:notExistsOptionalPadding` pin the `OPTIONAL` padding tautology: a group
+#     whose sole element is `OPTIONAL { P }` never empties the unit row it wraps,
+#     so `FILTER EXISTS { OPTIONAL { P } }` is always true and `FILTER NOT EXISTS
+#     { OPTIONAL { P } }` is always false, REGARDLESS of whether `P` matches
+#     anything. `:existsNestedCorrelation` nests a `NOT EXISTS` inside an
+#     `EXISTS`, both bodies filter-only groups, correlating the nested body on
+#     the OUTER row variable through a triple-leaf position (never the nested
+#     body's own expression position) — a shape only visible to the widened
+#     free-variable walk `EXISTS`'s per-row substitution consults, proving the
+#     composition threads a real correlation through instead of evaluating the
+#     nested body once, uncorrelated, for every outer row alike.
+#     `:existsSubselectLimit` correlates via a sub-`SELECT`'s own projected
+#     variable with `LIMIT 1` sitting above the substitution site — a shape only
+#     the per-row definition path answers correctly (a once-only unconstrained
+#     evaluation of the `LIMIT 1` could keep only one of two candidates).
+#     `:existsMinusDomain` is the SEP's own "Issue 4" shape: the correlated
+#     variable occurs ONLY in `MINUS`'s subtracted (right) operand, which
+#     contributes nothing to `Minus`'s own output schema, so it is not even a
+#     shared column a probe could join on. `:existsScopeBindViolation`/
+#     `:existsScopeValuesViolation` pin SEP-0007 Part 3's in-scope-set
+#     restriction: a `BIND`/`VALUES` target inside `EXISTS` that collides with a
+#     variable already bound on the row being filtered is a hard parse-time
+#     error, not a silent rebinding. `:existsScopeProjectionViolation` pins the
+#     SAME restriction at a position that previously went unenforced: a
+#     `SELECT`-list `(expr AS ?v)` projection target's own `EXISTS` — parsed
+#     BEFORE `WHERE`, so the parser must defer the check to a post-`WHERE`
+#     resolution point rather than run it on the spot, the way it does for
+#     every OTHER `EXISTS` site.
+#
+
+# On world/standpoint scoping: the reification layer (reifiers/annotations) has NO
+# graph dimension — reifier_quads always yields g: None (default graph). Reifiers
+# are scoped by the standpoint POSET, not by named graphs. The genuine end-to-end
+# proof of world + standpoint is therefore a JOIN: a named-graph world triple
+# (GRAPH ?world { … }) joined with a default-graph standpoint-held reifier via
+# ext:heldIn. The harness loads qt:graphData into named graphs to support this
+# case. See :standpointWorld below.
+
+@prefix mf:     <http://www.w3.org/2001/sw/DataAccess/tests/test-manifest#> .
+@prefix qt:     <http://www.w3.org/2001/sw/DataAccess/tests/test-query#> .
+@prefix purrdf: <https://example.org/conformance-manifest#> .
+@prefix :       <http://purrdf.test/extend#> .
+
+:manifest a mf:Manifest ;
+    mf:entries (
+        :tripleTermBinding
+        :reifierQuery
+        :annotationQuery
+        :standpointHeld
+        :standpointNotHeld
+        :lossAwareConstruct
+        :lossControlConstruct
+        :standpointWorld
+        :adjustDatetimeShift
+        :adjustTimezoneRemoval
+        :adjustOutOfRangeUnbound
+        :adjustDateShift
+        :adjustTimeShift
+        :adjustTimeRemoval
+        :adjustBoundaryPt14h
+        :versionEval
+        :versionBasicEval
+        :versionBasicTripleTerm
+        :versionBasicReifyingTriple
+        :versionBasicValuesTripleTerm
+        :versionBasicTripleFunction
+        :aggCallSyntax
+        :aggCallNoArgs
+        :aggStarNonCount
+        :aggStatMedianPercentile
+        :aggStatMoments
+        :aggStatFirstLast
+        :aggStatTopk
+        :aggStatMode
+        :aggStatTopkDiscriminating
+        :groupConcatOrder
+        :baseDirection
+        :temporalInstantDifference
+        :temporalInstantPlusYearMonth
+        :temporalDurationSumSubtype
+        :temporalDurationMixedSubtype
+        :temporalDurationScaled
+        :temporalDurationRatio
+        :temporalTimezoneMixUnbound
+        :temporalDurationEqualityTotality
+        :temporalFilterDurationThreshold
+        :lateralSubselectStar
+        :lateralOptionalSubselect
+        :lateralSubselectScope
+        :lateralSharedVarInjection
+        :lateralSyntaxBasic
+        :lateralSyntaxScopeViolation
+        :existsGraphVariableCorrelated
+        :existsOptionalPadding
+        :notExistsOptionalPadding
+        :existsNestedCorrelation
+        :existsSubselectLimit
+        :existsMinusDomain
+        :existsScopeBindViolation
+        :existsScopeValuesViolation
+        :existsScopeProjectionViolation
+    ) .
+
+:tripleTermBinding a mf:QueryEvaluationTest ;
+    mf:name "triple-term binds as a first-class solution value" ;
+    mf:action [ qt:query <triple-term.rq> ; qt:data <reified.ttl> ] ;
+    mf:result <triple-term.srx> .
+
+:reifierQuery a mf:QueryEvaluationTest ;
+    mf:name "reifier querying binds the reifier and its inner s/p/o" ;
+    mf:action [ qt:query <reifier.rq> ; qt:data <reified.ttl> ] ;
+    mf:result <reifier.srx> .
+
+:annotationQuery a mf:QueryEvaluationTest ;
+    mf:name "annotation querying binds a reifier's annotation value" ;
+    mf:action [ qt:query <annotation.rq> ; qt:data <reified.ttl> ] ;
+    mf:result <annotation.srx> .
+
+:standpointHeld a mf:QueryEvaluationTest ;
+    mf:name "ext:heldIn — claim held in a sharper frame counts as held in the broader one" ;
+    mf:action [ qt:query <standpoint-held.rq> ; qt:data <standpoint.ttl> ] ;
+    mf:result <standpoint-held.srx> .
+
+:standpointNotHeld a mf:QueryEvaluationTest ;
+    mf:name "ext:heldIn — false for an unrelated frame (poset-aware, not always-true)" ;
+    mf:action [ qt:query <standpoint-not-held.rq> ; qt:data <standpoint.ttl> ] ;
+    mf:result <standpoint-not-held.srx> .
+
+:lossAwareConstruct a mf:QueryEvaluationTest ;
+    mf:name "loss-aware CONSTRUCT emits in-band ext:ProjectionLoss when the reifier layer is dropped" ;
+    mf:action [ qt:query <loss-lossy.rq> ; qt:data <reified.ttl> ] ;
+    mf:result <loss-lossy.ttl> .
+
+:lossControlConstruct a mf:QueryEvaluationTest ;
+    mf:name "no-loss control: carrying the reifier emits no ext:ProjectionLoss" ;
+    mf:action [ qt:query <loss-control.rq> ; qt:data <reified.ttl> ] ;
+    mf:result <loss-control.ttl> .
+
+:standpointWorld a mf:QueryEvaluationTest ;
+    mf:name "world × standpoint: a named-graph world triple joins a standpoint-held reifier" ;
+    mf:action [ qt:query <standpoint-world.rq> ; qt:data <standpoint.ttl> ; qt:graphData <world.ttl> ] ;
+    mf:result <standpoint-world.srx> .
+
+:adjustDatetimeShift a mf:QueryEvaluationTest ;
+    mf:name "ADJUST() shifts an xsd:dateTime with an existing timezone to a new offset" ;
+    mf:action [ qt:query <adjust-datetime-shift.rq> ] ;
+    mf:result <adjust-datetime-shift.srx> .
+
+:adjustTimezoneRemoval a mf:QueryEvaluationTest ;
+    mf:name "ADJUST() removes a timezone via the empty-simple-literal second argument" ;
+    mf:action [ qt:query <adjust-timezone-removal.rq> ] ;
+    mf:result <adjust-timezone-removal.srx> .
+
+:adjustOutOfRangeUnbound a mf:QueryEvaluationTest ;
+    mf:name "ADJUST() with an out-of-range (>PT14H) timezone is a type error, leaving BIND's target unbound" ;
+    mf:action [ qt:query <adjust-out-of-range-unbound.rq> ] ;
+    mf:result <adjust-out-of-range-unbound.srx> .
+
+:adjustDateShift a mf:QueryEvaluationTest ;
+    mf:name "ADJUST() shifts an xsd:date, rolling the date backward across midnight" ;
+    mf:action [ qt:query <adjust-date-shift.rq> ] ;
+    mf:result <adjust-date-shift.srx> .
+
+:adjustTimeShift a mf:QueryEvaluationTest ;
+    mf:name "ADJUST() shifts an xsd:time with an existing timezone to a new offset" ;
+    mf:action [ qt:query <adjust-time-shift.rq> ] ;
+    mf:result <adjust-time-shift.srx> .
+
+:adjustTimeRemoval a mf:QueryEvaluationTest ;
+    mf:name "ADJUST() removes an xsd:time's timezone via the empty-simple-literal second argument" ;
+    mf:action [ qt:query <adjust-time-removal.rq> ] ;
+    mf:result <adjust-time-removal.srx> .
+
+:adjustBoundaryPt14h a mf:QueryEvaluationTest ;
+    mf:name "ADJUST() accepts the inclusive +-PT14H timezone boundary" ;
+    mf:action [ qt:query <adjust-boundary-pt14h.rq> ] ;
+    mf:result <adjust-boundary-pt14h.srx> .
+
+:versionEval a mf:QueryEvaluationTest ;
+    mf:name "VERSION \"1.2\" is admitted, not merely parsed: the prologue-carrying query evaluates" ;
+    mf:action [ qt:query <version-eval.rq> ] ;
+    mf:result <version-eval.srx> .
+
+:versionBasicEval a mf:QueryEvaluationTest ;
+    mf:name "VERSION \"1.2-basic\" is enforced, not merely admitted: a within-profile query still evaluates" ;
+    mf:action [ qt:query <version-basic-eval.rq> ] ;
+    mf:result <version-basic-eval.srx> .
+
+:versionBasicTripleTerm a mf:QueryEvaluationTest ;
+    mf:name "VERSION \"1.2-basic\" refuses an RDF 1.2 triple term (<<( s p o )>>) in a triple pattern" ;
+    mf:action [ qt:query <version-basic-triple-term.rq> ] ;
+    mf:result <version-basic-triple-term.err> .
+
+:versionBasicReifyingTriple a mf:QueryEvaluationTest ;
+    mf:name "VERSION \"1.2-basic\" refuses a reifying triple (<< s p o >>), which desugars onto a triple term" ;
+    mf:action [ qt:query <version-basic-reifying-triple.rq> ] ;
+    mf:result <version-basic-reifying-triple.err> .
+
+:versionBasicValuesTripleTerm a mf:QueryEvaluationTest ;
+    mf:name "VERSION \"1.2-basic\" refuses a ground triple term in a VALUES data block" ;
+    mf:action [ qt:query <version-basic-values-triple-term.rq> ] ;
+    mf:result <version-basic-values-triple-term.err> .
+
+:versionBasicTripleFunction a mf:QueryEvaluationTest ;
+    mf:name "VERSION \"1.2-basic\" refuses isTRIPLE(), one of the Functions on Triple Terms (§17.4.6)" ;
+    mf:action [ qt:query <version-basic-triple-function.rq> ] ;
+    mf:result <version-basic-triple-function.err> .
+
+:aggCallSyntax a mf:PositiveSyntaxTest ;
+    mf:name "AGG(<iri>, args…) parses: the custom-aggregate call surface, one-or-more positional args" ;
+    mf:action <agg-call-syntax.rq> .
+
+:aggCallNoArgs a mf:NegativeSyntaxTest ;
+    mf:name "AGG(<iri>) with zero positional args is a hard syntax error (one-or-more, not zero-or-more)" ;
+    mf:action <agg-call-no-args.rq> .
+
+:aggStarNonCount a mf:NegativeSyntaxTest ;
+    mf:name "SUM(*) is a hard syntax error: '*' is COUNT-only (COUNT(*)/COUNT(DISTINCT *)), never another aggregate's empty exprlist" ;
+    mf:action <agg-star-non-count.rq> .
+
+:aggStatMedianPercentile a mf:QueryEvaluationTest ;
+    mf:name "AGG(...) MEDIAN and the named-scalarval PERCENTILE(P=0.5) form agree, and PERCENTILE(P=0.1)/PERCENTILE(P=0.9) prove a genuinely INTERPOLATED rank, not merely the P=0.5 fraction MEDIAN's own path already covers at zero interpolation" ;
+    mf:action [
+        qt:query <agg-stat-median-percentile.rq> ;
+        qt:data <agg-stat.ttl> ;
+        purrdf:aggregateNamespace "https://example.org/agg-stat-fn#"
+    ] ;
+    mf:result <agg-stat-median-percentile.srx> .
+
+:aggStatMoments a mf:QueryEvaluationTest ;
+    mf:name "AGG(...) VARIANCE/VAR_POP/STDDEV/STDDEV_POP compute the sample and population moments" ;
+    mf:action [
+        qt:query <agg-stat-moments.rq> ;
+        qt:data <agg-stat.ttl> ;
+        purrdf:aggregateNamespace "https://example.org/agg-stat-fn#"
+    ] ;
+    mf:result <agg-stat-moments.srx> .
+
+:aggStatFirstLast a mf:QueryEvaluationTest ;
+    mf:name "AGG(...) FIRST/LAST fold over a spec-ordered (ORDER BY DESC) row sequence, exactly like :groupConcatOrder's determinism proof, over a permutation deliberately uncorrelated with subject order so FIRST/LAST cannot coincide with MIN/MAX or with scan order" ;
+    mf:action [
+        qt:query <agg-stat-first-last.rq> ;
+        qt:data <agg-stat-first-last.ttl> ;
+        purrdf:aggregateNamespace "https://example.org/agg-stat-fn#"
+    ] ;
+    mf:result <agg-stat-first-last.srx> .
+
+:aggStatTopk a mf:QueryEvaluationTest ;
+    mf:name "AGG(...) TOPK(K=3) returns the three largest values, space-joined, descending" ;
+    mf:action [
+        qt:query <agg-stat-topk.rq> ;
+        qt:data <agg-stat.ttl> ;
+        purrdf:aggregateNamespace "https://example.org/agg-stat-fn#"
+    ] ;
+    mf:result <agg-stat-topk.srx> .
+
+:aggStatMode a mf:QueryEvaluationTest ;
+    mf:name "AGG(...) MODE finds the genuinely repeated value, over data where that value is deliberately neither the minimum, the maximum, the first row, nor the last row, so this case cannot pass by coincidentally reading off any of those instead" ;
+    mf:action [
+        qt:query <agg-stat-mode.rq> ;
+        qt:data <agg-stat-mode.ttl> ;
+        purrdf:aggregateNamespace "https://example.org/agg-stat-fn#"
+    ] ;
+    mf:result <agg-stat-mode.srx> .
+
+:aggStatTopkDiscriminating a mf:QueryEvaluationTest ;
+    mf:name "AGG(...) TOPK(K=3) sorts by VALUE, over a permutation uncorrelated with subject/insertion order, so it cannot pass by coincidentally returning the last K rows seen instead" ;
+    mf:action [
+        qt:query <agg-stat-topk-discriminating.rq> ;
+        qt:data <agg-stat-first-last.ttl> ;
+        purrdf:aggregateNamespace "https://example.org/agg-stat-fn#"
+    ] ;
+    mf:result <agg-stat-topk-discriminating.srx> .
+
+:groupConcatOrder a mf:QueryEvaluationTest ;
+    mf:name "GROUP_CONCAT concatenates in inner-operator row order, proved via a spec-guaranteed ORDER BY DESC subquery rather than incidental store scan order — an exact-string pin through this harness's own load/evaluate path" ;
+    mf:action [ qt:query <group-concat-order.rq> ; qt:data <group-concat-order.ttl> ] ;
+    mf:result <group-concat-order.srx> .
+
+:baseDirection a mf:QueryEvaluationTest ;
+    mf:name "STRLANGDIR() produces an RDF 1.2 directional literal, serialized per the SPARQL 1.2 Query Results XML Format spec's own example" ;
+    mf:action [ qt:query <basedir.rq> ] ;
+    mf:result <basedir.srx> .
+
+:temporalInstantDifference a mf:QueryEvaluationTest ;
+    mf:name "instant - instant yields a signed dayTimeDuration through the shipped stack" ;
+    mf:action [ qt:query <temporal-instant-difference.rq> ] ;
+    mf:result <temporal-instant-difference.srx> .
+
+:temporalInstantPlusYearMonth a mf:QueryEvaluationTest ;
+    mf:name "dateTime + yearMonthDuration clamps against the target month's length (2024-01-31 + P1M = 2024-02-29)" ;
+    mf:action [ qt:query <temporal-instant-plus-year-month.rq> ] ;
+    mf:result <temporal-instant-plus-year-month.srx> .
+
+:temporalDurationSumSubtype a mf:QueryEvaluationTest ;
+    mf:name "yearMonthDuration + yearMonthDuration keeps the yearMonthDuration result-datatype tag" ;
+    mf:action [ qt:query <temporal-duration-sum-subtype.rq> ] ;
+    mf:result <temporal-duration-sum-subtype.srx> .
+
+:temporalDurationMixedSubtype a mf:QueryEvaluationTest ;
+    mf:name "yearMonthDuration + dayTimeDuration widens to the general xsd:duration tag even when the computed lexical form is identical to a pure yearMonthDuration sum — the tag rule is syntactic on the operand tags, never on the computed components" ;
+    mf:action [ qt:query <temporal-duration-mixed-subtype.rq> ] ;
+    mf:result <temporal-duration-mixed-subtype.srx> .
+
+:temporalDurationScaled a mf:QueryEvaluationTest ;
+    mf:name "a dayTimeDuration scaled by an integer factor keeps its subtype tag" ;
+    mf:action [ qt:query <temporal-duration-scaled.rq> ] ;
+    mf:result <temporal-duration-scaled.srx> .
+
+:temporalDurationRatio a mf:QueryEvaluationTest ;
+    mf:name "duration / duration is value-commensurability, not tag matching: two general-tagged pure-month durations divide to a plain xsd:decimal" ;
+    mf:action [ qt:query <temporal-duration-ratio.rq> ] ;
+    mf:result <temporal-duration-ratio.srx> .
+
+:temporalTimezoneMixUnbound a mf:QueryEvaluationTest ;
+    mf:name "a mixed-timezone instant difference is spec-mandated indeterminate: the SRX writer omits the binding entirely rather than serializing an error value" ;
+    mf:action [ qt:query <temporal-timezone-mix-unbound.rq> ] ;
+    mf:result <temporal-timezone-mix-unbound.srx> .
+
+:temporalDurationEqualityTotality a mf:QueryEvaluationTest ;
+    mf:name "duration = is total (op:duration-equal) while duration < stays indeterminate for incommensurable operands, in one query" ;
+    mf:action [ qt:query <temporal-duration-equality-totality.rq> ] ;
+    mf:result <temporal-duration-equality-totality.srx> .
+
+:temporalFilterDurationThreshold a mf:QueryEvaluationTest ;
+    mf:name "FILTER over a computed instant-difference duration threshold excludes an indeterminate (mixed-timezone) row rather than comparing it false" ;
+    mf:action [ qt:query <temporal-filter-duration-threshold.rq> ; qt:data <temporal.ttl> ] ;
+    mf:result <temporal-filter-duration-threshold.srx> .
+
+:lateralSubselectStar a mf:QueryEvaluationTest ;
+    mf:name "LATERAL (SEP-0006) evaluates its right-hand sub-SELECT once PER LEFT ROW: SELECT * projects the correlating ?s, so each subject gets its own top-1 label" ;
+    mf:action [ qt:query <lateral-subselect-star.rq> ; qt:data <lateral.ttl> ] ;
+    mf:result <lateral-subselect-star.srx> .
+
+:lateralOptionalSubselect a mf:QueryEvaluationTest ;
+    mf:name "LATERAL right-hand OPTIONAL pads the labelless subject :z rather than dropping its row" ;
+    mf:action [ qt:query <lateral-optional-subselect.rq> ; qt:data <lateral.ttl> ] ;
+    mf:result <lateral-optional-subselect.srx> .
+
+:lateralSubselectScope a mf:QueryEvaluationTest ;
+    mf:name "the scoping oracle: a sub-SELECT that does not project ?s is NOT correlated — every left row sees the same globally-smallest label" ;
+    mf:action [ qt:query <lateral-subselect-scope.rq> ; qt:data <lateral.ttl> ] ;
+    mf:result <lateral-subselect-scope.srx> .
+
+:lateralSharedVarInjection a mf:QueryEvaluationTest ;
+    mf:name "a left-scope variable reused (not re-bound) on the LATERAL right is injected as a constant, not left free" ;
+    mf:action [ qt:query <lateral-shared-var-injection.rq> ; qt:data <lateral.ttl> ] ;
+    mf:result <lateral-shared-var-injection.srx> .
+
+:lateralSyntaxBasic a mf:PositiveSyntaxTest ;
+    mf:name "LATERAL { ... } (SEP-0006) parses: a fresh BIND target on the right-hand side, no collision with the left scope" ;
+    mf:action <lateral-syntax-basic.rq> .
+
+:lateralSyntaxScopeViolation a mf:NegativeSyntaxTest ;
+    mf:name "SEP-0006's own illegal example: BIND(123 AS ?o) inside LATERAL is a hard syntax error when ?o is already bound on the left" ;
+    mf:action <lateral-syntax-scope-violation.rq> .
+
+:existsGraphVariableCorrelated a mf:QueryEvaluationTest ;
+    mf:name "SEP-0007: GRAPH ?g inside FILTER EXISTS is the definition-path Graph-substitution shape, ?g bound from the row being filtered — a second :p row bound to a graph holding NOTHING must be excluded, not wrongly admitted by an unresolved ?g enumerating every named graph" ;
+    mf:action [ qt:query <exists-graph-variable-correlated.rq> ; qt:data <exists.ttl> ; qt:graphData <exists.ttl> ] ;
+    mf:result <exists-graph-variable-correlated.srx> .
+
+:existsOptionalPadding a mf:QueryEvaluationTest ;
+    mf:name "SEP-0007: FILTER EXISTS { OPTIONAL { P } } is always true — OPTIONAL never empties the unit row it pads, regardless of whether P matches" ;
+    mf:action [ qt:query <exists-optional-padding.rq> ; qt:data <exists-optional-padding.ttl> ] ;
+    mf:result <exists-optional-padding.srx> .
+
+:notExistsOptionalPadding a mf:QueryEvaluationTest ;
+    mf:name "the NOT EXISTS twin of :existsOptionalPadding: FILTER NOT EXISTS { OPTIONAL { P } } is always false" ;
+    mf:action [ qt:query <not-exists-optional-padding.rq> ; qt:data <exists-optional-padding.ttl> ] ;
+    mf:result <not-exists-optional-padding.srx> .
+
+:existsNestedCorrelation a mf:QueryEvaluationTest ;
+    mf:name "SEP-0007: FILTER EXISTS { FILTER NOT EXISTS { ?s :q ?y } } — the nested NOT EXISTS is correlated on the OUTER ?s through a triple-leaf position only, so :s1 (no :q of its own) and :s2 (has one) must answer differently, not agree as if ?s were an uncorrelated fresh variable" ;
+    mf:action [ qt:query <exists-nested-correlation.rq> ; qt:data <exists-nested-correlation.ttl> ] ;
+    mf:result <exists-nested-correlation.srx> .
+
+:existsSubselectLimit a mf:QueryEvaluationTest ;
+    mf:name "SEP-0007: a correlated { SELECT ?s WHERE { … } LIMIT 1 } inner — only the per-row definition path answers LIMIT correctly above a substitution site" ;
+    mf:action [ qt:query <exists-subselect-limit.rq> ; qt:data <exists-subselect-limit.ttl> ] ;
+    mf:result <exists-subselect-limit.srx> .
+
+:existsMinusDomain a mf:QueryEvaluationTest ;
+    mf:name "SEP-0007 Issue 4: the correlated variable occurs only in MINUS's subtracted (right) operand, contributing nothing to MINUS's own output schema" ;
+    mf:action [ qt:query <exists-minus-domain.rq> ; qt:data <exists-minus-domain.ttl> ] ;
+    mf:result <exists-minus-domain.srx> .
+
+:existsScopeBindViolation a mf:NegativeSyntaxTest ;
+    mf:name "SEP-0007 Part 3: BIND(1 AS ?x) inside EXISTS is a hard syntax error when ?x is already in scope on the row being filtered" ;
+    mf:action <exists-scope-bind-violation.rq> .
+
+:existsScopeValuesViolation a mf:NegativeSyntaxTest ;
+    mf:name "SEP-0007 Part 3: VALUES ?x { 1 } inside EXISTS is a hard syntax error when ?x is already in scope on the row being filtered" ;
+    mf:action <exists-scope-values-violation.rq> .
+
+:existsScopeProjectionViolation a mf:NegativeSyntaxTest ;
+    mf:name "SEP-0007 Part 3: EXISTS { BIND(:e AS ?x) } inside a SELECT-list (expr AS ?v) projection target is a hard syntax error when ?x is already in scope on the row being filtered, even though the projection list is parsed before WHERE" ;
+    mf:action <exists-scope-projection-violation.rq> .

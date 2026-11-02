@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-duckdb"
+description = "PurRDF embedded DuckDB execution engine, virtual Parquet views and relational-to-RDF row projection"
+version.workspace = true
+edition.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["duckdb", "relational", "parquet", "rdf", "views"]
+categories = ["database-implementations"]
+
+[lib]
+# Vendoring law: lib name upstream-verbatim (package renamed, lib unchanged).
+name = "purrdf_duckdb"
+crate-type = ["rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+frozen-duckdb = { workspace = true }
+purrdf-columnar = { workspace = true }
+stardf-core = { workspace = true }
+stardf-hash = { workspace = true }
+stardf-rdf = { workspace = true }
+stardf-sql = { workspace = true }
+stardf-xsd = { workspace = true }
+
+[dev-dependencies]
+purrdf-arrow = { workspace = true }
+stardf-testkit = { workspace = true }
+
+[[bench]]
+name = "sieve_bench"
+harness = false
+
+# LANED-EXCLUSION (G03 offline ladder, 2026-10-31, D17): bench parked at
+# benches/disabled/sql_rdf_e2e.rs — passes purrdf_core::{RdfDataset, ContentStore}
+# into purrdf_columnar::project(), which is typed over this crate's own vendored
+# seam types (stardf_columnar::vendor::core::*) because stardf-columnar is
+# deliberately zero-dep on purrdf_core (see its Cargo.toml:32-35). Seam
+# unification is the unpark condition; stanza parked with the target.
+# [[bench]]
+# name = "sql_rdf_e2e"
+# harness = false
+
+[lints]
+workspace = true

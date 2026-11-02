@@ -1,0 +1,138 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+# Vendoring lane (2026-10-31): copy-and-rename of purrdf rev
+# 0da0578306983da851a9073337d57e2e2c41ab3a `crates/lex` (see
+# VENDOR-PROVENANCE.md for the per-file delta surface and verification
+# receipts). Package renamed purrdf-lex -> stardf-lex; the LIB NAME stays
+# `purrdf_lex` verbatim so consumers keep `use purrdf_lex::...` (same posture
+# as stardf-hash's `purrdf_hash`).
+name = "stardf-lex"
+# Lane 07-publish-metadata (2026-10-31): v26.11.1 first-class closure —
+# upstream per-crate description retired in favor of the unified workspace
+# description; keywords/categories/repository join via inheritance.
+description.workspace = true
+# Lane 08-dual-key (2026-10-31): closure version inherits the workspace 26.11.1.
+version.workspace = true
+# Vendoring-lane divergence (disclosed): upstream inherits edition 2024 from the
+# purrdf workspace; the stardf/arrow root carries edition 2021, but this crate's
+# src uses let-chains (src/cbor/decode.rs:548 `if deterministic && let ...`),
+# so the edition is pinned 2024 here concretely (upstream-equal). The nightly
+# toolchain (rust-toolchain.toml) supports 2024.
+edition = "2024"
+publish = true
+repository.workspace = true
+homepage.workspace = true
+license = "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND MIT AND Unicode-3.0 AND BSD-3-Clause"
+rust-version = "1.98"
+keywords.workspace = true
+categories.workspace = true
+# Lane 10 (2026-10-31): crates.io 10MB tarball ceiling — the frozen UCD
+# normalization vectors (tests/vectors, 6.4MB) stay in-tree for `cargo test`,
+# excluded from the packaged crate. data/html/ still rides: src/html.rs cites
+# data/html/ as the BSD-3-Clause notice location (redistribution obligation).
+exclude = ["tests/vectors"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = []
+# Preserved upstream unit-test modules (cbor, json, yaml, scan, walk, escapes,
+# crockford, unicode/casing). They require the upstream dev-dep substrate
+# (purrdf-testkit, purrdf-stack) and one upstream-sibling corpus file
+# (crates/iri/unicode/17.0.0/DerivedCoreProperties.txt), none of which exist in
+# the stardf/arrow workspace, so this feature is inert here; it exists so the
+# gated code is a declared, reviewable boundary rather than silent dead text.
+# Posture copied from stardf-columnar's `upstream-tests` feature.
+upstream-tests = []
+
+[lib]
+# rlib-only, one runtime dependency: the lexical layer directly above the
+# `purrdf-hash` root in layers.toml, held to that by `make rdf-core-hygiene`.
+# Portable Rust over caller-supplied bytes — no `unsafe`, no threads, no
+# filesystem, no clock, no entropy — so it is wasm32-clean on every target.
+# Upstream [lib] comment retained; the dep package token was substituted.
+crate-type = ["rlib"]
+path = "src/lib.rs"
+# LIB NAME VERBATIM per the vendoring law (lib names, LICENSE files, in-file
+# notices unchanged): this crate's own code and sibling vendors `use
+# purrdf_lex::...` in the stardf tree. Only the PACKAGE name was renamed
+# (purrdf-lex -> stardf-lex). Same posture as stardf-hash's `purrdf_hash`.
+name = "purrdf_lex"
+
+[dependencies]
+# The one hex-digit reader (`hex::nibble`, `hex::parse_u32`) every escape and
+# percent-encoding decoder here reads its digits with: the zero-dependency root.
+# Upstream key `purrdf-hash` renamed per the vendoring law; resolves to package
+# stardf-hash (vendored this workspace; lib name stays `purrdf_hash`).
+stardf-hash = { workspace = true }
+
+# Upstream [dev-dependencies] purrdf-testkit and purrdf-stack are OMITTED
+# (disclosed): those first-party crates are NOT in this lane's vendoring scope
+# and do not exist in the stardf/arrow workspace. The six upstream test files,
+# one bench and one example that require them are PARKED (not deleted) under
+# tests/disabled/, benches/disabled/ and examples/disabled/ with unpark
+# preconditions recorded in tests/disabled/README.md. The lib unit tests and
+# the upstream test files that need only this crate remain ACTIVE
+# (auto-discovered, compiled by `cargo test`/`--all-targets`); two upstream
+# test files are additionally parked as UPSTREAM-DEFECT falsifiers (see
+# tests/disabled/README.md, "Upstream-defect falsifiers").
+
+# Upstream [[bench]] name = "scan" (harness = false) is dropped together with
+# the parked bench; upstream [[test]] frozen_vectors harness=false likewise
+# parked. Upstream dev-dependency comments retained verbatim:
+# The SplitMix64 stream the scanner and escaper equivalence tests draw their
+# fixed-seed inputs from, and the native benchmark harness. Path-only and
+# unpublished, so it is stripped from the packaged manifest.
+# purrdf-testkit = { workspace = true }
+# The one fixed-size stack runner the no-recursion tests put a hundred-thousand
+# deep document on. Test-only: no normal edge, no layering change.
+# purrdf-stack = { workspace = true }
+
+[lints.rust]
+# Upstream `[lints] workspace = true` inlined VERBATIM from purrdf root
+# [workspace.lints] at the vendored rev (same posture, zero drift; same
+# posture as stardf-hash).
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+# Underscore spelling, not `rust-2018-idioms`: cargo deprecated the dashed form
+# and will stop honouring it in a future edition, at which point the whole lint
+# GROUP would silently stop applying. Nightly cargo already warns about it.
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Pedantic/nursery opt-outs, each with a reason. Keep this list short and
+# justified; prefer fixing code over widening it.
+module_name_repetitions = "allow"     # purrdf_core::RdfDataset-style names are deliberate
+missing_errors_doc = "allow"          # error semantics live on the error types themselves
+missing_panics_doc = "allow"          # panics are programming errors, documented at the assert
+must_use_candidate = "allow"          # blanket #[must_use] adds noise; applied by hand where it guards bugs
+option_if_let_else = "allow"          # nursery: frequently less readable than the match it replaces
+redundant_pub_crate = "allow"         # nursery: conflicts with unreachable_pub on binary/test targets
+doc_markdown = "allow"                # 500+ backtick nits on spec terms (RDF/XML, JSON-LD); revisit with doc-valid-idents
+missing_const_for_fn = "allow"        # nursery: noisy and often wrong about intentionally non-const APIs
+too_long_first_doc_paragraph = "allow" # cosmetic doc layout only
+cast_possible_truncation = "allow"    # u32 id/offset space is asserted at construction; casts are deliberate
+cast_possible_wrap = "allow"          # ditto
+cast_sign_loss = "allow"              # ditto
+cast_precision_loss = "allow"         # XSD numeric promotion is spec-defined; losses are intentional
+unnecessary_wraps = "allow"           # Result-shaped codec seams are kept uniform even where infallible today
+unused_self = "allow"                 # method-shaped APIs kept uniform across backends
+many_single_char_names = "allow"      # s/p/o/g is the canonical RDF idiom
+similar_names = "allow"               # subject/predicate/object families trip this constantly
+too_many_lines = "allow"              # refactors are planned work, not lint chores
+single_match_else = "allow"           # stylistic; match reads better at codec branch points
+match_same_arms = "allow"             # duplicate arms often document distinct spec cases
+if_not_else = "allow"                 # stylistic
+items_after_statements = "allow"      # test-local helpers read better in place
+zero_sized_map_values = "allow"       # HashMap<K, ()> is used deliberately for entry-API patterns
+unnecessary_debug_formatting = "allow" # {:?} in diagnostics is deliberate; message text is golden-locked
+float_cmp = "allow"                   # XSD value-space equality is spec-exact by design

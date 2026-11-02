@@ -1,0 +1,114 @@
+{
+ "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+ "kind": "lane-receipt (finalization)",
+ "lane": "G04-falsifier-finalization (finishers wave, v26.11.1)",
+ "date": "2026-10-31",
+ "branch": "fix/v26.9.29-ci-gates",
+ "subject": {
+  "head": "724d542540b497f2928a63b5aece9b37aef4019b",
+  "head_note": "Read-only `git rev-parse HEAD` (exit 0) = c4r. Working tree UNCOMMITTED (1348 dirty paths from concurrent lanes; coordinator owns git; this lane ran no git state-changing commands)."
+ },
+ "purpose": "Finalize every 04-falsifiers.md row with same-tree witnesses: re-run F1/F1a/F2/F4/F4b/F5/F5a courts plus the R1 gate on the current tree; close the F3/F3a avec-side re-open with a native-posture re-run under a pinned toolchain; re-anchor R3/R4/KD-14 disk claims. File lease: stardf/docs/jira/v26.10.31/04-falsifiers.md only.",
+ "checks": [
+  {
+   "id": "f1-ontology-census-rerun",
+   "passed": true,
+   "count": 22,
+   "comment": "python3 scripts/verify_stardf_ontology.py (repo root, cwd ggen-legacy) -> exit 0, '[ALL PASS] stardf_contract.ttl is fully verified and compliant.' Type census 11 opaque + 11 anonymous-struct typedefs = 22 total; 128 stardf:AbiFunction instances; 126/126 purrdf.h functions mapped; SHACL 0 violations."
+  },
+  {
+   "id": "f1a-drop-type-refusal-rerun",
+   "passed": true,
+   "count": 1,
+   "comment": "python3 scripts/verify_stardf_ontology.py --mutate drop-type -> exit 0 (court passed, mutation refused): '[PASS] F1a: drop-type mutation REFUSED (mutant graph fails census).' Fourth witnessing run of the refusal path."
+  },
+  {
+   "id": "f2-bridge-gates-rerun",
+   "passed": true,
+   "count": 5,
+   "comment": "python3 queries/rust/run_bridge.py (cwd stardf/arrow) -> exit 0, '[PASS] all 5 gates: coverage >= 1 row, violations = 0 (bridge is gate-clean)'. Coverage 15/13/1/13/1 (010_api_naming, 020_unsafe_safety_proof, 030_alignment_invariant, 040_ffi_unwind_guard, 050_workspace_inheritance); bridged graph 104 triples over 109 base."
+  },
+  {
+   "id": "f4-header-freeze-rerun",
+   "passed": true,
+   "count": 4,
+   "comment": "python3 scripts/verify_header_freeze.py (check mode, --snapshot freeze arm) -> exit 0, '[PASS] header-freeze: 13 contract symbols == 13 header declarations, and committed snapshot is set+byte+count identical to the regeneration (no GONE, no NEW).' --court -> exit 0: baseline pristine PASS; shims A (header-decl rename), B (ontology targetSymbol rename), C (snapshot line drop) each flipped with EXPECTED GONE/NEW membership (probe stardf_arena_intern; shim A header GONE=[stardf_arena_intern] NEW=[sd_f4_probe_renamed], snapshot diff clean; shim B snapshot GONE/NEW + header GONE/NEW as designed; shim C snapshot NEW=[stardf_arena_intern]); '[PASS] court restore: real ontology/header/snapshot byte-identical (sha256) before/after.' Temp-copy mutations only. Second same-tree witnessing run (first = lane16 ledger f4-header-freeze-court)."
+  },
+  {
+   "id": "f4b-golden-bytes-rerun",
+   "passed": true,
+   "count": 5,
+   "comment": "cargo test -p stardf-columnar --test golden_bytes -> exit 0, '5 passed; 0 failed; 1 ignored'. The ignored court is regenerate_pinned_digests, an explicit-run regeneration court ('run explicitly with -- --ignored --nocapture'), not a silent skip; the byte-flip positive control flipping_a_byte_moves_the_digest PASSED in the same run. Prior lane-8 witness ran 6/6 including the regeneration court; current default invocation = 5 passed + 1 by-design ignored. Manifest scripts/columnar_manifest.sha256."
+  },
+  {
+   "id": "f5-f5a-determinism-pair-rerun",
+   "passed": true,
+   "count": 2,
+   "comment": "python3 scripts/verify.py --emit-receipt run twice (paths under /tmp) -> exit 0/0; receipt files byte-identical (cmp exit 0; both sha256 cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef); stdout byte-identical. Internal receipt_sha256 ceaf5a25f0ddd1d9071810543984ee307e4ab88eaafe6ddfe524595e990514c9. Same file digest the lane16 ledger pair recorded (stable across intervening lane edits). Disclosure carried: this verifier emits receipt_sha256 only, no artifacts_sha256 key (checked: key absent); the dsrust two-key shape remains partially instantiated locally."
+  },
+  {
+   "id": "f3-f3a-avec-gate-native-posture-rerun",
+   "passed": true,
+   "count": 3,
+   "comment": "CLOSE-OUT of the avec-side re-open. cwd /Users/sac/avec (read-only there beyond cargo target/): RUSTUP_TOOLCHAIN=nightly-2026-08-12 cargo test -p avec-ffi --test stardf_consumer_court -> exit 0, '3 passed; 0 failed' (court_1_export_stream_consume_get_schema_get_next_release, court_2_allocation_identity_boxed_array_tags, court_3_dylib_loads_and_final_api_serves). Build log shows stardf-arrow-core v26.11.1 and stardf-arrow-capi v26.11.1 compiled FROM THIS TREE (the avec lane's path dep into ggen-legacy/stardf/arrow/crates/stardf-arrow-capi), so the court consumed the current subject. avec HEAD 4ede671718c9513ca32f2b9c60e6e3cf783e6ff0 (read-only rev-parse; matches the manufacturing receipt's pin 4ede671). Bounds, disclosed: /Users/sac/avec has NO rust-toolchain pin, so this standing is the pinned-toolchain wrap posture (RUSTUP_TOOLCHAIN=nightly-2026-08-12, the same resolution stardf/arrow's rust-toolchain.toml reaches); a default-posture run still hits 'stardf-arrow-core@26.11.1 requires rustc 1.98' (witnessed in publish receipts -T040225Z/-T040456Z/-T040521Z at 21:02-21:05). Pinning >= 1.98 in /Users/sac/avec remains the avec-side landing item (owner = avec-gate lane); lane 05's own receipt file still never landed. Combined witness chain for F3/F3a: green x4 20:26-20:50 (publish receipts -T032659Z/-T032924Z/-T033004Z/-T035046Z) -> regression exit 101 at 21:02-21:05 (post-version-flip toolchain floor) -> repair-by-wrap exit 0 3/3 on the current tree (this check)."
+  },
+  {
+   "id": "r1-license-gate-rerun",
+   "passed": true,
+   "count": 1,
+   "comment": "python3 scripts/verify_stardf_licenses.py (cwd stardf/arrow) -> exit 0, 'license-compat gate: PASS (all dependency edges registered and ungated).' Third current-tree PASS witness (with the 21:04/21:05 publish receipts and the lane11-r2 receipt below)."
+  },
+  {
+   "id": "r1-lane11-r2-re-anchor",
+   "passed": true,
+   "count": 1,
+   "comment": "evidence/lane11-license-carriage-r2-2026-10-31.json (21:14, post-c4r tree, subject head 724d5425, tree_digest ed5bb8f4...) check r1-gate-restored-exit-0 passed=true: R1 RED at that lane's start (exit 1: frozen-duckdb-sys and frozen-duckdb-builder 'not in license register - loudly-missing' after lane 01-duckdb-pins added workspace keys), exit 0 after registration in authority/stardf/license-compat.json, re-witnessed after all lane edits. Additional witnessed flip cycle for R1 beyond the c2/20:44/21:05 chain."
+  },
+  {
+   "id": "r3-open-verification",
+   "passed": true,
+   "count": 0,
+   "comment": "grep -rn 'use_after_advance|after_advance' over crates/*/tests + crates/*/src -> 0 matches. No use-after-advance court exists on disk; R3 UNKNOWN stands."
+  },
+  {
+   "id": "r4-layout-assert-on-disk",
+   "passed": true,
+   "count": 2,
+   "comment": "crates/stardf-arrow-core/src/layout.rs:59 const _: () = assert!(core::mem::align_of::<Quad64>() == 64) re-read on disk (:58 size assert; :205 test size_and_alignment_laws asserts size/align 64 at runtime). Compile-time + runtime halves both present."
+  },
+  {
+   "id": "kd14-re-anchor",
+   "passed": true,
+   "count": 1,
+   "comment": "arrow/docs/DIVERGENCES.md KD-14 row (register mtime 13:57, unchanged since) reads PARTIALLY CLOSED with exactly the scope the F4b row claims: .sha256 manifest exists + mirrored + byte-flip positive control 6/6; corrupted-copy CI gate + purrdf digest-ordering parity not established. F4b row and register agree; no drift."
+  }
+ ],
+ "commands": [
+  "python3 scripts/verify_stardf_ontology.py  # repo root; exit 0",
+  "python3 scripts/verify_stardf_ontology.py --mutate drop-type  # exit 0 (refused)",
+  "cd stardf/arrow && python3 queries/rust/run_bridge.py  # exit 0",
+  "cd stardf/arrow && python3 scripts/verify_header_freeze.py  # exit 0",
+  "cd stardf/arrow && python3 scripts/verify_header_freeze.py --court  # exit 0",
+  "cd stardf/arrow && cargo test -p stardf-columnar --test golden_bytes  # exit 0",
+  "cd stardf/arrow && python3 scripts/verify.py --emit-receipt /tmp/g04-f5a-run-a.json  # exit 0",
+  "cd stardf/arrow && python3 scripts/verify.py --emit-receipt /tmp/g04-f5a-run-b.json  # exit 0",
+  "cmp /tmp/g04-f5a-run-a.json /tmp/g04-f5a-run-b.json  # exit 0, identical",
+  "cd /Users/sac/avec && RUSTUP_TOOLCHAIN=nightly-2026-08-12 cargo test -p avec-ffi --test stardf_consumer_court  # exit 0, 3/3",
+  "cd stardf/arrow && python3 scripts/verify_stardf_licenses.py  # exit 0",
+  "cd /Users/sac/avec && git rev-parse HEAD  # read-only, 4ede671718c9513ca32f2b9c60e6e3cf783e6ff0"
+ ],
+ "standing": "ALIVE",
+ "standing_note": "ALIVE scope: the 04-falsifiers.md ledger finalization and the court re-witnesses in this receipt, on subject 724d5425 + current uncommitted tree. F3/F3a avec-side standing is the pinned-toolchain wrap posture only (bounds in f3-f3a-avec-gate-native-posture-rerun).",
+ "nonclaims": [
+  "no git state-changing commands (coordinator owns commits/tags; read-only rev-parse only)",
+  "no CI-in-Actions standing claimed anywhere (F5 CI N/A stands; arrow/ci/stardf-arrow-reconstitution.yml has never executed in GitHub Actions)",
+  "no artifacts_sha256 key exists in the verifier's receipt (disclosed; two-key dsrust shape not instantiated)",
+  "avec default-posture standing NOT claimed: /Users/sac/avec has no rust-toolchain pin; the witnessed 3/3 is the RUSTUP_TOOLCHAIN wrap posture",
+  "no avec tree writes beyond cargo target/ build artifacts; the stardf_consumer_court.rs test file and avec-ffi Cargo.toml/lock edits are the avec-gate lane's in-flight work, untouched",
+  "lane16-falsifier-ledger-2026-10-31.json cited, not modified (sha256 bd7ef9c5d8c5198be9ae6f0b716e90fc2659a802260d776c3267a66563a4024d re-read from disk at citation time)",
+  "F2a extract->ttl determinism NOT re-run by this lane (in-place extract writes the contract TTL, outside this lane's lease); the replay-2026-10-31.json pair 2 receipt and the disclosed root-extractor stale-path note stand as written",
+  "the /tmp emit-receipt files are gate artifacts, not register receipts; this JSON is the register copy",
+  "R4's arena 64-byte-granularity behavior is asserted by build/test courts cited on disk; no new runtime witness executed by this lane",
+  "F4a N/A-YET stands: no purrdf abi.rs test class ported to the stardf arrow surface; no mutation-per-class court possible"
+ ]
+}

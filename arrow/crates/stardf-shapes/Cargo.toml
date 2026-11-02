@@ -1,0 +1,298 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+# Copy-sweep lane w2-l03 (2026-10-31): copy-and-rename of purrdf rev
+# 0da0578306983da851a9073337d57e2e2c41ab3a crates/shapes -> stardf-shapes; lib
+# name purrdf_shapes stays VERBATIM per the vendoring law. Only the package
+# name, workspace-inherited scalars, first-party dep keys (path deps) and
+# external pin RHS values were touched. Receipt: VENDOR-PROVENANCE.md.
+
+[package]
+name = "stardf-shapes"
+description = "PurRDF SHACL validation engine core: native RDF 1.2 SHACL Core validator, gated against the SHACL conformance corpus"
+version = "26.9.29"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+repository = "https://github.com/seanchatmangpt/ggen-legacy"
+rust-version = "1.98"
+keywords = ["rdf", "shacl", "validation", "knowledge-graph", "rdf-12"]
+categories = ["parser-implementations"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+# rlib-only: Python bindings live in `bindings/python`, so this crate stays
+# PyO3-free and wasm-clean.
+crate-type = ["rlib"]
+path = "src/lib.rs"
+name = "purrdf_shapes"
+
+[dependencies]
+# Native SPARQL parser. Used at shape-load to reject non-SELECT
+# SHACL-SPARQL queries (ASK/CONSTRUCT/DESCRIBE) — they parse but cannot bind ?this
+# and would panic at eval. Use SparqlParser to parse and match Query::Select.
+stardf-sparql-algebra = { path = "../stardf-sparql-algebra" }
+# Native SPARQL engine (crates/sparql-eval): the single SparqlEngine impl over the
+# frozen IR, used for SHACL-AF sh:sparql / sh:SPARQLTarget evaluation.
+stardf-sparql-eval = { path = "../stardf-sparql-eval" }
+# The one rules engine: SHACL rules and SPARQL 1.2 RL lower to this crate's rule-set
+# IR (`srl::ir`), which lowers onto purrdf-datalog's clause IR and is evaluated by its
+# stratifier and ordered schedule. purrdf-datalog depends only on purrdf-core, so the
+# edge adds no cycle, and it is on the workspace wasm gate.
+stardf-datalog = { path = "../stardf-datalog" }
+# sh:pattern regex constraint.
+regex = { version = "1", default-features = false, features = ["std", "unicode", "perf-cache", "perf-dfa", "perf-onepass", "perf-backtrack", "perf-inline"] }
+# The one shared XSD/XPath `regExp` → `regex`-crate translation
+# (`purrdf_core::xsd_regex::compile`): `sh:pattern`/`sh:flags` delegate to it
+# rather than reimplementing the `i s m x q` flag mapping and construct
+# translation a second time (ETHOS §O). Previously reached only transitively
+# via `purrdf-sparql-eval`/`purrdf`; now a direct dependency of this crate.
+stardf-core = { path = "../stardf-rdf-core" }
+# The workspace root: the class-catalog and schema-compilation-key preimages open
+# under registered `purrdf_hash::Domain` constants.
+stardf-hash = { path = "../stardf-hash" }
+# XSD value-space machinery: temporal (xsd:dateTime/date/time) value comparison
+# for the sh:minInclusive / sh:maxInclusive / sh:minExclusive / sh:maxExclusive
+# facets (W3C core/node/minInclusive-002/-003 — timezone-aware partial order;
+# indeterminate comparisons are violations).
+stardf-xsd = { path = "../stardf-xsd" }
+# The one RDF 1.2 term spelling (`term_syntax`) and literal-body escaper
+# (`literal_escape`): the canonical display form of a term, and so the engine's
+# deterministic sort key, is written through them. Also the one JSON reader,
+# value and writer (`json`) every schema emitter builds on, and the one YAML
+# codec (`yaml`) the canonical LinkML 1.11 reader and writer use.
+# Zero-dependency lexical layer.
+stardf-lex = { path = "../stardf-lex" }
+# The workspace's one first-mismatch index (`common_prefix_len`): the canonical
+# order of two IRIs is decided where their bytes first differ. Already in the
+# graph through `purrdf-core`.
+stardf-deflate = { path = "../stardf-deflate" }
+# Validate caller-supplied schema and prefix IRIs with the workspace's
+# zero-dependency RFC 3987 implementation.
+stardf-iri = { path = "../stardf-iri" }
+# Shared PyO3-free RDF 1.2 kernel and native GTS/text-codec boundary.
+stardf-rdf = { path = "../stardf-rdf" }
+# Deterministic indexed focus-node scheduling. Rayon is always-on and
+# wasm32-clean; on single-threaded wasm it executes the same indexed work inline.
+rayon = "1"
+# The workspace's ONE RFC-8089 `file://` retrieval-IRI derivation
+# (`retrieval_base_iri`, RFC-3986 §5.1.3): `shape_union::load_shapes` reads shape files
+# off disk, so each parses under its own document base rather than under none. The
+# derivation lives in `purrdf-slice` because that is the only library crate here that
+# opens files, which is what keeps `purrdf-iri` and `purrdf-rdf` filesystem-free; this is
+# a consumer edge, not a second copy. `purrdf-slice` already published before
+# `purrdf-shapes` in the release order, and was already a dev-dependency here.
+stardf-slice = { path = "../stardf-slice" }
+# Physical admission for the parser and recursive validation traversal.
+stardf-stack = { path = "../stardf-stack" }
+
+[dev-dependencies]
+stardf-gts = { path = "../stardf-gts" }
+# The workspace's shared counting allocator, for `benches/validate.rs`, which is
+# the one target here needing BOTH measurement modes in one process: per-thread
+# figures for the single-threaded import/emission probes, whole-process figures
+# for the rayon-parallel validation phases. Path-only and unpublished, so it is
+# stripped from the packaged manifest; std-only and dependency-free, so unlike
+# the three harness crates below it is wasm32-clean and needs no target gate.
+stardf-alloc-probe = { path = "../stardf-alloc-probe" }
+# Rust parser for the structural source census (`tests/product_model_census.rs`).
+# The declarative SHACL model's totality guarantee — a codec covers every variant
+# and every field — is only mechanical if the variant/field set is READ from the
+# source rather than enumerated by hand, and the reachability closure that keeps
+# that set honest needs an AST, not a regex. Dev-only; never enters the
+# release/wasm build. Version and the `full`/`visit` feature set are pinned once
+# in the root `[workspace.dependencies]`.
+syn = { version = "3", features = ["full", "visit"] }
+# `syn`'s token substrate, used by the census for two things. It refuses a field
+# type it cannot read structurally (a macro type, a `verbatim` type), and quoting
+# the raw `TokenStream` is the only way that refusal can name the field it refused
+# — a silent skip there is the exact defect the census exists to stop. And the
+# class-analysis half of the stage id digests ALGORITHM rather than declaration, so
+# it renders those function bodies as normalized tokens: the lexer drops `//`
+# comments and folds `///` into attributes the scrape discards, which is what keeps
+# a reformat or a reworded comment from moving a digest products are written under.
+# Dev-only.
+proc-macro2 = { version = "1", features = ["span-locations"] }
+# Draft 2020-12 validator: the negation tests observe the emitted schema_json's
+# real accept/reject behaviour against JSON-LD instance nodes, rather than
+# asserting the schema's JSON shape, and the TypeScript and GraphQL oracle
+# fixtures classify their source values with it. An independent implementation:
+# it shares no code with this crate's emitter. wasm32-clean, so it needs no
+# target gate.
+# (repair lane 2026-10-31) `stardf-jsonschema` dev-dep REMOVED: no source in
+# this crate imports stardf_jsonschema (grep-verified), and the upstream
+# purrdf-jsonschema crate is excluded loudly from this tree
+# (crates/jsonschema = fixture data only — DISPOSITION.md), so no in-tree
+# package can satisfy the key.
+# CORRECTION (G03 offline ladder, 2026-10-31): that grep missed `tests/` —
+# tests/owl_value_semantics.rs:81,92,512,522 import purrdf_jsonschema, so the
+# target was unlinked without the dev-dep (4x E0433 under
+# `cargo check --workspace --all-targets`). The target is parked at
+# tests/disabled/owl_value_semantics.rs per D17 (exclusion over deep-fix),
+# receipt in tests/disabled/README.md; the dev-dep removal itself stands for
+# src/ (grep claim true there).
+
+# The shared test support: property-based generation for the never-panic,
+# monotonicity and product-refusal harnesses, and the `harness = false` runner
+# `tests/product_wasm.rs` runs on natively.
+# Path-only and unpublished, so it is stripped from the packaged manifest;
+# wasm32-clean, so it needs no target gate.
+stardf-testkit = { path = "../stardf-testkit" }
+# The one EARL report structure (`outcome::Report`, `outcome::to_earl`) the two W3C
+# SHACL harnesses render their implementation reports through. Path-only and
+# unpublished, so it is stripped from the packaged manifest; the EARL code stays in
+# `tests/`, so the library gains no edge to it.
+stardf-conformance-kit = { path = "../stardf-conformance-kit" }
+
+# (lane 13, 2026-10-31) The two oracle-fixture `[[example]]` stanzas REMOVED:
+# the targets are parked at examples/disabled/ (jsonschema exclusion —
+# crates/jsonschema/DISPOSITION.md; see examples/disabled/README.md).
+
+# Complete native semantic expectations on the shared harness.
+# Actual WASM behaviors are selected separately in `make wasm-test`.
+[[test]]
+name = "rule_coordinates"
+harness = false
+
+[[test]]
+name = "product_wasm"
+harness = false
+
+[[test]]
+name = "srl_language"
+harness = false
+
+[[test]]
+name = "sparql_argument_failures"
+harness = false
+
+[[bench]]
+name = "validate"
+harness = false
+
+[[bench]]
+name = "pattern_lookup"
+harness = false
+
+[[bench]]
+name = "canonical_sort"
+harness = false
+
+[[bench]]
+name = "schema_surface"
+harness = false
+
+[[bench]]
+# The JSON-LD instance projection with and without RDF lists (the list index is
+# built only where some `rdf:rest` is `rdf:nil`). Report-only; `make bench` lane.
+name = "instance_projection"
+harness = false
+
+[[bench]]
+name = "pydantic_package"
+harness = false
+
+[[bench]]
+name = "shared_views"
+harness = false
+
+[[bench]]
+# Constant-`GRAPH` addressing through the SHACL data view: one named-graph
+# membership probe per row of a 10 000-row `LATERAL { GRAPH ?o { ... } }`, over a
+# native source and a mutation snapshot. Report-only; `make bench` lane only —
+# excluded from `make check`.
+name = "graph_membership"
+harness = false
+
+[[bench]]
+# Per-constraint cost of the SHACL `sh:pattern` arm's `OnceLock` compile cache:
+# a cold constraint (fresh parse, first `get_or_init` compiles) and a warm one
+# (matching only), across focus-node and values-per-focus scales. Report-only;
+# `make bench` lane only — excluded from `make check`.
+name = "pattern_validate"
+harness = false
+
+[[bench]]
+# Phase separation for the prepared-shapes product: the cold parse-and-prepare
+# path, the producer's encode, the three restore tiers (structural open, memo
+# admit, memo-free rebuild), the reusable class-catalog derivation, and the
+# per-dataset bind and validate. Public API only, so the identical file measures
+# a base revision. Report-only; `make bench` lane only — excluded from
+# `make check`. No speedup, ratio or threshold is asserted anywhere in it.
+name = "shacl_product_reuse"
+harness = false
+
+[[bench]]
+# Allocation traffic, retained bytes and peak working set for the same phases,
+# plus the encoded artifact's length. A separate process from the timed target
+# above so the tracking allocator's atomics cannot distort its latencies
+# (mirrors `purremb_alloc` / `pack_input_alloc`). Report-only; `make bench` lane
+# only — excluded from `make check`.
+name = "shacl_product_alloc"
+harness = false
+
+[[bench]]
+# SPARQL 1.2 RL transitive closure through the public text API: the parse-and-check of
+# the closure program, and `srl::infer` over chains of increasing length. Report-only;
+# `make bench` lane only — excluded from `make check`.
+name = "srl_closure"
+harness = false
+
+[[bench]]
+# Time to refusal of runaway rule sets under the default rule-evaluation limits (16,384
+# term-generating rounds, and a generated-term budget of max(65,536, 4 × N)) — a SHACL
+# SPARQL rule minting a longer IRI, a string extended and a counter stepped every pass,
+# two rules doubling their strings, and a SPARQL 1.2 RL rule nesting a triple term every
+# round — beside the completion time of the deep, terminating neighbours the defaults must
+# admit: a counter bounded by its data's depth, and a countdown to 0.
+# Report-only; `make bench` lane only — excluded from `make check`.
+name = "rules_divergence"
+harness = false
+
+#
+# # Upstream `[lints] workspace = true` inlined VERBATIM from purrdf root
+# # [workspace.lints] at the vendored rev (same posture, zero drift).
+# [lints.rust]
+# missing_docs = "warn"
+# unsafe_op_in_unsafe_fn = "warn"
+# missing_debug_implementations = "warn"
+# unreachable_pub = "warn"
+# unused_qualifications = "warn"
+# # Underscore spelling, not `rust-2018-idioms`: cargo deprecated the dashed form
+# # and will stop honouring it in a future edition, at which point the whole lint
+# # GROUP would silently stop applying. Nightly cargo already warns about it.
+# rust_2018_idioms = { level = "warn", priority = -1 }
+#
+# [lints.clippy]
+# all = { level = "warn", priority = -1 }
+# pedantic = { level = "warn", priority = -1 }
+# nursery = { level = "warn", priority = -1 }
+# # Pedantic/nursery opt-outs, each with a reason. Keep this list short and
+# # justified; prefer fixing code over widening it.
+# module_name_repetitions = "allow"     # purrdf_core::RdfDataset-style names are deliberate
+# missing_errors_doc = "allow"          # error semantics live on the error types themselves
+# missing_panics_doc = "allow"          # panics are programming errors, documented at the assert
+# must_use_candidate = "allow"          # blanket #[must_use] adds noise; applied by hand where it guards bugs
+# option_if_let_else = "allow"          # nursery: frequently less readable than the match it replaces
+# redundant_pub_crate = "allow"         # nursery: conflicts with unreachable_pub on binary/test targets
+# doc_markdown = "allow"                # 500+ backtick nits on spec terms (RDF/XML, JSON-LD); revisit with doc-valid-idents
+# missing_const_for_fn = "allow"        # nursery: noisy and often wrong about intentionally non-const APIs
+# too_long_first_doc_paragraph = "allow" # cosmetic doc layout only
+# cast_possible_truncation = "allow"    # u32 id/offset space is asserted at construction; casts are deliberate
+# cast_possible_wrap = "allow"          # ditto
+# cast_sign_loss = "allow"              # ditto
+# cast_precision_loss = "allow"         # XSD numeric promotion is spec-defined; losses are intentional
+# unnecessary_wraps = "allow"           # Result-shaped codec seams are kept uniform even where infallible today
+# unused_self = "allow"                 # method-shaped APIs kept uniform across backends
+# many_single_char_names = "allow"      # s/p/o/g is the canonical RDF idiom
+# similar_names = "allow"               # subject/predicate/object families trip this constantly
+# too_many_lines = "allow"              # refactors are planned work, not lint chores
+# single_match_else = "allow"           # stylistic; match reads better at codec branch points
+# match_same_arms = "allow"             # duplicate arms often document distinct spec cases
+# if_not_else = "allow"                 # stylistic
+# items_after_statements = "allow"      # test-local helpers read better in place
+# zero_sized_map_values = "allow"       # HashMap<K, ()> is used deliberately for entry-API patterns
+# unnecessary_debug_formatting = "allow" # {:?} in diagnostics is deliberate; message text is golden-locked
+# float_cmp = "allow"                   # XSD value-space equality is spec-exact by design
+#

@@ -1,0 +1,44 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "subject": {
+    "tree_digest": "TO_BE_COMPUTED_AT_RECEIPT_TIME_NOT_BEFORE",
+    "head": "TO_BE_COMPUTED_AT_RECEIPT_TIME_NOT_BEFORE"
+  },
+  "checks": [
+    {
+      "id": "example-check-passing",
+      "passed": true,
+      "count": 0,
+      "comment": "replace with a real check: id names the gate, count = observed rows/files/commands"
+    },
+    {
+      "id": "example-check-failing",
+      "passed": false,
+      "count": 0,
+      "comment": "honestly-failed checks stay in checks[] with passed=false; they also get an errors[] row. Never omit a failing check to make the receipt read clean."
+    }
+  ],
+  "errors": [
+    {
+      "code": "EXAMPLE_ERROR_CODE",
+      "message": "expected N, observed M"
+    }
+  ],
+  "commands": [
+    {
+      "cmd": "python3 scripts/verify_stardf_ontology.py --strict",
+      "exit": 1,
+      "comment": "every command that produced this receipt, with its real exit code"
+    }
+  ],
+  "replay": {
+    "status": "NOT_RUN",
+    "comment": "replay pair = verify.py run twice, byte-identical output both times; set status only after witnessing it"
+  },
+  "standing": "UNKNOWN",
+  "nonclaims": [
+    "slice ALIVE (no real gate output witnessed)",
+    "external production standing",
+    "replay witnessed"
+  ]
+}

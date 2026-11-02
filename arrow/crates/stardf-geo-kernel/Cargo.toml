@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-geo-kernel"
+description = "Deterministic geometry, geodesy and spatial indexes shared by PurRDF hosts"
+version.workspace = true
+edition.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/stardf-geo-kernel"
+rust-version.workspace = true
+keywords = ["geosparql", "rdf", "sparql", "wkt", "geojson"]
+categories = ["science::geo", "parser-implementations", "data-structures"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+# Vendoring law: lib name upstream-verbatim (package renamed, lib unchanged).
+name = "purrdf_geo_kernel"
+crate-type = ["rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+stardf-core = { workspace = true }
+stardf-hash = { workspace = true }
+stardf-iri = { workspace = true }
+stardf-lex = { workspace = true }
+stardf-xsd = { workspace = true }
+# OPT-53: hilbert_path delegates to the single-home kernel in branchless (level 1 leaf).
+stardf-branchless = { workspace = true }
+
+[dev-dependencies]
+stardf-alloc-probe = { workspace = true }
+stardf-stack = { workspace = true }
+stardf-testkit = { workspace = true }
+sha2 = { workspace = true }
+
+[[test]]
+name = "cells_determinism"
+harness = false
+
+[[test]]
+name = "geo_determinism"
+harness = false
+
+[[bench]]
+name = "covers"
+harness = false
+
+[[bench]]
+name = "geodesic"
+harness = false
+
+[[bench]]
+name = "cells"
+harness = false
+
+[[bench]]
+name = "transforms"
+harness = false
+
+[lints]
+workspace = true

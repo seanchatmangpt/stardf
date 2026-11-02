@@ -1,0 +1,383 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! Structural refusals are decided before the first byte, and each one is paired
+//! with a neighbouring input that must still succeed.
+//!
+//! Three writers used to decide a structural refusal only after emitting part of
+//! the document — SRX after its declaration and root element, TSV after earlier
+//! header fields, CSV and TSV after earlier rows. Eagerly the partial string was
+//! discarded, so nothing was observable; against an incremental sink those bytes
+//! have already gone downstream and cannot be recalled.
+//!
+//! Hoisting a check is exactly the change that silently produces over-refusal —
+//! a scan that runs earlier, over more of the input, can reject something the
+//! interleaved check never reached. So every refusal below is executed twice: the
+//! input believed invalid, and a neighbour that differs in the one respect that
+//! is supposed to matter. A refusal that cannot be shown to spare its neighbour
+//! is not strictness, it is a bug that happens to look like one.
+
+use purrdf_core::{RdfDatasetBuilder, TermValue};
+use purrdf_sparql_results::{ResultProvenance, SparqlResult, to_csv, to_tsv, to_xml};
+
+fn solutions(variables: &[&str], rows: Vec<Vec<Option<TermValue>>>) -> SparqlResult {
+    SparqlResult::Solutions {
+        variables: variables.iter().map(|v| (*v).to_owned()).collect(),
+        rows,
+        aux: RdfDatasetBuilder::new()
+            .freeze()
+            .expect("empty aux dataset")
+            .into(),
+    }
+}
+
+fn iri(value: &str) -> Option<TermValue> {
+    Some(TermValue::Iri(value.to_owned()))
+}
+
+/// A tab in a variable name has no TSV spelling and is refused — but a name that
+/// merely contains other punctuation is fine, and the hoisted whole-header scan
+/// must not have started rejecting those.
+#[test]
+fn tsv_refuses_an_unescapable_variable_name_and_spares_its_neighbour() {
+    let provenance = ResultProvenance::default();
+
+    for bad in ["has\ttab", "has\nlf", "has\rcr"] {
+        let result = solutions(&[bad], vec![vec![iri("https://example.org/a")]]);
+        let error = to_tsv(&result, &provenance)
+            .expect_err("a variable name TSV cannot escape must be refused");
+        let rendered = error.to_string();
+        assert!(
+            rendered.contains("has no way to escape"),
+            "unexpected refusal wording for {bad:?}: {rendered}"
+        );
+    }
+
+    // The neighbour: names carrying every other character class the scan sees.
+    for good in [
+        "plain",
+        "with_underscore",
+        "with.dot",
+        "\u{4e2d}\u{6587}",
+        "s1",
+    ] {
+        let result = solutions(&[good], vec![vec![iri("https://example.org/a")]]);
+        let outcome = to_tsv(&result, &provenance)
+            .unwrap_or_else(|e| panic!("variable name {good:?} is representable in TSV: {e}"));
+        let text = String::from_utf8(outcome.bytes).expect("utf-8");
+        assert!(
+            text.starts_with(&format!("?{good}\n")),
+            "header for {good:?}"
+        );
+    }
+}
+
+/// A row carrying more bindings than the projection has variables is refused by
+/// both tabular writers — and a row carrying exactly as many, or fewer, is not.
+#[test]
+fn tabular_writers_refuse_an_over_wide_row_and_spare_the_exact_and_short_ones() {
+    let provenance = ResultProvenance::default();
+    let vars = ["a", "b"];
+
+    let over_wide = solutions(
+        &vars,
+        vec![vec![
+            iri("https://example.org/1"),
+            iri("https://example.org/2"),
+            iri("https://example.org/3"),
+        ]],
+    );
+    for rendered in [
+        to_csv(&over_wide, &provenance)
+            .expect_err("CSV must refuse an over-wide row")
+            .to_string(),
+        to_tsv(&over_wide, &provenance)
+            .expect_err("TSV must refuse an over-wide row")
+            .to_string(),
+    ] {
+        assert!(
+            rendered.contains("3 bindings but only 2 variables"),
+            "unexpected refusal wording: {rendered}"
+        );
+    }
+
+    // The neighbours: exactly-wide, short, and empty rows all remain valid. The
+    // boundary is `>`, and a scan that had drifted to `>=` would fail here.
+    for rows in [
+        vec![vec![
+            iri("https://example.org/1"),
+            iri("https://example.org/2"),
+        ]],
+        vec![vec![iri("https://example.org/1")]],
+        vec![vec![]],
+        vec![],
+    ] {
+        let result = solutions(&vars, rows);
+        to_csv(&result, &provenance).expect("CSV admits a row no wider than the projection");
+        to_tsv(&result, &provenance).expect("TSV admits a row no wider than the projection");
+    }
+}
+
+/// The first offending row is reported, not merely some offending row — the
+/// hoisted scan walks rows in the same order the emission loop did.
+#[test]
+fn the_first_over_wide_row_is_the_one_reported() {
+    let provenance = ResultProvenance::default();
+    let result = solutions(
+        &["a"],
+        vec![
+            vec![iri("https://example.org/ok")],
+            vec![iri("https://example.org/1"), iri("https://example.org/2")],
+            vec![
+                iri("https://example.org/1"),
+                iri("https://example.org/2"),
+                iri("https://example.org/3"),
+            ],
+        ],
+    );
+    let rendered = to_csv(&result, &provenance)
+        .expect_err("an over-wide row must be refused")
+        .to_string();
+    assert!(
+        rendered.contains("2 bindings but only 1 variables"),
+        "the SECOND row is the first offender; got: {rendered}"
+    );
+}
+
+/// SRX is undefined for CONSTRUCT graphs and refuses one — but still serializes
+/// the two result kinds it does define, which the hoisted check sits in front of.
+#[test]
+fn srx_refuses_a_graph_and_spares_the_kinds_it_defines() {
+    let provenance = ResultProvenance::default();
+
+    let graph = SparqlResult::Graph(
+        RdfDatasetBuilder::new()
+            .freeze()
+            .expect("an empty dataset freezes")
+            .into(),
+    );
+    let rendered = to_xml(&graph, &provenance, None)
+        .expect_err("SRX must refuse a CONSTRUCT graph")
+        .to_string();
+    assert!(
+        rendered.contains("undefined for CONSTRUCT graphs"),
+        "unexpected refusal wording: {rendered}"
+    );
+
+    // The neighbours, on the far side of the hoisted check.
+    let ask = SparqlResult::Boolean(true);
+    let ask_text = String::from_utf8(
+        to_xml(&ask, &provenance, None)
+            .expect("ASK is defined in SRX")
+            .bytes,
+    )
+    .expect("utf-8");
+    assert!(ask_text.contains("<boolean>true</boolean>"));
+    assert!(ask_text.starts_with("<?xml version=\"1.0\"?>\n"));
+
+    let select = solutions(&["a"], vec![vec![iri("https://example.org/1")]]);
+    let select_text = String::from_utf8(
+        to_xml(&select, &provenance, None)
+            .expect("SELECT is defined in SRX")
+            .bytes,
+    )
+    .expect("utf-8");
+    assert!(select_text.contains("<uri>https://example.org/1</uri>"));
+}
+
+/// The CanonArrow writer does not refuse an ASK boolean or a CONSTRUCT graph —
+/// every non-tabular shape emits the fixed 192-byte canon-empty frame, header
+/// first at offset 0. What it does refuse, before the first byte reaches the
+/// sink, is a malformed nested triple term: the measuring pass walks every cell
+/// before the header is pushed, so the refusal lands with the sink untouched.
+/// Each side carries a neighbour — the boolean's neighbour is the graph that
+/// shares its frame, and the malformed term's neighbour is the same nested
+/// triple with a predicate that does spell.
+#[test]
+fn canon_arrow_emits_the_canon_empty_frame_and_refuses_only_a_malformed_term_before_the_first_byte()
+{
+    use purrdf_sparql_results::{SparqlResultsFormat, serialize_into};
+
+    let provenance = ResultProvenance::default();
+
+    // Non-tabular shapes succeed, with exactly the canon-empty frame.
+    for (label, shape) in [
+        ("ask", SparqlResult::Boolean(true)),
+        (
+            "graph",
+            SparqlResult::Graph(
+                RdfDatasetBuilder::new()
+                    .freeze()
+                    .expect("an empty dataset freezes")
+                    .into(),
+            ),
+        ),
+    ] {
+        let mut sink: Vec<u8> = Vec::new();
+        let _ = serialize_into(
+            &shape,
+            SparqlResultsFormat::CanonArrow,
+            &provenance,
+            None,
+            &mut sink,
+        )
+        .unwrap_or_else(|e| panic!("CanonArrow emits the canon-empty frame for {label}: {e}"));
+        assert_eq!(
+            sink.len(),
+            192,
+            "the {label} canon-empty frame is header plus trailing padding"
+        );
+        assert_eq!(
+            &sink[..8],
+            b"GLAWARRW",
+            "the {label} frame opens with the wire magic"
+        );
+        let wire: [u8; purrdf_arrow::ArrowEgressHeader::SIZE] = sink
+            [..purrdf_arrow::ArrowEgressHeader::SIZE]
+            .try_into()
+            .expect("a 192-byte frame carries the full 128-byte header");
+        let header = purrdf_arrow::ArrowEgressHeader::from_bytes(&wire)
+            .expect("the canon-empty frame header validates");
+        assert!(
+            header.fits_in(sink.len() as u64),
+            "the {label} header fits the frame it was emitted in"
+        );
+    }
+
+    // The true refusals-precede-emission case: a nested triple term whose
+    // predicate is not an IRI has no canonical N-Triples spelling. The
+    // measuring pass rejects it before the header is pushed, so the sink
+    // must come back with zero bytes written.
+    let malformed = TermValue::Triple {
+        s: purrdf_core::TermBox::new(TermValue::Iri("https://example.org/s".to_owned())),
+        p: purrdf_core::TermBox::new(TermValue::Literal {
+            lexical_form: "not-a-predicate".to_owned(),
+            datatype: "http://www.w3.org/2001/XMLSchema#string".to_owned(),
+            language: None,
+            direction: None,
+        }),
+        o: purrdf_core::TermBox::new(TermValue::Iri("https://example.org/o".to_owned())),
+    };
+    let bad = solutions(&["s"], vec![vec![Some(malformed)]]);
+    let mut sink: Vec<u8> = Vec::new();
+    let error = serialize_into(
+        &bad,
+        SparqlResultsFormat::CanonArrow,
+        &provenance,
+        None,
+        &mut sink,
+    )
+    .expect_err("a triple term without a canonical spelling must be refused");
+    assert!(
+        error.to_string().contains("malformed result term"),
+        "unexpected refusal wording: {error}"
+    );
+    assert!(
+        sink.is_empty(),
+        "the malformed-term refusal leaked {} byte(s) to the sink before failing",
+        sink.len()
+    );
+
+    // The neighbour on the far side of the hoisted scan: the same nested
+    // triple with an IRI predicate is representable and still serializes.
+    let well_formed = TermValue::Triple {
+        s: purrdf_core::TermBox::new(TermValue::Iri("https://example.org/s".to_owned())),
+        p: purrdf_core::TermBox::new(TermValue::Iri("https://example.org/p".to_owned())),
+        o: purrdf_core::TermBox::new(TermValue::Iri("https://example.org/o".to_owned())),
+    };
+    let good = solutions(&["s"], vec![vec![Some(well_formed)]]);
+    let mut sink: Vec<u8> = Vec::new();
+    let _ = serialize_into(
+        &good,
+        SparqlResultsFormat::CanonArrow,
+        &provenance,
+        None,
+        &mut sink,
+    )
+    .unwrap_or_else(|e| panic!("a well-formed nested triple still serializes: {e}"));
+    assert!(!sink.is_empty(), "the well-formed frame emitted bytes");
+}
+
+/// The streamed serialization equals the eager one, byte for byte, for every
+/// format and every result kind each format admits.
+///
+/// Both spellings are the same writer over a different append target, so this
+/// exists to catch a future change that reintroduces a second path rather than to
+/// establish the property.
+#[test]
+fn streamed_results_are_byte_identical_to_eager() {
+    use purrdf_sparql_results::{SparqlResultsFormat, serialize, serialize_into};
+
+    let wide = solutions(
+        &["a", "b", "c"],
+        (0..500)
+            .map(|i| {
+                vec![
+                    iri(&format!("https://example.org/row/{i}/with/a/long/path")),
+                    None,
+                    iri(&format!(
+                        "https://example.org/object/{i}/padded/so/the/document/crosses/the/\
+                         sink/staging/window/many/times/over"
+                    )),
+                ]
+            })
+            .collect(),
+    );
+    let cases = [
+        ("boolean-true", SparqlResult::Boolean(true)),
+        ("boolean-false", SparqlResult::Boolean(false)),
+        ("empty-vars", solutions(&[], vec![])),
+        (
+            "one-row",
+            solutions(&["a"], vec![vec![iri("https://example.org/1")]]),
+        ),
+        ("wide", wide),
+    ];
+
+    let namespace =
+        purrdf_sparql_results::ProvenanceNamespace::new("ex", "https://example.org/prov#")
+            .expect("valid namespace");
+
+    for (name, result) in &cases {
+        for format in [
+            SparqlResultsFormat::Json,
+            SparqlResultsFormat::Xml,
+            SparqlResultsFormat::Csv,
+            SparqlResultsFormat::Tsv,
+        ] {
+            for (ns_label, ns) in [("no-ns", None), ("ns", Some(&namespace))] {
+                let provenance = ResultProvenance::default();
+                let eager = serialize(result, format, &provenance, ns);
+                let mut streamed_bytes: Vec<u8> = Vec::new();
+                let streamed = serialize_into(result, format, &provenance, ns, &mut streamed_bytes);
+                let label = format!("{name} / {format:?} / {ns_label}");
+
+                match (eager, streamed) {
+                    (Ok(eager), Ok(outcome)) => {
+                        assert_eq!(eager.bytes, streamed_bytes, "bytes diverged for {label}");
+                        assert_eq!(
+                            outcome.bytes_written as usize,
+                            streamed_bytes.len(),
+                            "byte count disagrees with what was written for {label}"
+                        );
+                        assert_eq!(
+                            eager.provenance_dropped, outcome.provenance_dropped,
+                            "provenance_dropped diverged for {label}"
+                        );
+                    }
+                    (Err(eager), Err(streamed)) => assert_eq!(
+                        eager.to_string(),
+                        streamed.to_string(),
+                        "the two spellings refused differently for {label}"
+                    ),
+                    (eager, streamed) => panic!(
+                        "one spelling succeeded and the other did not for {label}: \
+                         eager_ok={} streamed_ok={}",
+                        eager.is_ok(),
+                        streamed.is_ok()
+                    ),
+                }
+            }
+        }
+    }
+}

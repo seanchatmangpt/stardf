@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-sql"
+# Lane 07-publish-metadata (2026-10-31): v26.11.1 first-class closure —
+# description/keywords/categories normalized to workspace inheritance.
+description.workspace = true
+version.workspace = true
+edition.workspace = true
+publish = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+# Vendoring law: lib name upstream-verbatim (package renamed, lib unchanged).
+name = "purrdf_sql"
+crate-type = ["rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+stardf-core = { workspace = true }
+stardf-hash = { workspace = true }
+stardf-iri = { workspace = true }
+stardf-lex = { workspace = true }
+stardf-rdf = { workspace = true }
+stardf-shapes = { workspace = true }
+
+[dev-dependencies]
+stardf-testkit = { workspace = true }
+
+# Charter-A04 admission hot path (cold compile vs memo hit over seeded wide
+# projections). Report-only; `make bench` lane.
+[[bench]]
+name = "compile_query"
+harness = false

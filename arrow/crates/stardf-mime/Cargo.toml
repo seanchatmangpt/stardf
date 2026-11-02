@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-mime"
+description = "Lossless original-byte MIME-to-RDF codec with ordered occurrences and shared cover verification"
+version.workspace = true
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/stardf-mime"
+keywords = ["mime", "rdf", "email", "lossless", "codec"]
+categories = ["encoding", "parser-implementations"]
+
+[lib]
+# Vendoring law: lib name upstream-verbatim (package renamed, lib unchanged).
+name = "purrdf_mime"
+crate-type = ["rlib"]
+
+[dependencies]
+stardf-core.workspace = true
+stardf-hash.workspace = true
+stardf-lex.workspace = true
+stardf-xsd.workspace = true
+
+[dev-dependencies]
+stardf-rdf.workspace = true
+stardf-sparql-algebra.workspace = true
+stardf-sparql-eval.workspace = true
+stardf-testkit.workspace = true
+
+[[test]]
+name = "lossless"
+harness = false
+
+[[test]]
+name = "structured_errors"
+harness = false
+
+[[example]]
+name = "gen_serialized_corpus"
+test = false
+
+# mime bench lanes: report-only, make bench lane only (wave v26.10.26).
+[[bench]]
+name = "decode"
+harness = false
+
+[lints]
+workspace = true

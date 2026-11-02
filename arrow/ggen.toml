@@ -1,0 +1,122 @@
+# LANE 14 — ggen manifest for the stardf/arrow surface.
+#
+# Pack route is the W2-corrected one (stardf/docs/jira/v26.10.31/02-wave-contracts.md,
+# "W2 — Scaffold (CORRECTED route)"): rust-pack by absolute path. NOT
+# clap-noun-verb-crate-pack (wrong shape — manufactures CLI binaries) and NOT
+# wasi-json-abi-pack (deprecated).
+
+[project]
+name = "stardf-arrow"
+version = "0.1.0"
+
+[templates]
+# ggen 26.10.11 requires a local, relative templates dir (FM-CONFIG-003 forbids
+# absolute paths and '..' traversal). Kept empty; the rust-pack template set is
+# referenced via [packs] below. templates/.gitkeep exists solely so the required
+# dir survives git as an empty directory — ggen resolves `dir = "templates"`
+# relative to this manifest and refuses to start when it is absent.
+dir = "templates"
+
+[ontology]
+source = "ontology.ttl"
+
+[ontology.prefixes]
+stardf-arrow = "https://ggen.io/ontology/stardf-arrow#"
+
+# LANE 10 disclosed edit: [packs] table -> [[packs]] array-of-tables. ggen
+# 26.10.11 classifies ggen.toml into exactly two schemas; [packs]-as-table is a
+# frontmatter-schema marker and is structurally exclusive with the declarative
+# schema's [inference]/[validation] sections (FM-CONFIG-101 ambiguity refusal,
+# witnessed). The declarative [[packs]] shape carries the same absolute path.
+[[packs]]
+name = "rust-pack"
+registry = "local"
+path = "/Users/sac/ggen-marketplace/packs/rust-pack"
+
+# stardf: -> rust: bridge note (W2 prerequisite):
+# The rust-pack gates query the rust: namespace (rust:Struct/rust:Function/
+# rust:itemName, gates/010_api_naming.rq et al). Against this ontology — which
+# speaks stardf-arrow: — every pack gate returns 0 rows unless the W2 bridge
+# query (CONSTRUCT stardf:AbiFunction/TypeDefinition -> rust:Function/rust:Struct)
+# runs first. Receipt of the gate-row check: see lane-14 report
+# (rdflib one-liner, 5 gates x SELECT, all 0 rows against ontology.ttl raw).
+
+# ── LANE 10 bridge wiring ────────────────────────────────────────────────
+# Schema finding (read from ggen 26.10.11 source, crates/ggen-config/src/
+# manifest/types.rs): the manifest CANNOT reference queries/ by path in the
+# pack/template sections — but it CAN express the bridge two other ways:
+#
+#   1. [[inference.rules]] — a CONSTRUCT rule materialized onto the active
+#      graph BEFORE gates run (ggen-engine generation_rules.rs: "execute_
+#      inference_rules before generation"). Schema limitation, disclosed:
+#      `construct` accepts only an INLINE SPARQL string, not a file path —
+#      so the bridge text below is a byte-copy of queries/rust/
+#      010_contract_to_rust_items.rq (single source of truth stays the .rq;
+#      run_bridge.py is the standing witness).
+#   2. [validation].gates — the 5 rust-pack gate .rq files, each resolved
+#      via `root.join(rel)` (absolute paths resolve like the [packs] path).
+#      Gate semantics per rust-pack: any row = violation → sync refuses.
+#
+# strict_mode = false is disclosed: the rust-pack gate SELECTs predate the
+# ORDER-BY determinism gate (FM-GEN E0011/E0013) and would be refused as
+# non-deterministic rather than evaluated.
+#
+# Standing witness (both directions, real exits):
+#   python3 queries/rust/run_bridge.py              -> 5 gates >=1 row, 0 viol, exit 0
+#   python3 queries/rust/run_bridge.py --drop-mapping buffer-slot
+#                                                   -> gate 030 coverage 0, exit 0 loud
+
+# [generation] is a REQUIRED section on the declarative schema (no serde
+# default); no codegen rules — this surface's outputs are gate-verdicts only.
+[generation]
+rules = []
+
+[[inference.rules]]
+name = "contract-to-rust-items"
+description = "stardf-arrow -> rust: bridge (byte-copy of queries/rust/010_contract_to_rust_items.rq)"
+order = 1
+construct = """
+PREFIX sa:   <https://ggen.io/ontology/stardf-arrow#>
+PREFIX rust: <urn:ggen:rust:#>
+CONSTRUCT {
+  ?export a rust:Function, rust:FfiExport ;
+          rust:itemName ?symbol ;
+          rust:isUnsafe true ;
+          rust:safetyProof ?proof ;
+          rust:unwindProtection "catch_unwind" ;
+          rust:module "stardf_arrow_capi" .
+  sa:arrow-array-stream a rust:Struct ;
+          rust:itemName "ArrowArrayStream" .
+  sa:arrow-array-stream a rust:BufferSlot ;
+          rust:simdProfile "Arrow-64B" ;
+          rust:byteAlignment 64 .
+  <urn:stardf-arrow:crate:stardf-arrow> a rust:Workspace ;
+          rust:workspaceDependency <urn:stardf-arrow:dep:cgap-arrow> ;
+          rust:itemName "stardf-arrow" .
+  <urn:stardf-arrow:dep:cgap-arrow> a rust:Dependency ;
+          rust:itemName "cgap-arrow" .
+  <urn:stardf-arrow:crate:capi> a rust:Module ;
+          rust:itemName "stardf_arrow_capi" ;
+          rust:dependsOn <urn:stardf-arrow:dep:cgap-arrow> .
+}
+WHERE {
+  ?export a sa:CabiExport ;
+          sa:targetSymbol ?symbol ;
+          sa:crate "capi" .
+  BIND(IF(CONTAINS(STR(?symbol), "stream"),
+          "Arrow C Data Interface boundary: stream fn pointers validated before call; release path checked by tests/stream_courts.rs",
+          "Arena/batch boundary: term-id arena validates pointers before intern/free; checked by tests/cross_allocator_court.rs")
+        AS ?proof)
+  VALUES ?anchor { <urn:stardf-arrow:anchor> }
+}
+"""
+
+[validation]
+strict_mode = false
+gates = [
+  "/Users/sac/ggen-marketplace/packs/rust-pack/gates/010_api_naming.rq",
+  "/Users/sac/ggen-marketplace/packs/rust-pack/gates/020_unsafe_safety_proof.rq",
+  "/Users/sac/ggen-marketplace/packs/rust-pack/gates/030_alignment_invariant.rq",
+  "/Users/sac/ggen-marketplace/packs/rust-pack/gates/040_ffi_unwind_guard.rq",
+  "/Users/sac/ggen-marketplace/packs/rust-pack/gates/050_workspace_inheritance.rq",
+]

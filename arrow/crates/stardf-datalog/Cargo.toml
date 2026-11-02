@@ -1,0 +1,166 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+# Vendoring lane w2-l04 (2026-10-31): vendored from PurRDF `crates/datalog` at
+# rev 0da0578306983da851a9073337d57e2e2c41ab3a. Sources byte-verbatim (verified
+# `diff -r` against the `git archive 0da05783 crates/datalog` extraction, exit 0
+# outside the declared manifest surface); the BLOCKED-build falsifier receipt and
+# per-gate disclosures live in VENDOR-PROVENANCE.md.
+name = "stardf-datalog"
+description = "PurRDF native Datalog: deterministic wasm-clean semi-naive evaluation over a columnar relation store"
+version = "26.9.29"
+# Upstream edition carried verbatim (2024): the vendored sources are
+# edition-2024; disclosed in VENDOR-PROVENANCE.md (workspace default is 2021;
+# member-level override posture identical to stardf-xsd).
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+repository = "https://github.com/seanchatmangpt/ggen-legacy"
+rust-version = "1.98"
+# Upstream keywords/categories/documentation carried verbatim.
+keywords = ["datalog", "rdf", "reasoning", "fixpoint", "entailment"]
+categories = ["algorithms", "data-structures"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+# LIB NAME VERBATIM per the vendoring law (lib names unchanged): consumers
+# `use purrdf_datalog::...` in the stardf tree. Only the PACKAGE name was
+# renamed (purrdf-datalog -> stardf-datalog). Same posture as stardf-hash's
+# `purrdf_hash` / stardf-xsd's `purrdf_xsd`.
+crate-type = ["rlib"]
+path = "src/lib.rs"
+name = "purrdf_datalog"
+
+[dependencies]
+# The published, caller-reproducible derivation-identity recipe for a backward
+# proof (`resolve_fol::derivation_id`) is a SHA-1 Merkle fold over each node's
+# content-addressed rule identity and its premises' identities — SHA-1 because
+# that is the digest the consuming reasoning lane keys its cross-lane derivation
+# IDs on, and byte-for-byte parity with it is the whole point. The workspace's
+# zero-dependency digest leaf computes it: pure integer arithmetic with no
+# getrandom/thread/fs pull, so it stays wasm32-unknown-unknown-clean.
+# (Upstream key purrdf-hash; resolves to package stardf-hash, vendored this
+# tree at the same rev, lib name purrdf_hash.)
+stardf-hash = { path = "../stardf-hash" }
+# OPT-49: single home for the small-N sort network (promoted from seminaive/join.rs).
+# (Upstream key purrdf-branchless; resolves to package stardf-branchless,
+# vendored this tree at the same rev, lib name purrdf_branchless.)
+stardf-branchless = { path = "../stardf-branchless" }
+# The arity-generic binding-pattern adornment lattice (backward magic-sets
+# demand keying, forward evaluator query-plan index selection) lives in the
+# shared kernel now that a second, non-Datalog consumer needs it too.
+# (Repair lane, 2026-10-31: the w2-l04 UNRESOLVED-SEAM registration is closed —
+# stardf-core now exists in-tree at crates/stardf-rdf-core (package stardf-core,
+# lib purrdf_core), so the declared BLOCKED-build falsifier's premise is gone
+# and the crate joins the shared workspace instead of standing alone.)
+stardf-core = { workspace = true }
+# The one spelling of the clause-term constructors that wrap a caller's text.
+# (Upstream key purrdf-lex; resolves to package stardf-lex, vendored this tree
+# at the same rev, lib name purrdf_lex.)
+stardf-lex = { path = "../stardf-lex" }
+# Fixed-key store-once interners and the arrangement's probe tables hash with
+# purrdf-hash's `FixedHasher` (declared above). Fixed-key (not RandomState)
+# because wasm32 has no entropy source and because iteration order must never
+# reach an output path.
+# (Repair lane 2026-10-31: upstream-restated inline pin converted to workspace
+# inheritance now that the crate is a resolvable member — single pin source.)
+hashbrown = { workspace = true }
+# Rule-parallel semi-naive rounds. Used ONLY in indexed, order-stable form
+# (`par_iter` over a rule-index slice, collected and reduced in program order);
+# never `par_sort`/`par_bridge`. Degrades to inline-sequential on
+# wasm32-unknown-unknown, so the wasm gate holds.
+# (Repair lane 2026-10-31: same conversion as hashbrown above.)
+rayon = { workspace = true }
+
+[dev-dependencies]
+# (Upstream keys purrdf-testkit / purrdf-alloc-probe; KEY = upstream name,
+# package = stardf-*, both vendored this tree at the same rev.)
+purrdf-testkit = { package = "stardf-testkit", path = "../stardf-testkit" }
+purrdf-alloc-probe = { package = "stardf-alloc-probe", path = "../stardf-alloc-probe" }
+
+[[bench]]
+# Semi-naive join latency along the three axes a join's cost actually has: the
+# fan-out of the intermediate relation, the WIDTH of one solution's binding frame
+# at a fixed solution count, and the round count of a recursive fixpoint. The
+# evaluator previously had no bench of its own — the nearest measured it through a
+# regime's rule table. Report-only.
+name = "seminaive"
+harness = false
+
+# The same production evaluator and proof assertions execute natively and in Node
+# through the workspace wasm runner; no libtest runtime is assumed on wasm32.
+[[test]]
+name = "rules_runtime"
+harness = false
+
+[[test]]
+name = "never_derive"
+harness = false
+
+[[test]]
+name = "structured_errors"
+harness = false
+
+[[test]]
+name = "maintained_scale"
+harness = false
+
+[lints.rust]
+# Inlined from upstream [workspace.lints.rust] (this crate is a standalone
+# workspace root pending the stardf-core closure, so it carries the upstream
+# lint table inline instead of inheriting it), verbatim, so the vendored code
+# lints exactly as it does upstream.
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+# Underscore spelling, not `rust-2018-idioms`: cargo deprecated the dashed form
+# and will stop honouring it in a future edition, at which point the whole lint
+# GROUP would silently stop applying. Nightly cargo already warns about it.
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+# Inlined from upstream [workspace.lints.clippy], verbatim including opt-outs,
+# so the vendored code lints exactly as it does upstream.
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"     # purrdf_core::RdfDataset-style names are deliberate
+missing_errors_doc = "allow"          # error semantics live on the error types themselves
+missing_panics_doc = "allow"          # panics are programming errors, documented at the assert
+must_use_candidate = "allow"          # blanket #[must_use] adds noise; applied by hand where it guards bugs
+option_if_let_else = "allow"          # nursery: frequently less readable than the match it replaces
+redundant_pub_crate = "allow"         # nursery: conflicts with unreachable_pub on binary/test targets
+doc_markdown = "allow"                # 500+ backtick nits on spec terms (RDF/XML, JSON-LD); revisit with doc-valid-idents
+missing_const_for_fn = "allow"        # nursery: noisy and often wrong about intentionally non-const APIs
+too_long_first_doc_paragraph = "allow" # cosmetic doc layout only
+cast_possible_truncation = "allow"    # u32 id/offset space is asserted at construction; casts are deliberate
+cast_possible_wrap = "allow"          # ditto
+cast_sign_loss = "allow"              # ditto
+cast_precision_loss = "allow"         # XSD numeric promotion is spec-defined; losses are intentional
+unnecessary_wraps = "allow"           # Result-shaped codec seams are kept uniform even where infallible today
+unused_self = "allow"                 # method-shaped APIs kept uniform across backends
+many_single_char_names = "allow"      # s/p/o/g is the canonical RDF idiom
+similar_names = "allow"               # subject/predicate/object families trip this constantly
+too_many_lines = "allow"              # refactors are planned work, not lint chores
+single_match_else = "allow"           # stylistic; match reads better at codec branch points
+match_same_arms = "allow"             # duplicate arms often document distinct spec cases
+if_not_else = "allow"                 # stylistic
+items_after_statements = "allow"      # test-local helpers read better in place
+zero_sized_map_values = "allow"       # HashMap<K, ()> is used deliberately for entry-API patterns
+unnecessary_debug_formatting = "allow" # {:?} in diagnostics is deliberate; message text is golden-locked
+float_cmp = "allow"                   # XSD value-space equality is spec-exact by design
+
+# ---------------------------------------------------------------------------
+# (Repair lane, 2026-10-31): the w2-l04 STANDALONE WORKSPACE ROOT table is
+# REMOVED — its stated premise ("no stardf-core member exists in this tree
+# yet") is closed by the bulk copy: crates/stardf-rdf-core provides package
+# stardf-core (lib purrdf_core), pinned in root [workspace.dependencies]. The
+# crate is a shared-workspace member; the loud-failure boundary this table
+# used to own is superseded by the workspace-level green loop.
+# ---------------------------------------------------------------------------
+

@@ -1,0 +1,1718 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! Independent allocation measurements over native compile, match and replacement.
+
+use purrdf_alloc_probe::{CountingAllocator, CurrentThreadWindow};
+use purrdf_core::xsd_regex::xpath::{self, Limits, Profile};
+use purrdf_lex::allocation::{Admission, StorageError};
+
+#[global_allocator]
+static GLOBAL: CountingAllocator = CountingAllocator;
+
+#[derive(Debug)]
+struct Account {
+    limit: usize,
+    live: usize,
+    peak: usize,
+    refused: Option<usize>,
+    resets_to_zero: usize,
+}
+
+impl Account {
+    const fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            live: 0,
+            peak: 0,
+            refused: None,
+            resets_to_zero: 0,
+        }
+    }
+}
+
+impl Admission for Account {
+    fn resize(&mut self, live_bytes: usize) -> Result<(), StorageError> {
+        if live_bytes > self.limit {
+            if self.refused.is_none() {
+                self.refused = Some(live_bytes);
+            }
+            return Err(StorageError::AdmissionFailed);
+        }
+        if self.live > 0 && live_bytes == 0 {
+            self.resets_to_zero += 1;
+        }
+        self.live = live_bytes;
+        self.peak = self.peak.max(live_bytes);
+        Ok(())
+    }
+}
+
+#[test]
+fn native_record_diagnostic_retains_only_original_admitted_storage_and_refunds_failures() {
+    use purrdf_lex::allocation::Memory;
+    use purrdf_lex::json::record::{DecodeError, RecordAllocation, RecordMemory};
+    use purrdf_testkit::error_capture::Capture;
+    use std::cell::RefCell;
+
+    let expected = ["declared"; 100];
+    let mut account = Account::new(1_000_000);
+    let memory = RefCell::new(Memory::new(&mut account));
+    let allocation = RecordMemory::new(&memory);
+    let window = CurrentThreadWindow::open();
+    let error = DecodeError::unknown_variant_native("offered", &expected, Some(&allocation));
+    let measured = window.close();
+    assert_eq!(error.storage_error(), None);
+    let retained = memory.borrow().admitted_bytes();
+    assert_eq!(retained, usize::try_from(measured.retained_bytes).unwrap());
+    let events = Vec::with_capacity(expected.len() + 3);
+    let window = CurrentThreadWindow::open();
+    let record = Capture::read_with_buffer(&error, events);
+    let purrdf_hash::error::ErrorValue::Cause(cause) = record.field("cause") else {
+        panic!("the original record failure must remain typed");
+    };
+    let cause = Capture::read_with_buffer(cause, record.events);
+    let inspected = window.close();
+    assert_eq!(inspected.allocations, 0);
+    assert_eq!(cause.code, "json-record-unknown-variant");
+    drop(cause);
+    allocation.release_diagnostic(error).unwrap();
+    assert_eq!(memory.borrow().admitted_bytes(), 0);
+    assert_eq!(account.live, 0);
+
+    for limit in [0, 32, 1024, retained - 1] {
+        let mut account = Account::new(limit);
+        let memory = RefCell::new(Memory::new(&mut account));
+        let allocation = RecordMemory::new(&memory);
+        let window = CurrentThreadWindow::open();
+        let error = DecodeError::unknown_variant_native("offered", &expected, Some(&allocation));
+        let measured = window.close();
+        assert_eq!(error.storage_error(), Some(StorageError::AdmissionFailed));
+        assert_eq!(memory.borrow().admitted_bytes(), 0);
+        assert_eq!(measured.retained_bytes, 0);
+        drop(error);
+        assert_eq!(account.live, 0);
+        assert!(account.refused.unwrap() > limit);
+        assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= account.peak);
+    }
+}
+
+#[test]
+fn native_record_pointer_refusal_disposes_the_replaced_diagnostic_before_refund() {
+    use purrdf_lex::allocation::Memory;
+    use purrdf_lex::json::record::{DecodeError, RecordMemory, Within};
+    use std::cell::RefCell;
+
+    for mode in 0..3 {
+        let mut account = Account::new(1_000_000);
+        let memory = RefCell::new(Memory::new(&mut account));
+        let allocation = RecordMemory::new(&memory);
+        let error =
+            DecodeError::unknown_variant_native("offered", &["declared"], Some(&allocation))
+                .within_native("already", Some(&allocation));
+        assert_eq!(error.storage_error(), None);
+        let live = memory.borrow().admitted_bytes();
+        memory.borrow_mut().admission_mut().limit = live + if mode == 2 { 8 } else { 0 };
+        let error = if mode == 0 {
+            error.within_native("next", Some(&allocation))
+        } else {
+            error.within_index_native(1, Some(&allocation))
+        };
+        assert_eq!(error.storage_error(), Some(StorageError::AdmissionFailed));
+        assert_eq!(memory.borrow().admitted_bytes(), 0);
+        assert_eq!(account.live, 0);
+    }
+}
+
+#[test]
+fn native_record_json_storage_transport_keeps_the_reader_offset_without_allocating() {
+    use purrdf_lex::allocation::Memory;
+    use purrdf_lex::json::{Limits, Reader, record::DecodeError};
+    use purrdf_testkit::error_capture::Capture;
+    let mut account = Account::new(0);
+    let mut memory = Memory::new(&mut account);
+    let original = Reader::new("\n  {\"name\":\"value\"}", Limits::DEFAULT)
+        .read_value_with_memory(&mut memory)
+        .expect_err("the original grant refuses");
+    let offset = original.offset();
+    assert!(
+        offset > 0,
+        "the leading whitespace precedes the actual refusal"
+    );
+    let window = CurrentThreadWindow::open();
+    let error = DecodeError::from(original);
+    let measured = window.close();
+    assert_eq!(measured.allocations, 0);
+    assert_eq!(error.storage_error(), Some(StorageError::AdmissionFailed));
+    let cause = Capture::read(&error).child("cause");
+    assert_eq!(cause.code, "json-record-json");
+    let parser = cause.child("cause");
+    assert_eq!(parser.code, "json-document");
+    assert!(
+        matches!(parser.field("offset"), purrdf_hash::error::ErrorValue::ByteCount(value) if value == offset as u128)
+    );
+    assert_eq!(
+        parser.child("kind").child("cause").code,
+        "storage-admission-failed"
+    );
+    assert_eq!(memory.admitted_bytes(), 0);
+}
+
+#[test]
+fn reifier_target_order_uses_original_admission_and_warmed_probes_allocate_nothing() {
+    use purrdf_core::RdfDatasetBuilder;
+    use purrdf_lex::allocation::Memory;
+
+    let mut account = Account::new(1_000_000);
+    let mut memory = Memory::new(&mut account);
+    let mut builder = RdfDatasetBuilder::new();
+    let subject = builder
+        .intern_iri_with_memory("http://example.org/s", &mut memory)
+        .unwrap();
+    let predicate = builder
+        .intern_iri_with_memory("http://example.org/p", &mut memory)
+        .unwrap();
+    let target = builder
+        .intern_triple_with_memory(subject, predicate, subject, &mut memory)
+        .unwrap();
+    for name in [
+        "http://example.org/r0",
+        "http://example.org/r1",
+        "http://example.org/r2",
+    ] {
+        let reifier = builder.intern_iri_with_memory(name, &mut memory).unwrap();
+        builder
+            .push_reifier_in_graph_with_memory(reifier, target, None, &mut memory)
+            .unwrap();
+        builder
+            .push_annotation_in_graph_with_memory(reifier, predicate, subject, None, &mut memory)
+            .unwrap();
+    }
+    let mut dataset = builder.freeze_with_memory(&mut memory).unwrap();
+    let frozen = memory.admitted_bytes();
+    let bytes = 3 * (8 + 3) * size_of::<u32>();
+    let certificate = dataset.query_retained_bytes().unwrap();
+    memory.admission_mut().limit = frozen + 3 * size_of::<u32>() - 1;
+    let window = CurrentThreadWindow::open();
+    assert_eq!(
+        dataset.warm_query_indexes_with_memory(&mut memory),
+        Err(StorageError::AdmissionFailed)
+    );
+    let refused = window.close();
+    assert_eq!(refused.allocations, 0);
+    assert_eq!(memory.admitted_bytes(), frozen);
+    memory.admission_mut().limit = frozen + 3 * size_of::<u32>();
+    assert_eq!(
+        dataset.warm_query_indexes_with_memory(&mut memory),
+        Err(StorageError::AdmissionFailed)
+    );
+    assert_eq!(memory.admitted_bytes(), frozen + 3 * size_of::<u32>());
+    memory.admission_mut().limit = frozen + bytes;
+    let window = CurrentThreadWindow::open();
+    dataset.warm_query_indexes_with_memory(&mut memory).unwrap();
+    let warmed = window.close();
+    assert_eq!(
+        usize::try_from(warmed.retained_bytes).unwrap(),
+        bytes - 3 * size_of::<u32>()
+    );
+    assert_eq!(memory.admitted_bytes(), frozen + bytes);
+    assert!(memory.admitted_bytes() <= certificate);
+    let window = CurrentThreadWindow::open();
+    for _ in 0..32 {
+        assert_eq!(dataset.reifiers_of(target).count(), 3);
+        assert_eq!(dataset.reifiers_of(subject).count(), 0);
+        assert_eq!(
+            dataset
+                .annotation_quads_for_pattern(
+                    Some(predicate),
+                    Some(subject),
+                    purrdf_core::GraphMatch::Default,
+                )
+                .count(),
+            3
+        );
+        assert_eq!(
+            dataset
+                .reifier_quads_for_components(
+                    [Some(subject), Some(predicate), Some(subject)],
+                    purrdf_core::GraphMatch::Any,
+                )
+                .count(),
+            3
+        );
+        dataset.warm_query_indexes_with_memory(&mut memory).unwrap();
+    }
+    let probes = window.close();
+    assert_eq!(probes.allocations, 0);
+    assert_eq!(probes.retained_bytes, 0);
+    let retained = memory.admitted_bytes();
+    drop(dataset);
+    memory.release_bytes(retained).unwrap();
+    assert_eq!(memory.admission_mut().live, 0);
+}
+
+#[test]
+fn escaped_owned_blank_duplicate_retains_identity_without_allocating() {
+    use purrdf_core::{BlankScope, RdfDatasetBuilder, RdfTerm};
+    use purrdf_lex::allocation::Memory;
+
+    for count in [1, 4, 257, 4096] {
+        let label = "purrdfesc_π.雪".repeat(count);
+        let scope = BlankScope(u32::MAX);
+        let token = RdfTerm::BlankNode(scope.qualify_label(&label).into_owned());
+        let mut account = Account::new(usize::MAX);
+        let mut memory = Memory::new(&mut account);
+        let mut builder = RdfDatasetBuilder::new();
+        let id = builder
+            .intern_blank_with_memory(&label, scope, &mut memory)
+            .unwrap();
+        memory.admission_mut().limit = memory.admitted_bytes();
+        let window = CurrentThreadWindow::open();
+        for _ in 0..32 {
+            assert_eq!(
+                builder
+                    .intern_owned_term_scoped_with_memory(&token, BlankScope::DEFAULT, &mut memory)
+                    .unwrap(),
+                id
+            );
+        }
+        let measured = window.close();
+        assert_eq!(measured.allocations, 0);
+        assert_eq!(measured.requested_bytes, 0);
+        assert_eq!(measured.retained_bytes, 0);
+        assert_eq!(memory.admission_mut().refused, None);
+        builder.discard_with_memory(&mut memory).unwrap();
+        assert_eq!(memory.admitted_bytes(), 0);
+    }
+}
+
+#[test]
+fn percent_output_retains_exact_original_buffer_and_refuses_before_birth() {
+    use purrdf_lex::allocation::Memory;
+    use purrdf_lex::percent::{NON_ASCII, UNRESERVED, encode_with_memory};
+    use std::borrow::Cow;
+
+    let input = "é /".repeat(4096);
+    let expected = "%C3%A9%20%2F".repeat(4096);
+    let mut account = Account::new(expected.len());
+    let mut memory = Memory::new(&mut account);
+    let window = CurrentThreadWindow::open();
+    let output = encode_with_memory(&input, UNRESERVED, &mut memory).unwrap();
+    let measured = window.close();
+    assert_eq!(output, expected);
+    let Cow::Owned(output) = output else {
+        panic!("the escaped output owns its admitted destination");
+    };
+    assert_eq!(output.capacity(), memory.admitted_bytes());
+    assert_eq!(
+        usize::try_from(measured.retained_bytes).unwrap(),
+        memory.admitted_bytes()
+    );
+    assert_eq!(
+        usize::try_from(measured.peak_working_bytes).unwrap(),
+        memory.admitted_bytes()
+    );
+    memory.release_string(output).unwrap();
+    assert_eq!(memory.admitted_bytes(), 0);
+
+    let mut refused = Account::new(expected.len() - 1);
+    let window = CurrentThreadWindow::open();
+    let failure = encode_with_memory(&input, UNRESERVED, &mut Memory::new(&mut refused));
+    let measured = window.close();
+    assert_eq!(failure, Err(StorageError::AdmissionFailed));
+    assert_eq!(measured.allocations, 0);
+    assert_eq!(refused.live, 0);
+
+    let mut borrowed = Account::new(0);
+    let window = CurrentThreadWindow::open();
+    let output =
+        encode_with_memory("plain ASCII /", NON_ASCII, &mut Memory::new(&mut borrowed)).unwrap();
+    let measured = window.close();
+    assert!(matches!(output, Cow::Borrowed("plain ASCII /")));
+    assert_eq!(measured.allocations, 0);
+    assert_eq!(borrowed.live, 0);
+}
+
+#[test]
+fn large_count_compiler_retains_the_original_normalization_table_owner() {
+    let source = "a{1200,1400}".repeat(48);
+    let window = CurrentThreadWindow::open();
+    let program = xpath::compile_with_storage(
+        Profile::Xpath31,
+        &source,
+        "",
+        Limits::new(),
+        Account::new(2_000_000),
+    )
+    .unwrap();
+    let measured = window.close();
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= program.storage().peak);
+    assert_eq!(
+        usize::try_from(measured.retained_bytes).unwrap(),
+        program.storage().live
+    );
+    assert_eq!(
+        program.storage().live,
+        program.value().storage_bytes() - size_of::<xpath::CompiledPattern>()
+    );
+    let limit = program.storage().peak - 1;
+    drop(program);
+    let window = CurrentThreadWindow::open();
+    let failure = xpath::compile_with_storage(
+        Profile::Xpath31,
+        &source,
+        "",
+        Limits::new(),
+        Account::new(limit),
+    )
+    .unwrap_err();
+    let measured = window.close();
+    assert!(matches!(
+        failure.value(),
+        xpath::Error::Storage(StorageError::AdmissionFailed)
+    ));
+    assert!(failure.storage().refused.unwrap() > limit);
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= failure.storage().peak);
+    assert_eq!(measured.retained_bytes, 0);
+}
+
+#[test]
+fn large_count_relative_cache_and_choice_spills_are_admitted_before_growth() {
+    let pairs = format!("{}c", "ab".repeat(1800));
+    let choice = format!("^({}){{4096}}$", vec!["a"; 40].join("|"));
+    let run = "a".repeat(4096);
+    for (source, input, expected) in [
+        ("(ab){1200,1400}c", pairs.as_str(), Some(800..pairs.len())),
+        (choice.as_str(), run.as_str(), Some(0..run.len())),
+    ] {
+        let program = xpath::compile(Profile::Xpath31, source, "", Limits::new()).unwrap();
+        let window = CurrentThreadWindow::open();
+        let found = program
+            .find_with_storage(input, Limits::new(), Account::new(4_000_000))
+            .unwrap();
+        let measured = window.close();
+        assert_eq!(
+            found.value().as_ref().and_then(|captures| captures.get(0)),
+            expected
+        );
+        assert!(
+            usize::try_from(measured.peak_working_bytes).unwrap() <= found.storage().peak,
+            "{source}: every relative count, checkpoint and choice spill has its original owner"
+        );
+        assert_eq!(
+            usize::try_from(measured.retained_bytes).unwrap(),
+            found.storage().live
+        );
+        let limit = found.storage().peak - 1;
+        drop(found);
+        let window = CurrentThreadWindow::open();
+        let failure = program
+            .find_with_storage(input, Limits::new(), Account::new(limit))
+            .unwrap_err();
+        let measured = window.close();
+        assert!(matches!(
+            failure.value(),
+            xpath::Error::Storage(StorageError::AdmissionFailed)
+        ));
+        assert!(failure.storage().refused.unwrap() > limit);
+        assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= failure.storage().peak);
+        assert_eq!(measured.retained_bytes, 0);
+    }
+}
+
+#[test]
+fn compiler_peak_and_retained_layout_cover_actual_native_buffers() {
+    let source = "(a|b){1,20}[c-z-[d-f]]\\p{Lu}".repeat(48);
+    for flags in ["", "ix", "qsimx"] {
+        let window = CurrentThreadWindow::open();
+        let program = xpath::compile_with_storage(
+            Profile::Xpath31,
+            &source,
+            flags,
+            Limits::new(),
+            Account::new(2_000_000),
+        )
+        .unwrap();
+        let measured = window.close();
+        assert!(
+            usize::try_from(measured.peak_working_bytes).unwrap() <= program.storage().peak,
+            "flags {flags:?}: compiler heap exceeded its physical admission"
+        );
+        assert_eq!(
+            usize::try_from(measured.retained_bytes).unwrap(),
+            program.storage().live,
+            "construction scratch must be destroyed and released before publication"
+        );
+        assert_eq!(
+            program.storage().live,
+            program.value().storage_bytes() - size_of::<xpath::CompiledPattern>(),
+            "the program's source, flags, nodes, sets, links and flat tables are retained"
+        );
+        let resident = xpath::compile(Profile::Xpath31, &source, flags, Limits::new()).unwrap();
+        for input in ["", "abc", "ABCD", &source] {
+            assert_eq!(
+                program.value().is_match(input, Limits::new()),
+                resident.is_match(input, Limits::new()),
+                "physical admission must preserve the selected native law"
+            );
+        }
+    }
+}
+
+#[test]
+fn compiler_refusal_precedes_unadmitted_allocation_and_preserves_its_owner() {
+    let source = "(a|b){1,20}[c-z-[d-f]]\\p{Lu}".repeat(48);
+    for limit in [0, 32, 1024, 4096] {
+        let window = CurrentThreadWindow::open();
+        let failure = xpath::compile_with_storage(
+            Profile::Xpath31,
+            &source,
+            "ix",
+            Limits::new(),
+            Account::new(limit),
+        )
+        .unwrap_err();
+        let measured = window.close();
+        assert!(matches!(
+            failure.value(),
+            xpath::Error::Storage(StorageError::AdmissionFailed)
+        ));
+        assert!(failure.storage().refused.unwrap() > limit);
+        assert!(failure.storage().peak <= limit);
+        assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= failure.storage().peak);
+        assert_eq!(
+            measured.retained_bytes, 0,
+            "failed compiler buffers are already destroyed"
+        );
+    }
+}
+
+#[test]
+fn owned_program_drop_destroys_all_compiler_storage() {
+    let source = "((ab|cd){2,8}[a-z-[e]]?)+".repeat(32);
+    let window = CurrentThreadWindow::open();
+    let program = xpath::compile_with_storage(
+        Profile::Xpath31,
+        &source,
+        "x",
+        Limits::new(),
+        Account::new(2_000_000),
+    )
+    .unwrap();
+    assert!(program.storage().live > 0);
+    drop(program);
+    let measured = window.close();
+    assert_eq!(measured.retained_bytes, 0);
+}
+
+#[test]
+fn matcher_peak_and_retained_captures_cover_native_paths() {
+    let spill_source = "(a)".repeat(48);
+    let spill_input = "a".repeat(48);
+    let ambiguous_input = format!("{}ab", "a".repeat(8192));
+    for (source, input) in [
+        (r"(a+)\1", "aaaa"),
+        (spill_source.as_str(), spill_input.as_str()),
+        ("(a|aa){1,64}b", ambiguous_input.as_str()),
+        ("(a|aa){1,64}b", "cccc"),
+    ] {
+        let program = xpath::compile(Profile::Xpath31, source, "", Limits::new()).unwrap();
+        let expected = program.find(input, Limits::new()).unwrap();
+        let window = CurrentThreadWindow::open();
+        let found = program
+            .find_with_storage(input, Limits::new(), Account::new(4_000_000))
+            .unwrap();
+        let measured = window.close();
+        assert_eq!(found.value(), &expected, "{source}");
+        if source == "(a|aa){1,64}b" && input == ambiguous_input {
+            assert!(
+                found.storage().resets_to_zero > 0,
+                "fallback must release the abandoned machine before linear allocation"
+            );
+        }
+        assert!(
+            usize::try_from(measured.peak_working_bytes).unwrap() <= found.storage().peak,
+            "{source}: native state, spills, table rebuilds and captures must be priced"
+        );
+        assert_eq!(
+            usize::try_from(measured.retained_bytes).unwrap(),
+            found.storage().live,
+            "{source}: only captures survive the native machine"
+        );
+
+        let window = CurrentThreadWindow::open();
+        let matched = program
+            .is_match_with_storage(input, Limits::new(), Account::new(4_000_000))
+            .unwrap();
+        let measured = window.close();
+        assert_eq!(*matched.value(), expected.is_some(), "{source}");
+        assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= matched.storage().peak);
+        assert_eq!(matched.storage().live, 0);
+        assert_eq!(measured.retained_bytes, 0);
+    }
+}
+
+#[test]
+fn matcher_refusal_preserves_the_original_account_before_allocation() {
+    let source = "(a)".repeat(48);
+    let input = "a".repeat(48);
+    let program = xpath::compile(Profile::Xpath31, &source, "", Limits::new()).unwrap();
+    for limit in [0, 32, 256] {
+        let window = CurrentThreadWindow::open();
+        let failure = program
+            .find_with_storage(&input, Limits::new(), Account::new(limit))
+            .unwrap_err();
+        let measured = window.close();
+        assert!(matches!(
+            failure.value(),
+            xpath::Error::Storage(StorageError::AdmissionFailed)
+        ));
+        assert!(failure.storage().refused.unwrap() > limit);
+        assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= failure.storage().peak);
+        assert_eq!(measured.retained_bytes, 0);
+    }
+}
+
+#[test]
+fn replacement_prices_output_separately_and_releases_every_search_capture() {
+    let ambiguous_input = format!("{}ababa", "a".repeat(8192));
+    for (source, flags, input, template) in [
+        ("(ab)|(a)", "", "aba", "$2$1!"),
+        (r"(a+)\1", "", "aaaazaaaa", "$1"),
+        ("(a|aa){1,64}b", "", ambiguous_input.as_str(), "[$1]"),
+        ("a", "q", "aaa", r"$x\n"),
+        ("a", "", "zzzz", "unused"),
+    ] {
+        let program = xpath::compile(Profile::Xpath31, source, flags, Limits::new()).unwrap();
+        let expected = program.replace_all(input, template, Limits::new()).unwrap();
+        let window = CurrentThreadWindow::open();
+        let replaced = program
+            .replace_all_with_storage(
+                input,
+                template,
+                Limits::new(),
+                Account::new(4_000_000),
+                Account::new(4_000_000),
+            )
+            .unwrap();
+        let measured = window.close();
+        assert_eq!(replaced.value(), &expected, "{source}");
+        let (matcher, output) = replaced.storage();
+        assert_eq!(
+            matcher.live, 0,
+            "machine and every capture die before publication"
+        );
+        assert!(
+            usize::try_from(measured.peak_working_bytes).unwrap() <= matcher.peak + output.peak
+        );
+        assert_eq!(
+            usize::try_from(measured.retained_bytes).unwrap(),
+            output.live
+        );
+        match replaced.value() {
+            std::borrow::Cow::Borrowed(value) => {
+                assert_eq!(value.as_ptr(), input.as_ptr());
+                assert_eq!(output.live, 0);
+            }
+            std::borrow::Cow::Owned(value) => assert_eq!(output.live, value.capacity()),
+        }
+    }
+}
+
+#[test]
+fn replacement_refusals_drop_partial_output_and_keep_both_typed_accounts() {
+    let program = xpath::compile(Profile::Xpath31, "(a)", "", Limits::new()).unwrap();
+    for (matcher_limit, output_limit) in [(0, 4_000_000), (4_000_000, 0), (4_000_000, 8)] {
+        let window = CurrentThreadWindow::open();
+        let failure = program
+            .replace_all_with_storage(
+                "aaa",
+                "expanded-output",
+                Limits::new(),
+                Account::new(matcher_limit),
+                Account::new(output_limit),
+            )
+            .unwrap_err();
+        let measured = window.close();
+        assert!(matches!(
+            failure.value(),
+            xpath::Error::Storage(StorageError::AdmissionFailed)
+        ));
+        let (matcher, output) = failure.storage();
+        assert!(matcher.refused.is_some() || output.refused.is_some());
+        assert!(
+            usize::try_from(measured.peak_working_bytes).unwrap() <= matcher.peak + output.peak
+        );
+        assert_eq!(
+            measured.retained_bytes, 0,
+            "refused output is never published"
+        );
+    }
+}
+
+#[test]
+fn grammar_diagnostics_keep_original_spelling_and_exact_retained_admission() {
+    for source in ["(?é)", r"(a\1)", "[a-[b]c]", "a{2,1}", "("] {
+        let expected = xpath::compile(Profile::Xpath31, source, "", Limits::new()).unwrap_err();
+        let window = CurrentThreadWindow::open();
+        let failure = xpath::compile_with_storage(
+            Profile::Xpath31,
+            source,
+            "",
+            Limits::new(),
+            Account::new(2_000_000),
+        )
+        .unwrap_err();
+        let measured = window.close();
+        assert_eq!(
+            failure.value(),
+            &expected,
+            "{source}: original diagnostics must be preserved"
+        );
+        assert!(
+            usize::try_from(measured.peak_working_bytes).unwrap() <= failure.storage().peak,
+            "{source}: scanner spelling and rendered diagnostic must be admitted together"
+        );
+        let xpath::Error::Syntax { message, .. } = failure.value() else {
+            panic!("{source}: expected the native grammar diagnostic");
+        };
+        assert_eq!(
+            usize::try_from(measured.retained_bytes).unwrap(),
+            message.capacity()
+        );
+        assert_eq!(
+            failure.storage().live,
+            message.capacity(),
+            "all parser/scanner/construction scratch died before diagnostic publication"
+        );
+    }
+}
+
+#[test]
+fn diagnostic_capacity_refusal_precedes_allocating_or_publishing_partial_text() {
+    let source = "(?é)";
+    let baseline = xpath::compile_with_storage(
+        Profile::Xpath31,
+        source,
+        "",
+        Limits::new(),
+        Account::new(2_000_000),
+    )
+    .unwrap_err();
+    let peak = baseline.storage().peak;
+    for limit in [0, peak / 2, peak - 1] {
+        let window = CurrentThreadWindow::open();
+        let failure = xpath::compile_with_storage(
+            Profile::Xpath31,
+            source,
+            "",
+            Limits::new(),
+            Account::new(limit),
+        )
+        .unwrap_err();
+        let measured = window.close();
+        assert!(matches!(
+            failure.value(),
+            xpath::Error::Storage(StorageError::AdmissionFailed)
+        ));
+        assert!(failure.storage().refused.unwrap() > limit);
+        assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= failure.storage().peak);
+        assert_eq!(
+            measured.retained_bytes, 0,
+            "partial diagnostic text is destroyed on refusal"
+        );
+    }
+}
+
+#[test]
+fn diagnostic_retained_layout_includes_private_presentation_and_location() {
+    use purrdf_core::{
+        DiagnosticParameter, DiagnosticPresentation, DiagnosticValue, RdfDiagnostic, RdfLocation,
+    };
+    use purrdf_hash::error::ErrorValue;
+    use purrdf_testkit::error_capture::Capture;
+    let window = CurrentThreadWindow::open();
+    let presentation = DiagnosticPresentation::new(
+        "query.failure",
+        "failure at {offset}: {reason}",
+        vec![
+            DiagnosticParameter::new("offset", DiagnosticValue::Unsigned((1 << 53) + 7)),
+            DiagnosticParameter::new(
+                "reason",
+                DiagnosticValue::Text("exact original reason".repeat(7)),
+            ),
+        ],
+    )
+    .unwrap()
+    .with_detail(DiagnosticPresentation::new("query.detail", "independent detail", vec![]).unwrap())
+    .unwrap();
+    let diagnostic = RdfDiagnostic::error("typed-failure", "")
+        .with_presentation(presentation)
+        .with_location(
+            RdfLocation::file("source.rdf")
+                .with_line(u64::MAX)
+                .with_column(u32::MAX)
+                .with_gts_term(u64::MAX)
+                .with_gts_quad((1 << 53) + 7),
+        )
+        .with_detail("retained secondary text");
+    let measured = window.close();
+    assert_eq!(
+        usize::try_from(measured.retained_bytes).unwrap(),
+        diagnostic.retained_bytes().unwrap(),
+        "all private arrays, boxes, presentation arguments and text remain covered"
+    );
+
+    let events = Vec::with_capacity(8);
+    let window = CurrentThreadWindow::open();
+    let record = Capture::read_with_buffer(&diagnostic, events);
+    assert_eq!(window.close().allocations, 0);
+    assert_eq!(record.code, "rdf-diagnostic");
+    assert_eq!(record.child("severity").code, "error");
+    assert!(matches!(
+        record.field("code"),
+        ErrorValue::Code("typed-failure")
+    ));
+    let location = record.child("location");
+    assert!(matches!(
+        location.field("path"),
+        ErrorValue::Text("source.rdf")
+    ));
+    for (name, expected) in [
+        ("line", u128::from(u64::MAX)),
+        ("column", u128::from(u32::MAX)),
+        ("gts_term_id", u128::from(u64::MAX)),
+        ("gts_quad_index", (1_u128 << 53) + 7),
+    ] {
+        assert!(matches!(location.field(name), ErrorValue::Unsigned(value) if value == expected));
+    }
+    assert!(matches!(location.field("logical"), ErrorValue::Absent));
+    let attachments = record.child("attachments");
+    assert!(matches!(attachments.field("storage"), ErrorValue::Absent));
+    assert!(matches!(
+        attachments.child("presentation").field("message_id"),
+        ErrorValue::Code("query.failure")
+    ));
+
+    struct Count(usize);
+    impl std::fmt::Write for Count {
+        fn write_str(&mut self, value: &str) -> std::fmt::Result {
+            self.0 += value.len();
+            Ok(())
+        }
+    }
+    let mut destination = Count(0);
+    let window = CurrentThreadWindow::open();
+    std::fmt::write(&mut destination, format_args!("{diagnostic}")).unwrap();
+    let measured = window.close();
+    assert!(destination.0 > diagnostic.message.len());
+    assert_eq!(
+        measured.allocations, 0,
+        "native rendering must not allocate hidden location scratch"
+    );
+}
+
+#[test]
+fn diagnostic_render_admits_code_and_message_before_each_real_allocation() {
+    use purrdf_core::RdfDiagnostic;
+    use purrdf_lex::allocation::Memory;
+    let source = "diagnostic original borrowed text".repeat(64);
+    let mut account = Account::new(1_000_000);
+    let window = CurrentThreadWindow::open();
+    let diagnostic = {
+        let mut memory = Memory::new(&mut account);
+        RdfDiagnostic::try_error_with_memory("native-query", &source, &mut memory).unwrap()
+    };
+    let measured = window.close();
+    assert_eq!(diagnostic.message, source);
+    assert_eq!(
+        usize::try_from(measured.retained_bytes).unwrap(),
+        diagnostic.retained_bytes().unwrap()
+    );
+    assert_eq!(diagnostic.retained_bytes().unwrap(), account.live);
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= account.peak);
+    drop(diagnostic);
+
+    for limit in [0, 5, source.len() / 2] {
+        let mut account = Account::new(limit);
+        let window = CurrentThreadWindow::open();
+        let error = {
+            let mut memory = Memory::new(&mut account);
+            RdfDiagnostic::try_error_with_memory("native-query", &source, &mut memory).unwrap_err()
+        };
+        let measured = window.close();
+        assert_eq!(error, StorageError::AdmissionFailed);
+        let native = purrdf_core::NativeBuildError::Storage(error);
+        let native_record = purrdf_testkit::error_capture::Capture::read(&native);
+        assert_eq!(native_record.code, "native-build-storage");
+        assert_eq!(
+            native_record.child("cause").code,
+            "storage-admission-failed"
+        );
+        let diagnostic = RdfDiagnostic::from(error);
+        assert_eq!(
+            purrdf_testkit::error_capture::Capture::read(&diagnostic)
+                .child("attachments")
+                .child("storage")
+                .code,
+            "storage-admission-failed"
+        );
+        assert!(account.refused.unwrap() > limit);
+        assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= account.peak);
+        assert_eq!(
+            measured.retained_bytes, 0,
+            "partial diagnostic dies while its grant remains live"
+        );
+    }
+}
+
+fn compatibility(source: &str, flags: &str) -> xpath::OwnedCompatibilityPattern<Account> {
+    xpath::compile_compatibility_with_storage(
+        source,
+        flags,
+        Limits::without_presets(),
+        Account::new(16_000_000),
+    )
+    .unwrap()
+}
+
+fn compatibility_parity(source: &str, flags: &str, inputs: &[&str]) {
+    let old = purrdf_core::xsd_regex::compile(source, flags).unwrap();
+    let admitted = compatibility(source, flags);
+    for &input in inputs {
+        let found = admitted
+            .value()
+            .find_with_storage(input, Limits::without_presets(), Account::new(16_000_000))
+            .unwrap();
+        let expected = old.as_regex().captures(input);
+        assert_eq!(
+            found.value().is_some(),
+            expected.is_some(),
+            "{source:?}, {flags:?}, {input:?}"
+        );
+        if let (Some(actual), Some(expected)) = (found.value(), expected.as_ref()) {
+            assert_eq!(actual.len(), expected.len());
+            for capture in 0..actual.len() {
+                assert_eq!(
+                    actual.get(capture),
+                    expected.get(capture).map(|span| span.range()),
+                    "{source:?}, {flags:?}, {input:?}, capture {capture}"
+                );
+            }
+        }
+        let matched = admitted
+            .value()
+            .is_match_with_storage(input, Limits::without_presets(), Account::new(16_000_000))
+            .unwrap();
+        assert_eq!(
+            *matched.value(),
+            old.is_match(input),
+            "{source:?}, {flags:?}, {input:?}"
+        );
+    }
+}
+
+#[test]
+fn compatibility_preserves_unicode16_simple_fold_properties_names_and_set_order() {
+    let inputs = [
+        "",
+        "A",
+        "a",
+        "I",
+        "i",
+        "ı",
+        "İ",
+        "ſ",
+        "s",
+        "K",
+        "\u{212a}",
+        "Σ",
+        "σ",
+        "ς",
+        "é",
+        ":",
+        "_",
+        "-",
+        "\u{10000}",
+        "\u{A7CE}",
+        "\u{A7CF}",
+    ];
+    for source in [
+        r"\p{Lu}",
+        r"\P{Lu}",
+        r"\p{Ll}",
+        r"\p{Cn}",
+        r"\p{C}",
+        r"\w",
+        r"\W",
+        r"\i",
+        r"\I",
+        r"\c",
+        r"\C",
+        r"[\i-[A-Z]]",
+        r"[^A-Z-[IO]]",
+        r"[a-z-[aeiou]]",
+        r"\p{IsBasicLatin}",
+        r"\P{IsBasicLatin}",
+        r"\p{IsHighSurrogates}",
+        r"\P{IsHighSurrogates}",
+        "i",
+        "s",
+        "Σ",
+        "\u{A7CE}",
+    ] {
+        for flags in ["", "i"] {
+            compatibility_parity(source, flags, &inputs);
+        }
+    }
+    // These two letters were added in Unicode 17; compatibility remains at 16.
+    let old = purrdf_core::xsd_regex::compile(r"\p{Lu}", "").unwrap();
+    assert!(!old.is_match("\u{A7CE}"));
+    assert!(
+        *compatibility(r"\p{Cn}", "")
+            .value()
+            .is_match_with_storage(
+                "\u{A7CE}",
+                Limits::without_presets(),
+                Account::new(16_000_000)
+            )
+            .unwrap()
+            .value()
+    );
+    assert!(
+        !*compatibility("\u{A7CE}", "i")
+            .value()
+            .is_match_with_storage(
+                "\u{A7CF}",
+                Limits::without_presets(),
+                Account::new(16_000_000)
+            )
+            .unwrap()
+            .value()
+    );
+}
+
+#[test]
+fn compatibility_preserves_final_newline_anchors_dot_q_x_and_liberal_escapes() {
+    let inputs = [
+        "", "a", "a\n", "\n", "a\r", "\r\n", "a b#c", "A B#C", "a.c", "aé", "&~",
+    ];
+    for source in [
+        "^", "$", "^$", "a$", "^a", ".", ".*", "a|$", "(?:a)?", r"\&\~", r"[a-\~]",
+    ] {
+        for flags in ["", "i", "m", "s", "ims"] {
+            compatibility_parity(source, flags, &inputs);
+        }
+    }
+    for (source, flags) in [
+        ("a b#c", "qsimx"),
+        ("a.c", "q"),
+        ("I", "qi"),
+        (" a  b # c ", "x"),
+    ] {
+        compatibility_parity(source, flags, &inputs);
+    }
+}
+
+#[test]
+fn compatibility_preserves_nullable_repeat_capture_priority() {
+    let inputs = ["", "a", "aa", "aaa", "aaaa", "ab", "aab", "b", "é", "a\n"];
+    for source in [
+        "(a*)*",
+        "(a?)*",
+        "(a?)+",
+        "((a?)*)",
+        "(a*)+",
+        "(a?){0,2}",
+        "(a?){2,5}",
+        "(a?){2,5}?",
+        "((a)?){1,3}",
+        "(a|aa)*b",
+        "(|a)*",
+        "(|a)+",
+        "^(a*?)*$",
+        "((a|)*)?",
+        "(a*)*?",
+        "(?:((a?)*)|a)",
+    ] {
+        compatibility_parity(source, "", &inputs);
+    }
+}
+
+#[test]
+fn compatibility_replacement_preserves_empty_match_suppression_utf8_and_template_law() {
+    for (source, flags) in [
+        ("", ""),
+        ("a*", ""),
+        ("a*|b", ""),
+        ("(a*)*", ""),
+        ("(a?){0,2}", ""),
+        ("(a?){0,2}b", ""),
+        ("((a)?){0,3}b", ""),
+        ("(a?){2,5}", ""),
+        ("^$", "m"),
+        ("$", "m"),
+        ("", "q"),
+        (".", "q"),
+    ] {
+        let old = purrdf_core::xsd_regex::compile(source, flags).unwrap();
+        let admitted = compatibility(source, flags);
+        for input in ["", "a", "aba", "aé", "éé", "a\n"] {
+            for replacement in ["|", "$0", "$1:$0", "$23", r"\$\\", "é", "$", r"\x"] {
+                let expected = old.replace_all(input, replacement);
+                let actual = admitted.value().replace_all_with_storage(
+                    input,
+                    replacement,
+                    Limits::without_presets(),
+                    Account::new(16_000_000),
+                    Account::new(16_000_000),
+                );
+                match (expected, actual) {
+                    (Ok(expected), Ok(actual)) => assert_eq!(
+                        actual.value().as_ref(),
+                        expected.as_ref(),
+                        "{source:?}, {flags:?}, {input:?}, {replacement:?}"
+                    ),
+                    (Err(_), Err(actual)) => {
+                        assert!(matches!(actual.value(), xpath::Error::Replacement(_)));
+                    }
+                    (expected, actual) => panic!(
+                        "replacement parity: {source:?}, {flags:?}, {input:?}, {replacement:?}: {expected:?} / {actual:?}"
+                    ),
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn compatibility_refuses_original_non_grammar_constructs_and_keeps_dated_semantics() {
+    for source in [
+        r"(a)\1",
+        r"\b",
+        r"\x41",
+        r"\0",
+        "(?i)a",
+        "(?=a)",
+        "(?<name>a)",
+        r"\p{IsGreek}",
+        r"\p{Cs}",
+        "[",
+        "a{2,1}",
+    ] {
+        assert!(
+            purrdf_core::xsd_regex::compile(source, "").is_err(),
+            "old {source}"
+        );
+        let failure = xpath::compile_compatibility_with_storage(
+            source,
+            "",
+            Limits::without_presets(),
+            Account::new(16_000_000),
+        )
+        .unwrap_err();
+        assert!(!failure.value().is_operational(), "grammar {source}");
+    }
+    let old = xpath::compile(Profile::Xpath31, "(a)\\1", "", Limits::new()).unwrap();
+    assert!(old.is_match("aa", Limits::new()).unwrap());
+    assert!(xpath::compile(Profile::Xpath31, r"\&", "", Limits::new()).is_err());
+    assert!(
+        xpath::compile(Profile::Xpath31, "^$", "m", Limits::new())
+            .unwrap()
+            .find("a\n", Limits::new())
+            .unwrap()
+            .is_none()
+    );
+    assert!(matches!(
+        xpath::compile(Profile::Xpath31, "", "", Limits::new())
+            .unwrap()
+            .replace_all("a", "x", Limits::new()),
+        Err(xpath::Error::EmptyMatch)
+    ));
+}
+
+#[test]
+fn compatibility_native_compiler_and_execution_cover_actual_physical_allocations() {
+    let source = "((a?){2,5}[A-Z-[IO]]?)*\\p{Lu}\\i".repeat(8);
+    let window = CurrentThreadWindow::open();
+    let admitted = xpath::compile_compatibility_with_storage(
+        &source,
+        "ix",
+        Limits::without_presets(),
+        Account::new(16_000_000),
+    )
+    .unwrap();
+    let measured = window.close();
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= admitted.storage().peak);
+    assert_eq!(
+        usize::try_from(measured.retained_bytes).unwrap(),
+        admitted.storage().live
+    );
+    let compiled = compatibility("(a*)*", "");
+    let window = CurrentThreadWindow::open();
+    let captured = compiled
+        .value()
+        .find_with_storage("aaaa", Limits::without_presets(), Account::new(16_000_000))
+        .unwrap();
+    let measured = window.close();
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= captured.storage().peak);
+    assert_eq!(
+        usize::try_from(measured.retained_bytes).unwrap(),
+        captured.storage().live
+    );
+    let window = CurrentThreadWindow::open();
+    let replaced = compiled
+        .value()
+        .replace_all_with_storage(
+            "aéaé",
+            "$1|",
+            Limits::without_presets(),
+            Account::new(16_000_000),
+            Account::new(16_000_000),
+        )
+        .unwrap();
+    let measured = window.close();
+    assert!(
+        usize::try_from(measured.peak_working_bytes).unwrap()
+            <= replaced.storage().0.peak + replaced.storage().1.peak
+    );
+    assert_eq!(
+        usize::try_from(measured.retained_bytes).unwrap(),
+        replaced.storage().1.live
+    );
+}
+
+#[test]
+fn compatibility_physical_refusal_and_native_diagnostics_keep_original_accounts() {
+    for source in [
+        "(a*)*",
+        "(?<an_unrecognized_group>",
+        r"(a)\999999999999999999999999999",
+    ] {
+        let window = CurrentThreadWindow::open();
+        let failure = xpath::compile_compatibility_with_storage(
+            source,
+            "",
+            Limits::without_presets(),
+            Account::new(0),
+        )
+        .unwrap_err();
+        let measured = window.close();
+        assert!(matches!(
+            failure.value(),
+            xpath::Error::Storage(StorageError::AdmissionFailed)
+        ));
+        assert_eq!(measured.peak_working_bytes, 0);
+        assert_eq!(measured.retained_bytes, 0);
+        assert!(failure.storage().refused.is_some());
+    }
+    let pattern = compatibility("(a*)*", "");
+    let window = CurrentThreadWindow::open();
+    let failure = pattern
+        .value()
+        .replace_all_with_storage(
+            "aé",
+            "|",
+            Limits::without_presets(),
+            Account::new(0),
+            Account::new(16_000_000),
+        )
+        .unwrap_err();
+    let measured = window.close();
+    assert!(matches!(
+        failure.value(),
+        xpath::Error::Storage(StorageError::AdmissionFailed)
+    ));
+    assert_eq!(measured.peak_working_bytes, 0);
+    assert!(failure.storage().0.refused.is_some());
+}
+
+#[test]
+fn uchar_expansion_admits_its_real_utf8_capacity_and_preserves_malformed_bytes() {
+    use purrdf_lex::allocation::Memory;
+    use purrdf_lex::terminals::{expand_uchars, expand_uchars_with_memory};
+    for input in [
+        "urn:plain",
+        "urn:é",
+        r"urn:\u00E9",
+        r"urn:\U0001F431",
+        r"urn:\u+041",
+        r"urn:\uD800",
+        r"urn:\U00110000",
+        r"a\u0041\u+041\\u0042",
+        "\\",
+        "é\\u0041é",
+    ] {
+        let expected = expand_uchars(input);
+        let mut account = Account::new(input.len());
+        let window = CurrentThreadWindow::open();
+        let mut memory = Memory::new(&mut account);
+        let actual = expand_uchars_with_memory(input, &mut memory).unwrap();
+        let live = memory.admitted_bytes();
+        let measured = window.close();
+        assert_eq!(actual, expected, "{input}");
+        assert_eq!(usize::try_from(measured.retained_bytes).unwrap(), live);
+        assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= live);
+        match actual {
+            std::borrow::Cow::Borrowed(value) => {
+                assert!(std::ptr::eq(value, input));
+                assert_eq!(live, 0);
+            }
+            std::borrow::Cow::Owned(value) => {
+                assert_eq!(live, value.capacity());
+                assert_eq!(value.capacity(), input.len());
+                memory.release_string(value).unwrap();
+                assert_eq!(memory.admitted_bytes(), 0);
+            }
+        }
+    }
+}
+
+#[test]
+fn uchar_expansion_refuses_before_allocation_and_borrowed_input_needs_no_grant() {
+    use purrdf_lex::allocation::Memory;
+    use purrdf_lex::terminals::expand_uchars_with_memory;
+    for input in [r"urn:\u0041", r"urn:\u+041", "\\"] {
+        let mut account = Account::new(0);
+        let window = CurrentThreadWindow::open();
+        let mut memory = Memory::new(&mut account);
+        let refused = expand_uchars_with_memory(input, &mut memory).unwrap_err();
+        let measured = window.close();
+        assert_eq!(refused, StorageError::AdmissionFailed);
+        assert_eq!(memory.admitted_bytes(), 0);
+        assert_eq!(measured.peak_working_bytes, 0);
+        assert_eq!(measured.retained_bytes, 0);
+    }
+    let mut account = Account::new(0);
+    let mut memory = Memory::new(&mut account);
+    assert!(matches!(
+        expand_uchars_with_memory("urn:é", &mut memory).unwrap(),
+        std::borrow::Cow::Borrowed("urn:é")
+    ));
+    assert_eq!(memory.admitted_bytes(), 0);
+}
+
+#[test]
+fn native_string_append_covers_old_and_new_buffers_with_amortized_growth() {
+    use purrdf_lex::allocation::Memory;
+    let mut account = Account::new(16_384);
+    let window = CurrentThreadWindow::open();
+    let mut memory = Memory::new(&mut account);
+    let mut text = String::new();
+    let mut replacements = 0;
+    let mut previous_capacity = 0;
+    for _ in 0..1024 {
+        memory.push_str(&mut text, "é").unwrap();
+        if text.capacity() != previous_capacity {
+            replacements += 1;
+            if previous_capacity != 0 {
+                assert_eq!(text.capacity(), previous_capacity * 2);
+            }
+            previous_capacity = text.capacity();
+        }
+    }
+    memory.push_char(&mut text, '🐱').unwrap();
+    assert!(text.starts_with("éé"));
+    assert!(text.ends_with('🐱'));
+    assert_eq!(text.len(), 2052);
+    assert!(
+        replacements <= 11,
+        "growth must not allocate for every splice fragment"
+    );
+    let live = memory.admitted_bytes();
+    assert_eq!(live, text.capacity());
+    let measured = window.close();
+    memory.release_string(text).unwrap();
+    assert_eq!(memory.admitted_bytes(), 0);
+    assert_eq!(account.live, 0);
+    assert_eq!(usize::try_from(measured.retained_bytes).unwrap(), live);
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= account.peak);
+    assert!(
+        account.peak > live,
+        "buffer replacement must cover overlapping old and new layouts"
+    );
+}
+
+#[test]
+fn native_string_append_refusal_preserves_original_buffer_and_utf8() {
+    use purrdf_lex::allocation::Memory;
+    let mut account = Account::new(5);
+    let window = CurrentThreadWindow::open();
+    let mut memory = Memory::new(&mut account);
+    let mut text = memory.string("é").unwrap();
+    let original = text.as_ptr();
+    assert_eq!(
+        memory.push_str(&mut text, "ab"),
+        Err(StorageError::AdmissionFailed)
+    );
+    assert_eq!(text, "é");
+    assert_eq!(text.as_ptr(), original);
+    assert_eq!(text.capacity(), 2);
+    assert_eq!(memory.admitted_bytes(), 2);
+    let measured = window.close();
+    memory.release_string(text).unwrap();
+    assert_eq!(account.refused, Some(6));
+    assert_eq!(account.peak, 2);
+    assert_eq!(measured.peak_working_bytes, 2);
+    assert_eq!(measured.retained_bytes, 2);
+}
+
+#[test]
+fn native_iri_recognition_preserves_the_exact_resident_law_without_owned_success_text() {
+    use purrdf_lex::allocation::Memory;
+    for input in [
+        "http://example.org/é?q=é#é",
+        "urn:plain",
+        "/relative",
+        "http://host/%41",
+        "",
+        "urn:bad%",
+        "urn:<bad>",
+        "http://host:abc",
+        "1bad:scheme",
+    ] {
+        let expected = purrdf_iri::is_absolute(input);
+        let mut account = Account::new(0);
+        let window = CurrentThreadWindow::open();
+        let mut memory = Memory::new(&mut account);
+        let actual = purrdf_iri::is_absolute_with_memory(input, &mut memory);
+        match (actual, expected) {
+            (Ok(actual), Ok(expected)) => assert_eq!(actual, expected),
+            (Err(purrdf_iri::IriReadError::Lexical(actual)), Err(expected)) => {
+                assert_eq!(actual, expected);
+            }
+            _ => panic!("native and resident recognition differ for {input}"),
+        }
+        let measured = window.close();
+        assert_eq!(memory.admitted_bytes(), 0);
+        assert_eq!(
+            measured.allocations, 0,
+            "recognition owns no discarded text"
+        );
+        assert_eq!(measured.retained_bytes, 0);
+    }
+}
+
+#[test]
+fn native_iri_dynamic_error_keeps_its_exact_message_and_original_capacity() {
+    use purrdf_lex::allocation::Memory;
+    let input = format!("http://[{}]", "badé".repeat(2048));
+    let expected = purrdf_iri::is_absolute(&input).unwrap_err();
+    let mut account = Account::new(1_000_000);
+    let window = CurrentThreadWindow::open();
+    let mut memory = Memory::new(&mut account);
+    let purrdf_iri::IriReadError::Lexical(error) =
+        purrdf_iri::is_absolute_with_memory(&input, &mut memory).unwrap_err()
+    else {
+        panic!("generous physical admission must preserve lexical error");
+    };
+    let measured = window.close();
+    assert_eq!(error, expected);
+    let purrdf_iri::IriError::BadAuthority(purrdf_iri::AuthorityError::InvalidIpv6 {
+        address,
+        offset,
+    }) = error
+    else {
+        panic!("invalid IPv6 must retain its original address and offset");
+    };
+    assert_eq!(offset, 8);
+    assert_eq!(address, "badé".repeat(2048));
+    assert_eq!(memory.admitted_bytes(), address.capacity());
+    assert_eq!(
+        usize::try_from(measured.retained_bytes).unwrap(),
+        address.capacity()
+    );
+    memory.release_string(address).unwrap();
+    assert_eq!(memory.admitted_bytes(), 0);
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= account.peak);
+}
+
+#[test]
+fn native_iri_diagnostic_storage_refusal_is_not_a_lexical_failure_or_success() {
+    use purrdf_lex::allocation::Memory;
+    let input = format!("http://[{}]", "badé".repeat(2048));
+    for limit in [0, 16, 1024, 8192] {
+        let mut account = Account::new(limit);
+        let window = CurrentThreadWindow::open();
+        let failure = purrdf_iri::is_absolute_with_memory(&input, &mut Memory::new(&mut account))
+            .unwrap_err();
+        let measured = window.close();
+        assert!(matches!(
+            failure,
+            purrdf_iri::IriReadError::Storage(StorageError::AdmissionFailed)
+        ));
+        assert!(account.refused.unwrap() > limit);
+        assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= account.peak);
+        assert_eq!(measured.retained_bytes, 0);
+    }
+}
+
+#[test]
+fn native_scoped_blank_ingress_preserves_identity_refusal_and_original_admission() {
+    use purrdf_core::{BlankScope, RdfDatasetBuilder, TermRef};
+    use purrdf_lex::allocation::Memory;
+
+    let mut builder = RdfDatasetBuilder::new();
+    let mut account = Account::new(64 * 1024);
+    let mut memory = Memory::new(&mut account);
+    let mut identities = [None; 128];
+    let window = CurrentThreadWindow::open();
+    for scope in (1..=128_u32).rev() {
+        let id = builder
+            .intern_blank_with_memory("same", BlankScope(scope), &mut memory)
+            .unwrap();
+        identities[usize::try_from(scope - 1).unwrap()] = Some(id);
+    }
+    let measured = window.close();
+    assert_eq!(builder.blank_identities().count(), 128);
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= memory.admission_mut().peak);
+    assert!(usize::try_from(measured.retained_bytes).unwrap() <= memory.admitted_bytes());
+
+    let window = CurrentThreadWindow::open();
+    for (index, id) in identities.iter().enumerate() {
+        let scope = BlankScope(u32::try_from(index + 1).unwrap());
+        let id = id.expect("every scope was interned");
+        assert_eq!(
+            builder.intern_blank_with_memory("same", scope, &mut memory),
+            Ok(id)
+        );
+        assert!(matches!(
+            builder.resolve(id),
+            TermRef::Blank { label: "same", scope: actual } if actual == scope
+        ));
+    }
+    assert_eq!(window.close().allocations, 0);
+
+    // The next distinct scope needs physical growth. Deny additional storage,
+    // while preserving all original identities and their retained admission.
+    let original = memory.admitted_bytes();
+    memory.admission_mut().limit = original;
+    let window = CurrentThreadWindow::open();
+    assert_eq!(
+        builder.intern_blank_with_memory("same", BlankScope(129), &mut memory),
+        Err(StorageError::AdmissionFailed)
+    );
+    assert_eq!(window.close().allocations, 0);
+    assert_eq!(memory.admitted_bytes(), original);
+    assert_eq!(builder.blank_identities().count(), 128);
+
+    memory.admission_mut().limit = 64 * 1024;
+    let next = builder
+        .intern_blank_with_memory("same", BlankScope(129), &mut memory)
+        .unwrap();
+    assert!(matches!(
+        builder.resolve(next),
+        TermRef::Blank {
+            label: "same",
+            scope: BlankScope(129)
+        }
+    ));
+    assert_eq!(builder.blank_identities().count(), 129);
+
+    let retained = memory.admitted_bytes();
+    let window = CurrentThreadWindow::open();
+    drop(builder);
+    let destroyed = window.close();
+    assert_eq!(destroyed.allocations, 0);
+    assert!(destroyed.retained_bytes < 0);
+    assert_eq!(
+        memory.admitted_bytes(),
+        retained,
+        "grant survives payload destruction"
+    );
+    memory.release_bytes(retained).unwrap();
+    assert_eq!(memory.admitted_bytes(), 0);
+    assert_eq!(memory.admission_mut().live, 0);
+}
+
+#[test]
+fn native_graph_append_refuses_transactionally_before_copying_the_destination() {
+    use purrdf_core::{RdfDatasetBuilder, TermRef};
+    use purrdf_lex::allocation::Memory;
+    let mut destination = RdfDatasetBuilder::new();
+    let subject = destination
+        .intern_iri("http://example.org/existing")
+        .unwrap();
+    let predicate = destination.intern_iri("http://example.org/p").unwrap();
+    destination
+        .push_quad(subject, predicate, subject, None)
+        .unwrap();
+    let pointer = match destination.resolve(subject) {
+        TermRef::Iri(iri) => iri.as_ptr(),
+        _ => unreachable!(),
+    };
+    let mut source = RdfDatasetBuilder::new();
+    let value = source.intern_iri("http://example.org/new").unwrap();
+    let property = source.intern_iri("http://example.org/p").unwrap();
+    source.push_quad(value, property, value, None).unwrap();
+    let source = source.validate().unwrap();
+    let mut account = Account::new(0);
+    let mut memory = Memory::new(&mut account);
+    let window = CurrentThreadWindow::open();
+    assert_eq!(
+        memory
+            .add_bytes(destination.native_buffer_bytes().unwrap())
+            .and_then(|()| { destination.append_validated_with_memory(&source, &mut memory) }),
+        Err(StorageError::AdmissionFailed)
+    );
+    assert_eq!(window.close().allocations, 0);
+    let after = match destination.resolve(subject) {
+        TermRef::Iri(iri) => iri.as_ptr(),
+        _ => unreachable!(),
+    };
+    assert_eq!(pointer, after, "refusal must preserve the original arena");
+    let destination = destination.freeze().unwrap();
+    assert_eq!(destination.quad_count(), 1);
+}
+
+#[test]
+fn native_description_symmetric_duplicate_quads_cover_scratch_growth_and_release() {
+    use purrdf_core::RdfDatasetBuilder;
+    use purrdf_core::describe::Describer;
+    use purrdf_lex::allocation::Memory;
+
+    let mut builder = RdfDatasetBuilder::new();
+    let subject = builder.intern_iri("http://example.org/subject").unwrap();
+    let predicate = builder.intern_iri("http://example.org/p").unwrap();
+    for index in 0..3 {
+        let object = builder
+            .intern_iri(&format!("http://example.org/object{index}"))
+            .unwrap();
+        builder.push_quad(subject, predicate, object, None).unwrap();
+    }
+    let graph = builder.freeze().unwrap();
+    let mut account = Account::new(1_000_000);
+    let mut memory = Memory::new(&mut account);
+    let window = CurrentThreadWindow::open();
+    let extractor = Describer::try_new_with_memory(graph.as_ref(), &mut memory).unwrap();
+    let description = extractor
+        .describe_iris_with_memory(
+            ["http://example.org/subject", "http://example.org/object0"],
+            &mut memory,
+        )
+        .unwrap();
+    extractor.release_with_memory(&mut memory).unwrap();
+    let measured = window.close();
+    assert_eq!(description.quad_count(), 3);
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= memory.admission_mut().peak);
+    assert_eq!(
+        usize::try_from(measured.retained_bytes).unwrap(),
+        memory.admitted_bytes()
+    );
+    let original = memory.admitted_bytes();
+    drop(description);
+    memory.release_bytes(original).unwrap();
+    assert_eq!(memory.admitted_bytes(), 0);
+    assert_eq!(memory.admission_mut().live, 0);
+}
+
+#[test]
+fn native_graph_append_and_describe_cover_original_buffers_and_preserve_scoped_blanks() {
+    use purrdf_core::describe::Describer;
+    use purrdf_core::{BlankScope, RdfDatasetBuilder, RdfLocation, TermRef};
+    use purrdf_lex::allocation::Memory;
+    let mut destination = RdfDatasetBuilder::new();
+    let original = destination
+        .intern_iri("http://example.org/original")
+        .unwrap();
+    let property = destination.intern_iri("http://example.org/p").unwrap();
+    destination
+        .push_quad(original, property, original, None)
+        .unwrap();
+    let mut source = RdfDatasetBuilder::new();
+    let blank = source.intern_blank("shared", BlankScope(1)).unwrap();
+    let p = source.intern_iri("http://example.org/p").unwrap();
+    let subject = source.intern_iri("http://example.org/subject").unwrap();
+    let reifier = source.intern_iri("http://example.org/reifier").unwrap();
+    let graph = source.intern_iri("http://example.org/graph").unwrap();
+    let triple = source.intern_triple(subject, p, blank).unwrap();
+    let handle = source.next_quad_handle().unwrap();
+    source.push_quad(subject, p, blank, Some(graph)).unwrap();
+    source.attach_location(handle, RdfLocation::file("source.ttl").with_line(12));
+    source
+        .push_reifier_in_graph(reifier, triple, Some(graph))
+        .unwrap();
+    source
+        .push_annotation_in_graph(reifier, p, blank, Some(graph))
+        .unwrap();
+    let source = source.validate().unwrap();
+    let mut account = Account::new(4_000_000);
+    let mut memory = Memory::new(&mut account);
+    memory
+        .add_bytes(destination.native_buffer_bytes().unwrap())
+        .unwrap();
+    let window = CurrentThreadWindow::open();
+    assert!(
+        destination
+            .append_validated_with_memory(&source, &mut memory)
+            .unwrap()
+            > 0
+    );
+    assert!(matches!(
+        destination.resolve(original),
+        TermRef::Iri("http://example.org/original")
+    ));
+    let mut graph = destination.freeze_with_memory(&mut memory).unwrap();
+    graph.warm_query_indexes_with_memory(&mut memory).unwrap();
+    let measured = window.close();
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= memory.admission_mut().peak);
+    assert!(usize::try_from(measured.retained_bytes).unwrap() <= memory.admitted_bytes());
+    assert_eq!(graph.quad_count(), 2);
+    assert_eq!(graph.reifiers().count(), 1);
+    assert_eq!(graph.annotations().count(), 1);
+    let graph_live = memory.admitted_bytes();
+    let window = CurrentThreadWindow::open();
+    let extractor = Describer::try_new_with_memory(&graph, &mut memory).unwrap();
+    let description = extractor
+        .describe_iris_with_memory(["http://example.org/subject"], &mut memory)
+        .unwrap();
+    extractor.release_with_memory(&mut memory).unwrap();
+    let measured = window.close();
+    assert!(usize::try_from(measured.peak_working_bytes).unwrap() <= memory.admission_mut().peak);
+    assert_eq!(description.quad_count(), 1);
+    assert_eq!(description.reifiers().count(), 1);
+    assert_eq!(description.annotations().count(), 1);
+    let total = memory.admitted_bytes();
+    drop(description);
+    memory.release_bytes(total - graph_live).unwrap();
+    assert_eq!(memory.admitted_bytes(), graph_live);
+    drop(graph);
+    memory.release_bytes(graph_live).unwrap();
+    assert_eq!(memory.admitted_bytes(), 0);
+}
+
+#[test]
+fn native_append_reserves_explicit_blank_scopes_against_later_caller_merges() {
+    use purrdf_core::{BlankScope, RdfDatasetBuilder, TermRef};
+    use purrdf_lex::allocation::Memory;
+    let mut source = RdfDatasetBuilder::new();
+    let blank = source.intern_blank("same", BlankScope(1)).unwrap();
+    let p = source.intern_iri("http://example.org/p").unwrap();
+    source.push_quad(blank, p, blank, None).unwrap();
+    let source = source.validate().unwrap();
+    let mut other = RdfDatasetBuilder::new();
+    let blank = other.intern_blank("same", BlankScope::DEFAULT).unwrap();
+    let p = other.intern_iri("http://example.org/p").unwrap();
+    other.push_quad(blank, p, blank, None).unwrap();
+    let other = other.freeze().unwrap();
+    let mut destination = RdfDatasetBuilder::new();
+    let mut account = Account::new(4_000_000);
+    {
+        let mut memory = Memory::new(&mut account);
+        destination
+            .append_validated_with_memory(&source, &mut memory)
+            .unwrap();
+    }
+    destination.push_dataset(&other).unwrap();
+    let graph = destination.freeze().unwrap();
+    let mut scopes = graph
+        .quads()
+        .map(|quad| match graph.resolve(quad.s) {
+            TermRef::Blank { scope, .. } => scope.ordinal(),
+            _ => panic!("both statements retain their blank subjects"),
+        })
+        .collect::<Vec<_>>();
+    scopes.sort_unstable();
+    assert_eq!(scopes, [1, 2]);
+    assert_eq!(graph.quad_count(), 2);
+}

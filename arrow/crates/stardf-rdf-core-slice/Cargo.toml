@@ -1,0 +1,61 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics(R) Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+# Term-model slice of purrdf rdf-core rev 0da05783, mechanical copy-and-rename
+# extraction (see PROVENANCE.md). Not yet a member of the stardf/arrow
+# workspace: standalone build pending the closure receipt in PROVENANCE.md.
+name = "stardf-rdf-core-slice"
+description = "Verbatim term-model slice of PurRDF rdf-core (TermBox/TermValue/BlankScope/RdfTerm) at rev 0da05783"
+version = "26.9.29"
+edition = "2024"
+publish = false
+license = "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0"
+repository = "https://github.com/seanchatmangpt/ggen-legacy"
+rust-version = "1.98"
+
+[lib]
+crate-type = ["rlib"]
+path = "src/lib.rs"
+name = "stardf_rdf_core_slice"
+
+[dependencies]
+# Leaf seams: package names stardf-*-seam (rename law), lib names purrdf_*
+# verbatim (rename law keeps lib names), so the vendored term-model files'
+# `use purrdf_*::...` paths resolve UNEDITED. Pending replacement by the full
+# W1-vendored stardf-* leaves (see PROVENANCE.md residual-closure list).
+#
+# xml_escape lane (2026-10-31, disclosed shared-seam edit): the vendored
+# src/xml_escape.rs needs `purrdf_iri::terminals` (hash-seam lacks `error` /
+# `error_visit!`; iri-seam carries only vocab+langtag, no `terminals`). Rather
+# than hand-expanding the seams (terminals drags the lex scan+allocation
+# chain), the hash and iri keys point at the FULL landed workspace crates
+# stardf-hash / stardf-iri (same purrdf rev 0da05783 sources, lib names
+# `purrdf_hash` / `purrdf_iri` verbatim) — a superset swap, so the term-model
+# files' `purrdf_hash::{Digest,frame}` and `purrdf_iri::{vocab,langtag}` uses
+# resolve unchanged. lex/xsd/cdt/events stay on their seams.
+purrdf_hash = { package = "stardf-hash", path = "../stardf-hash" }
+purrdf_lex = { package = "stardf-lex-seam", path = "vendor-crates/stardf-lex-seam" }
+purrdf_xsd = { package = "stardf-xsd-seam", path = "vendor-crates/stardf-xsd-seam" }
+purrdf_iri = { package = "stardf-iri", path = "../stardf-iri" }
+purrdf_cdt = { package = "stardf-cdt-seam", path = "vendor-crates/stardf-cdt-seam" }
+purrdf_events = { package = "stardf-events-seam", path = "vendor-crates/stardf-events-seam" }
+
+[dev-dependencies]
+# xml_escape lane (2026-10-31): the vendored src/xml_escape.rs tests read
+# `purrdf_testkit::rng::SplitMix64`. The full stardf-testkit is not yet
+# standalone-buildable (jsonschema metaschema include_str! surface references
+# a not-yet-vendored crates/jsonschema tree; 17 include_str! failures
+# witnessed 2026-10-31), so this dev-dep rides a minimal rng-only seam
+# (rng.rs verbatim from purrdf rev 0da05783, purrdf_hash::mix-backed),
+# stardf-testkit-seam, lib name purrdf_testkit per the rename law.
+purrdf_testkit = { package = "stardf-testkit-seam", path = "vendor-crates/stardf-testkit-seam" }
+
+# Standalone workspace root: NOT in the stardf/arrow workspace members list.
+# (repair lane 2026-10-31: the green-loop lease TRIED membership, witnessed the
+# registered residual closure fail live (17 errors, same class as the 24
+# receipted in PROVENANCE.md), and excluded the crate loudly again — membership
+# stays a coordinator decision gated on the W1 vendoring queue landing the
+# missing source closure. Joining it would break the shared compile ladder.
+# Membership = integration decision.)
+[workspace]

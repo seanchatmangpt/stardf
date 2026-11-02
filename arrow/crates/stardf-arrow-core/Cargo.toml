@@ -1,0 +1,38 @@
+[package]
+name = "stardf-arrow-core"
+# Lane 08-dual-key (2026-10-31): closure version inherits the workspace 26.11.1.
+version.workspace = true
+edition = "2021"
+# Lane 06-msrv (2026-10-31): member MSRV was absent; inherits the workspace
+# 1.98 like the rest of the closure.
+rust-version.workspace = true
+# Lane 07-publish-metadata (2026-10-31): v26.11.1 first-class closure —
+# publishable with unified workspace metadata. License added (crates.io
+# requires license or license-file to publish; crate declared none).
+description.workspace = true
+publish = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# LANE 09 decouple (2026-10-31): cgap-arrow REMOVED from the published
+# surface. crates.io rejects git dependencies in any published manifest, so
+# batch.rs now consumes this crate's own spec-fixed layout mirror
+# (src/layout.rs — size/alignment/field-offset const-asserted, mirrored from
+# cgap/crates/cgap-arrow/src/layout.rs, which was itself the source of this
+# file). The cgap-ffi consumer keeps its own git pin of cgap; the workspace
+# pin in the root Cargo.toml remains for stardf-arrow-capi (optional, feature
+# `cgap`) and stardf-process (internal, publish = false).
+# Physical-layer substrate: Quad64 (repr(C, align(64)), 64-byte invariant).
+# blake3: term fingerprints (TermIdArenaDefinition). no_std, no mmap/NEON
+# defaults: arena.rs hashes only in-memory byte slices.
+blake3 = { version = "1.8.7", default-features = false }
+
+[features]
+# LANE 09 decouple (2026-10-31): `std = ["cgap-arrow/std"]` removed with the
+# dep (the feature forwarded only to cgap-arrow; no in-tree cfg(feature =
+# "std") consumers, no workspace member enabled it).
+default = []

@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+# Lane 02-scan-scaffold (2026-10-31): greenfield first-party `stardf_scan()`
+# DuckDB table function over the closed five-table columnar profile
+# (docs/SCAN-COMPLETION.md §4 W2a–W2d). Deps: frozen-duckdb (VTab trait +
+# in-process registration; `vtab` feature — register_table_function lives
+# behind it) and stardf-columnar (the receipted validated reader).
+# stardf-arrow-core stays OPTIONAL behind feature `arrow-core`: the W2 scan
+# logic consumes the columnar public surface only; the kernel-side term seam
+# is reserved for the later zero-copy emission courts (design note §2/§5).
+# cgap-arrow is NOT consumed anywhere in this crate (crates.io publish law:
+# feature-gated or decoupled — decoupled here).
+
+[package]
+name = "stardf-scan-duckdb"
+description.workspace = true
+version.workspace = true
+edition.workspace = true
+publish = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+name = "stardf_scan_duckdb"
+crate-type = ["rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+# VTab trait, BindInfo/InitInfo/DataChunkHandle, and
+# Connection::register_table_function (feature `vtab`). Exact `=2.0.4`
+# family pin via the workspace (D13, lane 01-duckdb-pins).
+frozen-duckdb = { workspace = true, features = ["vtab"] }
+# The validated five-table profile reader: `stardf_columnar::read` is the
+# receipted decode path (full physical + semantic validation, fail-closed).
+stardf-columnar = { workspace = true }
+# Optional kernel-side term surface (feature `arrow-core`). Unreferenced by
+# the W2 scan logic — declared so the court lanes (03/04) can opt into the
+# splitmix64 kernel-side fixture without a manifest edit.
+stardf-arrow-core = { workspace = true, optional = true }
+
+[features]
+default = []
+arrow-core = ["dep:stardf-arrow-core"]
+
+[lints]
+workspace = true

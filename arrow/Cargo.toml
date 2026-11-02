@@ -1,0 +1,346 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/stardf-arrow-core",
+    "crates/stardf-arrow-capi",
+    # Lane 7 (2026-10-31): bench crate promoted from standalone workspace root
+    # to member so the workspace ladder exercises it (it compiles in-workspace,
+    # verified by `cargo check --workspace` exit 0). One workspace, one lock.
+    "crates/stardf-arrow-bench",
+    # Lane 9 (2026-10-31): vendored PurRDF columnar codec (u32 term-id seam).
+    "crates/stardf-columnar",
+    # Vendoring lane (2026-10-31): vendored PurRDF zero-dep hash root
+    # (purrdf rev 0da05783 `crates/hash` -> `stardf-hash`; lib name stays
+    # `purrdf_hash` per the vendoring law). Zero runtime deps; gates in
+    # crates/stardf-hash/VENDOR-PROVENANCE.md.
+    "crates/stardf-hash",
+    # Vendoring lane (2026-10-31): vendored PurRDF lexical foundations
+    # (purrdf rev 0da05783 `crates/lex` -> `stardf-lex`; lib name stays
+    # `purrdf_lex` per the vendoring law). One runtime dep (stardf-hash,
+    # intra-workspace path); edition 2024 (upstream-equal, let-chains in
+    # src/cbor/decode.rs); upstream testkit/stack test targets parked under
+    # crates/stardf-lex/tests/disabled/ — gates in
+    # crates/stardf-lex/VENDOR-PROVENANCE.md.
+    "crates/stardf-lex",
+    # Vendoring lane (2026-10-31): vendored PurRDF DEFLATE/gzip codec
+    # (purrdf rev 0da05783 `crates/deflate` -> `stardf-deflate`; lib name
+    # stays `purrdf_deflate` per the vendoring law). One runtime dep
+    # (stardf-hash, intra-workspace path); upstream testkit/alloc-probe
+    # test+bench targets parked under crates/stardf-deflate/{tests,benches}/
+    # disabled/ — gates in crates/stardf-deflate/VENDOR-PROVENANCE.md.
+    "crates/stardf-deflate",
+    # Vendoring lane (2026-10-31): vendored PurRDF branchless integer kernels
+    # (purrdf rev 0da05783 `crates/branchless` -> `stardf-branchless`; lib
+    # name stays `purrdf_branchless` per the vendoring law). One runtime dep
+    # (stardf-hash, intra-workspace path); upstream testkit bench target
+    # parked under crates/stardf-branchless/benches/disabled/ — gates in
+    # crates/stardf-branchless/PROVENANCE.md.
+    "crates/stardf-branchless",
+    # Vendoring lane (2026-10-31): vendored PurRDF IRI/URI value space
+    # (purrdf rev 0da05783 `crates/iri` -> `stardf-iri`; lib name stays
+    # `purrdf_iri` per the vendoring law). Two runtime deps (stardf-lex,
+    # stardf-hash, intra-workspace paths); edition 2024 (upstream-equal);
+    # upstream tests+bench ACTIVE via the stardf-testkit dev-dep (path) —
+    # no parked targets; gates in crates/stardf-iri/VENDOR-PROVENANCE.md.
+    "crates/stardf-iri",
+    # sparql-algebra vendoring lane (2026-10-31): runtime dep closure for
+    # stardf-sparql-algebra, vendored purrdf rev 0da05783, copy-and-rename
+    # (package names only; lib names purrdf_* verbatim). All 7 landed by this
+    # lane; per-crate gates + sha256 receipts in each VENDOR-PROVENANCE.md.
+    # NOTE: stardf-iri's DIRECTORY landed via this lane's copy (same rev, same
+    # content) and its MANIFEST is this lane's reconstruction of the concurrent
+    # lane's parked-tests posture after a manifest-write collision — disclosed
+    # in the sparql-algebra lane receipt.
+    "crates/stardf-events",
+    # sparql-algebra lane (2026-10-31): purrdf rdf-events -> stardf-events
+    # (lib purrdf_events verbatim). One runtime dep (stardf-hash path).
+    "crates/stardf-stack",
+    # sparql-algebra lane (2026-10-31): purrdf stack -> stardf-stack (lib
+    # purrdf_stack verbatim). Scope note: campaign W1 line recorded "stack?no";
+    # vendored anyway because 8 algebra tests + 3 cdt tests + the cdt unit test
+    # + all 6 algebra benches import purrdf_stack — parked tests would trade
+    # real tests for dead text. Disclosed for coordinator arbitration.
+    "crates/stardf-alloc-probe",
+    # sparql-algebra lane (2026-10-31): purrdf alloc-probe -> stardf-alloc-probe
+    # (lib purrdf_alloc_probe verbatim). Zero deps. Satisfies the unpark
+    # precondition recorded in crates/stardf-hash/tests/disabled/README.md
+    # (unparking itself is the hash lane's actuation, not done here).
+    # stardf-testkit (2026-10-31, sparql-algebra lane): vendored tree at
+    # crates/stardf-testkit; lib name `purrdf_testkit` pinned explicitly
+    # (upstream declared none — implicit name preserved verbatim; disclosed in
+    # FALSIFIER-RECEIPT.md, which also records the jsonschema include_str
+    # falsifier and its concurrent-lane resolution via
+    # crates/jsonschema/tests/metaschemas/).
+    "crates/stardf-testkit",
+    "crates/stardf-xsd",
+    # Vendoring lane + sparql-algebra lane COLLISION RESOLVED (2026-10-31):
+    # purrdf xsd -> stardf-xsd (lib purrdf_xsd verbatim; sources byte-verbatim
+    # from rev 0da05783). Runtime deps: stardf-hash/stardf-lex paths (lib
+    # names carry the code paths). Lib-unit-test dev-deps purrdf-testkit /
+    # purrdf-alloc-probe (KEY = upstream name, package = stardf-*) — the lib
+    # unit tests are LIVE (413 passed / 12 failed, failing set identical to
+    # upstream at the pinned rev on this host — upstream-environment
+    # failures, not stardf divergences). Upstream [[test]]
+# [[bench]] targets
+    # parked under {tests,benches,examples}/disabled/ (archive receipt:
+    # tests/disabled/upstream-Cargo.toml.txt). Full history + disclosures:
+    # crates/stardf-xsd/VENDOR-PROVENANCE.md.
+    "crates/stardf-cdt",
+    # sparql-algebra lane (2026-10-31): purrdf cdt -> stardf-cdt (lib
+    # purrdf_cdt verbatim). Runtime deps: hash/lex/iri/xsd/events paths
+    # (closed leaf per upstream layers.toml).
+    "crates/stardf-sparql-algebra",
+    # sparql-algebra lane (2026-10-31): THE LANE ITEM — purrdf sparql-algebra
+    # -> stardf-sparql-algebra (lib purrdf_sparql_algebra verbatim). Runtime
+    # deps: hash/lex/iri/xsd/cdt paths. identity.rs domain strings
+    # byte-verbatim (P4 §7). Gate: cargo check -p stardf-sparql-algebra.
+    # Copy-sweep lane w2-l10 (2026-10-31): purrdf ed25519 -> stardf-ed25519
+    # (lib purrdf_ed25519 verbatim), purrdf rev 0da05783 via git archive.
+    # Runtime deps: stardf-hash path + sha2 0.11 (default-features = false,
+    # upstream pin verbatim; sha2 already in
+    # authority/stardf/license-compat.json). Only member with a complete
+    # in-tree first-party closure of this sweep's seven crates — the other six
+    # (json/glob/markdown/mime/hnsw/retrieval) are dep-closure-blocked on the
+    # not-yet-vendored purrdf-core / purrdf-sparql-eval / purrdf-text
+    # surfaces and are registered BLOCKED in the lane receipt, NOT tree-copied
+    # (none is wasm-only or binary-only; all seven CHECKed: rlib-only).
+    # Upstream wycheproof [[test]] parked byte-verbatim under
+    # crates/stardf-ed25519/tests/disabled/ (repo-layout coupled to the
+    # upstream workspace-root vectors/wycheproof/ corpus — unpark condition
+    # in tests/disabled/README.md). Gate: cargo test -p stardf-ed25519.
+    "crates/stardf-ed25519",
+    # 80/20 bulk copy (2026-10-31): one-package straight-copy of purrdf rev
+    # 0da05783 — package renames only; licenses/notices verbatim; see
+    # crates/PROVENANCE-one-package.md. Tooling/binary/bindings crates copied
+    # to disk but excluded from members (registered): stardf-bench, stardf-cli,
+    # stardf-envelope-probe, stardf-hash-conformance, stardf-helper-census,
+    # stardf-rdf-capi, stardf-rdf-wasm, stardf-wasm-link.
+    # stardf-arrow promoted OUT of that exclusion (repair lane, 2026-10-31):
+    # stardf-sparql-results has a runtime dep edge on it, so the "dead tooling"
+    # premise was false; it is an rlib over stardf-hash.
+    "crates/stardf-arrow",
+    "crates/stardf-cdt",
+    "crates/stardf-conformance-kit",
+    "crates/stardf-datalog",
+    "crates/stardf-duckdb",
+    "crates/stardf-ed25519",
+    "crates/stardf-entail",
+    "crates/stardf-geo",
+    "crates/stardf-geo-kernel",
+    "crates/stardf-glob",
+    "crates/stardf-gts",
+    "crates/stardf-hnsw",
+    # (repair lane 2026-10-31) crates/stardf-hooks EXCLUDED from members:
+    # upstream-broken source at the pinned rev — `cargo check -p purrdf-hooks`
+    # in /Users/sac/purrdf at 0da05783 fails with the SAME 9 errors (E0599
+    # [u8;32]::to_hex on Digest32-only method, E0277 missing From<AstError>/
+    # From<EvaluatorError> for HookError). Sources are byte-identical to
+    # upstream (diff exit 0); the defect is upstream's, pre-existing, not
+    # manifest-level fixable. Escalated; excluded loudly.
+    # "crates/stardf-hooks",
+    "crates/stardf-json",
+    "crates/stardf-markdown",
+    "crates/stardf-mime",
+    "crates/stardf-n3",
+    "crates/stardf-purrdf",
+    "crates/stardf-rdf",
+    "crates/stardf-rdf-core",
+    # (repair lane 2026-10-31) crates/stardf-rdf-core-slice REMOVED from
+    # members: its registered build standing is PARTIAL (PROVENANCE.md "Build
+    # standing: PARTIAL — residual closure (escalation)": 24 errors, all
+    # crate-internal source closure the slice never extracted — turtle.rs,
+    # dataset.rs, dataset_view.rs, cdt_blank, lex diagnostic/terminals/json).
+    # Source-level work, outside this manifest-level lane. Escalated to the
+    # W1 vendoring queue per the slice's own PROVENANCE; excluded loudly here.
+    # (repair lane 2026-10-31) crates/stardf-rdf-events REMOVED from members:
+    # byte-identical duplicate of crates/stardf-events (same upstream crate
+    # purrdf crates/rdf-events, vendored twice — once by the sparql-algebra
+    # lane as stardf-events with receipts, once by the 80/20 bulk copy as
+    # stardf-rdf-events). src/ diff exit 0; zero dep keys reference
+    # stardf-rdf-events. Directory retained on disk, excluded like the
+    # other registered non-members.
+    "crates/stardf-retrieval",
+    "crates/stardf-shapes",
+    "crates/stardf-shex",
+    "crates/stardf-slice",
+    "crates/stardf-sparql-algebra",
+    "crates/stardf-sparql-conformance",
+    "crates/stardf-sparql-eval",
+    "crates/stardf-sparql-results",
+    "crates/stardf-sql",
+    "crates/stardf-text",
+    "crates/stardf-toml",
+    "crates/stardf-validate",
+
+    "crates/stardf-scan-duckdb",
+]
+
+# Root package so workspace-level `tests/` (anti-vacuity courts) are compiled
+# and run by `cargo test --workspace`. The root package is implicitly a member.
+[package]
+name = "stardf-arrow"
+version.workspace = true
+edition.workspace = true
+publish = false
+# Lane 15 arbiter fix (2026-10-31): examples/columnar_oracle_fixture.rs is a
+# Lane 12 artifact compiled by the oracle script via `rustc --extern` against
+# the built stardf-arrow-core rlib — NOT a cargo example of the root package
+# (its imports resolve through the script's --extern set, not a manifest).
+# Without autoexamples=false, cargo discovers it and clippy -D warnings fails
+# on E0433 (unresolved crates) + unused-mut.
+autoexamples = false
+
+[workspace.package]
+version = "26.11.1"
+# (repair lane 2026-10-31) 2021 -> 2024: upstream purrdf root [workspace.package]
+# edition is 2024 and ALL upstream crates inherit it — the vendored sources use
+# let-chains (witnessed: stardf-gts E0658-class "let chains are only allowed in
+# Rust 2024"), so the inherited edition must be 2024 for the vendored closure
+# to compile. First-party members compiled under the old 2021 default are
+# re-checked under 2024 by the same green loop.
+edition = "2024"
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+# Value copied from the one member that declares it literally (stardf-gts);
+# 32 members inherit it.
+homepage = "https://blackcatinformatics.ca/purrdf/"
+# Max of member-declared rust-version values (19 crates declare 1.98; the
+# dispatch's "1.88" understated it — re-read from manifests at fix time).
+rust-version = "1.98"
+repository = "https://github.com/seanchatmangpt/ggen-legacy"
+# Workspace-level description (2026-10-31): ~30 members inherit
+# `description.workspace = true` but this root never defined the key — cargo
+# refuses any manifest load of the workspace (witnessed: `cargo metadata`
+# exit 101 at 46416e74; blocks cgap-ffi's path-dep consumers and cgap
+# `cargo publish`). Text follows the vendoring lineage (PurRDF over stardf).
+description = "PurRDF-native RDF/SPARQL stack vendored over the stardf workspace, consuming the cgap columnar substrate"
+keywords = ["rdf", "arrow", "parquet", "duckdb", "sparql"]
+categories = ["database-implementations", "data-structures"]
+authors = ["Sean Chatman <info@chatmangpt.com>"]
+
+# Upstream purrdf root [workspace.lints] verbatim (the stardf-shapes manifest
+# carries this table inlined-as-comment at the vendored rev — promoted here so
+# the 30+ members declaring `[lints] workspace = true` resolve). Warn-only, so
+# it cannot fail `cargo check`.
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+# ---------------------------------------------------------------------------
+# Single pin source. Every crate in this workspace consumes external substrates
+# ONLY through `[workspace.dependencies]` — member manifests must never restate
+# a git rev or version for a shared dependency, or the pin drifts. Changing a
+# pin happens here and nowhere else.
+# ---------------------------------------------------------------------------
+[workspace.dependencies]
+# External substrate (fork posture: git-rev pins travel to consumers; this
+# workspace is never published, only referenced by git).
+#
+# Pin decision (Lane 4 finish, 2026-10-31): the original pin 20248e4 is broken
+# upstream — its lib.rs declares `pub mod chase_lev;` but the file does not
+# exist at that rev (E0583). chase_lev.rs was added at 7c2773a (verified via
+# `git cat-file -e 67c0ec1:crates/avec-arrow/src/chase_lev.rs` in
+# /Users/sac/avec). Pin is bumped to 67c0ec1 (current avec main HEAD, a real
+# descendant of 20248e4 containing chase_lev.rs); the temporary local-path
+# [patch] is removed — the workspace now consumes the real git rev directly.
+avec-arrow = { git = "https://github.com/seanchatmangpt/avec", rev = "67c0ec1" }
+
+# Lane 1 (2026-10-31): the columnar codec's zstd substrate. Single pin per
+# the workspace single-pin law; members consume with `workspace = true`.
+structured-zstd = "0.0.49"
+
+# Repair lane (2026-10-31): external pins added so member manifests inheriting
+# them (`X = { workspace = true }`) resolve. Values are the upstream purrdf rev
+# 0da05783 root [workspace.dependencies] pins verbatim (re-read from
+# /Users/sac/purrdf Cargo.toml at fix time), not invented versions.
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc"] }
+fastrand = "2"
+frozen-duckdb = { version = "2.0.3" }
+getrandom = "0.4"
+hashbrown = { version = "0.17", default-features = false }
+proc-macro2 = { version = "1", features = ["span-locations"] }
+rayon = "1"
+regex = { version = "1", default-features = false, features = ["std", "unicode", "perf-cache", "perf-dfa", "perf-onepass", "perf-backtrack", "perf-inline"] }
+sha2 = { version = "0.11", default-features = false }
+syn = { version = "3", features = ["full", "visit"] }
+visual-hashing = "1.0.0"
+wasm-bindgen = "=0.2.129"
+
+# Repair lane (2026-10-31): the umbrella package was renamed stardf-rs in the
+# bulk copy but its lib name was left implicit (= package name), while
+# consumers import the facade as `purrdf::`. Pin the lib name and expose it
+# under the upstream key, matching upstream's own rename pattern
+# (`purrdf-rs = { package = "purrdf", path = ... }` inverted).
+purrdf = { path = "crates/stardf-purrdf", package = "stardf-rs" }
+
+# 80/20 one-package path deps (2026-10-31): every first-party crate pinned once.
+stardf-alloc-probe = { path = "crates/stardf-alloc-probe" }
+# (repair lane 2026-10-31) key purrdf-arrow (upstream key verbatim): a
+# `package =` rename makes the dep KEY the code import name, so consumers
+# importing `purrdf_arrow::` need the key to be purrdf-arrow.
+purrdf-arrow = { path = "crates/stardf-arrow", package = "stardf-arrow-rs" }
+stardf-arrow-bench = { path = "crates/stardf-arrow-bench" }
+stardf-arrow-capi = { path = "crates/stardf-arrow-capi" }
+stardf-arrow-core = { path = "crates/stardf-arrow-core" }
+stardf-branchless = { path = "crates/stardf-branchless" }
+stardf-cdt = { path = "crates/stardf-cdt" }
+stardf-columnar = { path = "crates/stardf-columnar" }
+# (repair lane 2026-10-31) second key for the same package: vendored consumers
+# (umbrella, duckdb) import the lib by its upstream name purrdf_columnar, while
+# the first-party bench imports the lane-authored name stardf_columnar. Cargo
+# import name = dep KEY, so both spellings get their own key (upstream's own
+# purrdf/purrdf-rs dual-key pattern).
+purrdf-columnar = { path = "crates/stardf-columnar", package = "stardf-columnar" }
+stardf-conformance-kit = { path = "crates/stardf-conformance-kit" }
+stardf-datalog = { path = "crates/stardf-datalog" }
+stardf-deflate = { path = "crates/stardf-deflate" }
+stardf-duckdb = { path = "crates/stardf-duckdb" }
+stardf-ed25519 = { path = "crates/stardf-ed25519" }
+stardf-entail = { path = "crates/stardf-entail" }
+stardf-events = { path = "crates/stardf-events" }
+stardf-geo = { path = "crates/stardf-geo" }
+stardf-geo-kernel = { path = "crates/stardf-geo-kernel" }
+stardf-glob = { path = "crates/stardf-glob" }
+stardf-gts = { path = "crates/stardf-gts" }
+stardf-hash = { path = "crates/stardf-hash" }
+stardf-hnsw = { path = "crates/stardf-hnsw" }
+stardf-iri = { path = "crates/stardf-iri" }
+stardf-json = { path = "crates/stardf-json" }
+stardf-lex = { path = "crates/stardf-lex" }
+stardf-markdown = { path = "crates/stardf-markdown" }
+stardf-mime = { path = "crates/stardf-mime" }
+stardf-n3 = { path = "crates/stardf-n3" }
+stardf-rs = { path = "crates/stardf-purrdf" }
+stardf-rdf = { path = "crates/stardf-rdf" }
+stardf-core = { path = "crates/stardf-rdf-core" }
+stardf-retrieval = { path = "crates/stardf-retrieval" }
+stardf-shapes = { path = "crates/stardf-shapes" }
+stardf-shex = { path = "crates/stardf-shex" }
+stardf-slice = { path = "crates/stardf-slice" }
+stardf-sparql-algebra = { path = "crates/stardf-sparql-algebra" }
+stardf-sparql-conformance = { path = "crates/stardf-sparql-conformance" }
+stardf-sparql-eval = { path = "crates/stardf-sparql-eval" }
+stardf-sparql-results = { path = "crates/stardf-sparql-results" }
+stardf-sql = { path = "crates/stardf-sql" }
+stardf-stack = { path = "crates/stardf-stack" }
+stardf-testkit = { path = "crates/stardf-testkit" }
+stardf-text = { path = "crates/stardf-text" }
+stardf-toml = { path = "crates/stardf-toml" }
+stardf-validate = { path = "crates/stardf-validate" }
+stardf-xsd = { path = "crates/stardf-xsd" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+panic = "abort"

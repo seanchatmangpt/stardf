@@ -1,0 +1,145 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "kind": "milestone-manufacturing-receipt",
+  "date": "2026-10-31",
+  "lane": "completion-lane-18",
+  "branch": "fix/v26.9.29-ci-gates",
+  "subject": {
+    "git_state": "WORKING TREE UNCOMMITTED; stardf/ untracked in parent repo",
+    "untracked_top_level_count": 9,
+    "untracked_entries": [
+      "authority/stardf/",
+      "authority/v26.9.28/graphlaw-observable-contract.json",
+      "docs/jira/",
+      "lib_rs.tmpl",
+      "scripts/extract_purrdf_ontology.py",
+      "scripts/verify_marketplace_packs.py",
+      "scripts/verify_stardf_ontology.py",
+      "stardf/",
+      "tickets/GL-STARDF-001.md"
+    ],
+    "parent_head": "c9f8028ced8c89feb7eb5d6e0fcb651bb3fd1781",
+    "tree_sha256_stardf_arrow": "bf2d64e57c55315abffa16971fd874cf905a49c1425a6ab0951c1bb5f21f7796",
+    "tree_digest_method": "find stardf/arrow -type f | sort | xargs shasum -a 256 | shasum -a 256; includes target/; this receipt file itself postdates the digest"
+  },
+  "o_star_inputs": {
+    "purrdf_h_sha256": "6ef9b4a0a9d28036b24cc702bca9113e1ab6a7e6cbb708b74ff5b11cf281ad45",
+    "avec_rev": "67c0ec1bad0bf4a81b2512e60f554b137ae596d9",
+    "purrdf_head": "0da0578306983da851a9073337d57e2e2c41ab3a",
+    "ggen": "26.10.11",
+    "rustc_observed": "1.101.0-nightly (12433c307 2026-10-24); floating nightly; bench baseline was 1.98.0-nightly",
+    "generator_pack": "/Users/sac/ggen-marketplace/packs/rust-pack"
+  },
+  "commands": [
+    { "cmd": "git status --porcelain | wc -l", "exit": 0, "out": "9 (read-only git only)" },
+    { "cmd": "cargo check --workspace", "exit": 0 },
+    { "cmd": "python3 scripts/verify.py", "exit": 0, "out": "109 triples/22 individuals; parity 13==13; three-way census 13==13==13" },
+    { "cmd": "python3 scripts/verify.py --mutate drop-export", "exit": 1, "out": "anti-vacuity flip witnessed (stardf_arena_free dropped, both directions FAIL)" },
+    { "cmd": "cargo test -p stardf-arrow-core", "exit": 0, "out": "33 passed / 0 failed; 0 doctests" },
+    { "cmd": "cargo test -p stardf-arrow-capi --test stream_courts", "exit": 0, "out": "6 passed / 0 failed; lane-16 court_2 failure repaired by another lane" },
+    { "cmd": "cargo test -p stardf-arrow-capi --test cross_allocator_court", "exit": 0, "out": "2 passed / 0 failed" },
+    { "cmd": "cargo test -p stardf-arrow-capi --test c_smoke", "exit": 0, "out": "1 passed / 0 failed" },
+    { "cmd": "cargo test -p stardf-arrow-capi --test alloc_identity", "exit": 0, "out": "2 passed / 0 failed" },
+    { "cmd": "cargo test -p stardf-arrow --test anti_vacuity", "exit": 101, "out": "1 passed / 2 FAILED; fixture drift (see falsifiers)" },
+    { "cmd": "cargo clippy --workspace --all-targets -- -D warnings", "exit": 0, "out": "lane-16 alloc_identity clippy error cleared mid-wave" },
+    { "cmd": "cargo fmt --all -- --check", "exit": 1, "recheck": 0, "out": "exit 1 at first witness (~20:00) with diffs in bench main.rs:285 + capi lib.rs:363; exit 0 on recheck minutes later — repaired mid-wave by another lane; receipt-time state is PASS" },
+    { "cmd": "cargo test --workspace --no-fail-fast", "exit": 101, "out": "COMPILE-ABORT: capi lib cfg(test) E0308 x2 (lib.rs:358,366 c-string as_ptr *const i8 vs *const u8) under nightly 1.101; zero test targets executed; toolchain drift (lane-16 saw 22 capi unit tests pass under 1.98); crates/ not lane-owned, not repaired" },
+    { "cmd": "ggen sync run --dry-run", "exit": 0, "out": "rust-pack closure hashed; planned_writes are pack-default specimen-* names, not arrow ontology symbols" },
+    { "cmd": "ggen sync run --dry-run --manifest ggen.toml", "exit": 1, "out": "flag unsupported in ggen 26.10.11; probe exit, not a substrate gate" },
+    { "cmd": "python3 scripts/extract_purrdf_ontology.py (x3)", "exit": 0, "out": "output sha256 8a9df3875d81c6cfa17f1381309d3de18b2635c9e31da5e25eae14f5a45c1ffb identical across 3 runs" }
+  ],
+  "extractor": {
+    "script": "scripts/extract_purrdf_ontology.py",
+    "input": "purrdf.h 6ef9b4a0...",
+    "output": "authority/stardf/stardf_contract.ttl, 5264 lines",
+    "banner": "Extracted 11 structs, 16 enums, 126 functions.",
+    "observed_census": "128 stardf:AbiFunction; 13 stardf:TypeDefinition; 1 MemoryLayout; 1 MechanicalAuthority; 2 sh:NodeShape",
+    "banner_vs_census": "OPEN divergence: banner 126 functions vs 128 AbiFunction observed; banner 27 types (11+16) vs 13 TypeDefinition observed — receipt cites the observed census",
+    "ownership_disclosure": "authority/stardf/ is not this lane's file; first run was accidental (`--help` triggered extraction — script has no arg parsing) and wrote the file; runs 2-3 confirmed byte-identical output for the same input hash, so no content change is claimed, but the writes are disclosed"
+  },
+  "tests_census": {
+    "executed_passing": "core 33; capi integration/courts 11 (stream 6 + cross-alloc 2 + c_smoke 1 + alloc_identity 2); clippy 0 exit; fmt 0 exit on recheck; verify.py 0 + flip 1",
+    "compile_abort": "capi lib cfg(test) E0308 x2 (nightly drift 1.98->1.101) — capi unit tests (~22, last witnessed lane 16) UNVERIFIED this session; recorded as compile-abort, never a failure count",
+    "not_run": "wasm32/aarch64 cross gates; bench re-run; avec integration"
+  },
+  "generated_vs_handwritten": {
+    "extractor_generated": [
+      "authority/stardf/stardf_contract.ttl (5264 lines, census above) — generated from purrdf.h by scripts/extract_purrdf_ontology.py, deterministic"
+    ],
+    "hand_written": [
+      "stardf/arrow/ontology.ttl — hand-authored, 14 CabiExport individuals (13 carrying targetSymbol; verify.py census 13==13==13), grounded in purrdf.h 6ef9b4a0...",
+      "crates/stardf-arrow-core (arena/intern/pattern-scan/stream kernels) — hand-written",
+      "crates/stardf-arrow-capi lib.rs + include/stardf_arrow.h (13 decls/13 exports) — hand-written",
+      "courts: stream_courts.rs, cross_allocator_court.rs, alloc_identity.rs, anti_vacuity.rs, c_smoke — hand-written",
+      "scripts/verify.py (substrate gate, --mutate, --emit-receipt) — hand-written",
+      "crates/stardf-arrow-bench + docs/BENCH_BASELINE.json — hand-written",
+      "ci/stardf-arrow-reconstitution.yml, docs/PRD.md, ARD.md, DIVERGENCES.md, RECEIPTS.md — hand-written",
+      "ggen.toml + templates/.gitkeep — hand-written manifest; nothing under crates/ or include/ is ggen-generated today"
+    ],
+    "note": "rust-pack route validated to dry-run only; planned_writes do not bind the arrow ontology (stardf:->rust: bridge unimplemented)"
+  },
+  "bench": {
+    "status": "QUOTED, NOT RE-WITNESSED",
+    "source": "docs/BENCH_BASELINE.json (2026-10-31, min-of-5, darwin-arm64, contention-noisy, MIN-across-3-runs method)",
+    "numbers": {
+      "intern": "200k terms: 22,505 mints/s; 6,381,791 dedup lookups/s; 633,365 allocs/round",
+      "pattern_scan": "1M rows, 8-row chunk, slab 61 MiB, 70.9-72.7 GiB/s across 4 patterns, zero allocs per timed round (gate live)",
+      "stream_get_next": "39.0 GiB/s (64-quad batches, 1M-quad slab; spread 39.0-49.1 disclosed)"
+    },
+    "standing": "UNVERIFIED as of receipt — local, not CI-qualified; taken under 1.98.0-nightly which has since moved"
+  },
+  "replay": {
+    "status": "WITNESSED",
+    "evidence": "verify.py clean(0)/mutate(1) pair this session; extractor output sha-identical across 3 runs; lane-9 --emit-receipt cmp pair on file in docs/RECEIPTS.md"
+  },
+  "falsifiers": {
+    "run": [
+      "verify.py --mutate drop-export -> exit 1, both directions (non-vacuity held)",
+      "cross_allocator_court 2/2 (crossing free held)",
+      "alloc_identity 2/2 (identity crossing held)",
+      "stream_courts 6/6 incl exact-batch-count-then-EOF (held; repaired since lane 16)",
+      "anti_vacuity rust court 1/3: 2 FAILED on fixture drift (fixtures/ontology_pristine.ttl + header_pristine.h stale vs refreshed ontology.ttl/header — mid-wave edits landed after fixture refresh); mutation-sensing itself proven live by verify.py flip and the passing fixtures_exist_and_mutations_are_real_diffs; refresh owned by fixtures lane"
+    ],
+    "not_run": [
+      "avec integration court (avec-ffi path-dep unwired; rev 67c0ec1b paper-pinned)",
+      "wasm32/aarch64 cross-compile gates",
+      "bench re-run under current nightly",
+      "ggen mutating sync"
+    ]
+  },
+  "blockers_open": [
+    "COMPILE-ABORT: capi lib cfg(test) E0308 x2, c-string as_ptr type drift nightly 1.98->1.101 — blocks ~22 capi unit tests + workspace ladder; cast fix needed in crates/stardf-arrow-capi/src/lib.rs (not lane-owned)",
+    "anti_vacuity rust court 1/3 on stale fixtures (fixtures/ not lane-owned)",
+    "ggen mutating sync never run; planned_writes are pack-default specimen-* names not bound to the arrow ontology; stardf:->rust: bridge unimplemented",
+    "avec integration unstarted (rev pinned 67c0ec1b)",
+    "CI Actions run not witnessed (stardf/ untracked, nothing pushed)",
+    "stardf_contract.ttl banner vs observed census divergence (126 vs 128 functions; 27 vs 13 types) — unresolved",
+    "R1 license gate: not witnessed this session",
+    "W1 mappings: not witnessed this session",
+    "bench numbers not re-run under current nightly; not CI-qualified"
+  ],
+  "standing": {
+    "overall": "PARTIAL_ALIVE",
+    "per_subsystem": {
+      "core": "ALIVE (local): 33/33 exit 0 this session",
+      "capi_courts_integration": "ALIVE (local): stream 6/6, cross-alloc 2/2, c_smoke 1/1, alloc_identity 2/2, all exit 0 this session",
+      "capi_unit": "UNVERIFIED: compile-aborted under nightly 1.101; last witness 22/22 under 1.98 (lane 16)",
+      "verify_py_gate": "ALIVE (local): clean exit 0, flip exit 1, both witnessed this session",
+      "anti_vacuity_rust_court": "PARTIAL_ALIVE: 1/3 (2 failures = fixture drift, not vacuity)",
+      "clippy_fmt": "ALIVE (local): both exit 0 at receipt time (fmt repaired mid-wave)",
+      "ggen_projection": "UNKNOWN: dry-run only, planned_writes unbound to ontology",
+      "bench": "QUOTED NOT RE-WITNESSED: local min-of-5 on older nightly, not CI-qualified",
+      "extractor": "ALIVE (local): 3-run sha-identical output from pinned input hash",
+      "bench_workspace_membership": "ALIVE: crates/stardf-arrow-bench is a workspace member in Cargo.toml (supersedes lane-16 'outside workspace' witness); clippy --workspace covered it this session"
+    }
+  },
+  "nonclaims": [
+    "no CI standing (nothing pushed, no Actions run)",
+    "no external/production standing",
+    "no git mutations performed (read-only git for subject identity only)",
+    "this receipt file is the only file this lane wrote, plus the disclosed accidental extractor output writes (byte-identical content)",
+    "bench numbers quoted, not re-run",
+    "capi unit standing not witnessed this session",
+    "no subsystem claimed ALIVE without a cited command/exit in this receipt"
+  ]
+}

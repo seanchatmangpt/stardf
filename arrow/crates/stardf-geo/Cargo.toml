@@ -1,0 +1,67 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-geo"
+description = "PurRDF GeoSPARQL compatibility facade over shared geometry and evaluator adapters"
+version.workspace = true
+edition.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/stardf-geo"
+rust-version.workspace = true
+keywords = ["geosparql", "rdf", "sparql", "wkt", "geojson"]
+categories = ["science::geo", "parser-implementations", "data-structures"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+# Vendoring law: lib name upstream-verbatim (package renamed, lib unchanged).
+name = "purrdf_geo"
+crate-type = ["rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+stardf-geo-kernel = { workspace = true }
+stardf-sparql-eval = { workspace = true }
+
+[dev-dependencies]
+stardf-core = { workspace = true }
+stardf-hash = { workspace = true }
+# Runs the deep-structure tests on a stack of a stated size: a fresh thread
+# natively, the running stack under a fresh floor on wasm32.
+stardf-stack = { workspace = true }
+stardf-sparql-algebra = { workspace = true }
+stardf-rdf = { workspace = true }
+stardf-shapes = { workspace = true }
+# The shared `harness = false` runner `tests/determinism.rs` runs on natively.
+# Path-only and unpublished, so it is stripped
+# from the packaged manifest; wasm32-clean, so it needs no target gate.
+stardf-testkit = { workspace = true }
+
+# Native deterministic output corpus, pinned against the committed digest.
+# WASM compilation is checked separately by `make wasm`.
+[[test]]
+name = "determinism"
+harness = false
+
+[[bench]]
+# The two costs a geometry predicate actually has: parsing a WKT literal into
+# the exact model (per row, unavoidable) and deciding a DE-9IM relate over
+# rings of growing vertex count (the quadratic the noder has to beat).
+# Report-only.
+name = "relate"
+harness = false
+
+[[bench]]
+# GeoJSON reading through the one shared JSON reader: a ~1 MB FeatureCollection
+# parsed and re-rendered as a JSON tree, and a large MultiPolygon literal read
+# into the exact geometry model. Report-only.
+name = "geojson_parse"
+harness = false
+
+[lints]
+workspace = true

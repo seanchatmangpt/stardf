@@ -1,0 +1,628 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! Native [`RdfQuad`] ⇄ [`RdfDataset`] conversions.
+//!
+//! A consumer that already holds (or wants) a flat owned-[`RdfQuad`] stream can fold it
+//! into the frozen IR (or un-fold the IR back into the source-faithful quad stream).
+//! The fold routes through the SAME shared `fold_statement_layer` the text codecs use,
+//! so the RDF 1.2 statement layer (`rdf:reifies` reifiers + annotations) is reconstructed
+//! identically and the two paths can never drift.
+
+use std::sync::Arc;
+
+use crate::native_codecs::parse::{FoldNode, FoldRow, fold_statement_layer};
+use crate::{BlankScope, RdfDataset, RdfDatasetBuilder, RdfDiagnostic, RdfQuad, RdfTerm};
+
+use purrdf_iri::vocab::rdf::REIFIES as RDF_REIFIES;
+
+/// Freeze several independently-parsed native [`RdfQuad`] streams into ONE validated
+/// [`RdfDataset`], folding the RDF 1.2 statement layer, with blank nodes
+/// **standardized apart** per source.
+///
+/// This is the sanctioned multi-source loader: source at index `i` interns its blank
+/// nodes under blank scope `i`, so two sources that each minted `_:b0` stay DISTINCT
+/// after the merge instead of silently collapsing into one node. Source 0 uses
+/// [`BlankScope::DEFAULT`] (which is `BlankScope(0)`), so a single-source load renders
+/// bytes identically to the pre-standardize-apart behavior.
+///
+/// Routes through the SAME `fold_statement_layer` helper the text codecs use (a
+/// `rdf:reifies` triple-term object becomes a reifier binding and a reifier subject's
+/// other triples become annotations), mapping each native [`RdfQuad`] into the
+/// source-agnostic `FoldRow` form. Blanks nested inside quoted triples are scoped too
+/// (the builder's scoped interner recurses).
+///
+/// # Errors
+/// Returns the original typed diagnostic if the folded quads fail dataset validation.
+pub fn dataset_from_quad_sources(sources: &[&[RdfQuad]]) -> Result<Arc<RdfDataset>, RdfDiagnostic> {
+    freeze_quad_sources(sources, &[])
+}
+
+/// [`dataset_from_quads`], additionally DECLARING each of `declared_graphs` as a named
+/// graph of the dataset, so a graph the source names but gives no quads (a JSON-LD
+/// `{"@id": g, "@graph": []}`) survives as a declared empty graph. The names are
+/// interned after the quads, in source scope 0, so a source without empty graphs
+/// freezes exactly as [`dataset_from_quads`] freezes it.
+pub(crate) fn dataset_from_quads_declaring(
+    quads: &[RdfQuad], declared_graphs: &[RdfTerm],
+) -> Result<Arc<RdfDataset>, RdfDiagnostic> {
+    freeze_quad_sources(&[quads], declared_graphs)
+}
+
+fn source_scope(index: usize) -> Result<BlankScope, purrdf_lex::allocation::StorageError> {
+    use purrdf_lex::allocation::{CapacityError, CapacitySpace, StorageError};
+    CapacityError::check(
+        CapacitySpace::ImportBlankScopes,
+        index as u128 + 1,
+        u128::from(u32::MAX) + 1,
+    )?;
+    Ok(BlankScope(
+        u32::try_from(index).map_err(|_| StorageError::SizeOverflow)?,
+    ))
+}
+
+fn freeze_quad_sources(
+    sources: &[&[RdfQuad]], declared_graphs: &[RdfTerm],
+) -> Result<Arc<RdfDataset>, RdfDiagnostic> {
+    let total: usize = sources.iter().map(|source| source.len()).sum();
+    let mut builder = RdfDatasetBuilder::new();
+    let mut rows: Vec<FoldRow> = Vec::with_capacity(total);
+    for (index, quads) in sources.iter().enumerate() {
+        let scope = source_scope(index)?;
+        for quad in *quads {
+            // The owned-model DOCUMENT ingress (JSON-LD / YAML-LD reaches the IR
+            // through here), so an ill-formed composite literal refuses the
+            // document exactly as it does on every text codec.
+            let bind = |b: &mut RdfDatasetBuilder, t: &RdfTerm| {
+                b.intern_owned_term_bound(t, scope)
+                    .map_err(RdfDiagnostic::from)
+            };
+            let subject = bind(&mut builder, &quad.subject)?;
+            let is_reifies = quad.predicate == RDF_REIFIES;
+            let predicate = builder.intern_iri(&quad.predicate)?;
+            let object = match &quad.object {
+                RdfTerm::Triple(triple) => {
+                    let s = bind(&mut builder, &triple.subject)?;
+                    let p = builder.intern_iri(&triple.predicate)?;
+                    let o = bind(&mut builder, &triple.object)?;
+                    FoldNode::Triple { s, p, o }
+                }
+                other => FoldNode::Term(bind(&mut builder, other)?),
+            };
+            let graph = match quad.graph_name.as_ref() {
+                Some(g) => Some(bind(&mut builder, g)?),
+                None => None,
+            };
+            rows.push(FoldRow {
+                subject,
+                is_reifies,
+                predicate,
+                object,
+                graph,
+            });
+        }
+    }
+
+    fold_statement_layer(&mut builder, rows)?;
+    for name in declared_graphs {
+        let id = builder
+            .intern_owned_term_bound(name, BlankScope::DEFAULT)
+            .map_err(RdfDiagnostic::from)?;
+        builder.declare_named_graph(id)?;
+    }
+    builder.freeze()
+}
+
+/// Freeze already-built native [`RdfQuad`]s into a validated [`RdfDataset`], folding the
+/// RDF 1.2 statement layer.
+///
+/// The single-source convenience over [`dataset_from_quad_sources`] (the sanctioned
+/// multi-source loader). Because there is exactly one source, every blank node shares
+/// [`BlankScope::DEFAULT`] — correct, since a single parse already minted unique labels.
+/// A caller MERGING independently-parsed sources must use [`dataset_from_quad_sources`]
+/// so their blanks standardize apart rather than collapse.
+///
+/// # Errors
+/// Returns the original typed diagnostic if the folded quads fail dataset validation.
+pub fn dataset_from_quads(quads: &[RdfQuad]) -> Result<Arc<RdfDataset>, RdfDiagnostic> {
+    dataset_from_quad_sources(&[quads])
+}
+
+/// Flatten a frozen [`RdfDataset`] into the source-faithful flat [`RdfQuad`] stream, for
+/// consumers that fold over [`RdfQuad`]. Base quads first, then the re-materialized
+/// `rdf:reifies` reifier rows and the annotation rows. The IR fold + this un-fold are
+/// exact inverses.
+///
+/// Exact inverses **including the graph slot**: the statement layer is keyed per graph
+/// ([`RdfReifier::graph`](crate::RdfReifier::graph) /
+/// [`RdfAnnotation::graph`](crate::RdfAnnotation::graph)), so a reifier declaration or
+/// annotation asserted inside a `GRAPH g { … }` block — or written there by a
+/// quad-template `CONSTRUCT` — is re-materialized into `g`, not into the default graph.
+/// Dropping it here would have re-folded the row into the wrong graph and silently
+/// unscoped every graph-scoped `rdf:reifies` edge on the flat quad surface.
+#[must_use]
+pub fn flat_rdf_quads_from_dataset(dataset: &RdfDataset) -> Vec<RdfQuad> {
+    flat_rdf_quads(dataset).collect()
+}
+
+/// Iterate the complete flat RDF assertion surface without allocating an intermediate
+/// quad vector. Preserves the same base, reifier, annotation order and graph scopes as
+/// [`flat_rdf_quads_from_dataset`]. Each yielded quad owns its terms; consumers that
+/// require stable native IDs should retain the dataset and use its typed views.
+pub fn flat_rdf_quads(dataset: &RdfDataset) -> impl Iterator<Item = RdfQuad> + '_ {
+    let reifiers = dataset.owned_reifiers().map(|reifier| RdfQuad {
+        subject: reifier.reifier,
+        predicate: RDF_REIFIES.to_owned(),
+        object: RdfTerm::triple(reifier.statement),
+        graph_name: reifier.graph,
+        location: None,
+    });
+    let annotations = dataset.owned_annotations().map(|annotation| RdfQuad {
+        subject: annotation.reifier,
+        predicate: annotation.predicate,
+        object: annotation.object,
+        graph_name: annotation.graph,
+        location: None,
+    });
+    dataset.owned_quads().chain(reifiers).chain(annotations)
+}
+
+/// Freeze several independently-parsed flat owned-[`RdfQuad`] streams into ONE dataset
+/// WITHOUT folding the RDF 1.2 statement layer (every quad — including a `rdf:reifies`
+/// triple-term row — stays a plain quad), with blank nodes **standardized apart** per
+/// source.
+///
+/// The un-folded twin of [`dataset_from_quad_sources`] and the sanctioned multi-source
+/// flat loader: source at index `i` interns its blanks under blank scope `i` via
+/// [`RdfDatasetBuilder::push_owned_quad_scoped`], so two sources that each minted `_:b0`
+/// stay DISTINCT after the merge. Source 0 uses [`BlankScope::DEFAULT`] (`BlankScope(0)`),
+/// so a single-source load stays byte-identical to the prior flat canonical path.
+///
+/// # Errors
+/// Returns the original typed diagnostic if the quads fail dataset validation.
+pub fn flat_dataset_from_quad_sources(
+    sources: &[&[RdfQuad]],
+) -> Result<Arc<RdfDataset>, RdfDiagnostic> {
+    freeze_flat_sources(sources, &[])
+}
+
+/// [`flat_dataset_from_quads`], additionally DECLARING each of `declared_graphs` as a
+/// named graph of the dataset, so a graph that owns no quad survives as a declared
+/// empty graph: TriG, TriX, JSON-LD and YAML-LD then write it, and
+/// [`crate::empty_named_graphs_dropped`] lists it for a target that cannot. The names
+/// are interned after the quads, in blank scope 0, so an empty `declared_graphs`
+/// freezes exactly as [`flat_dataset_from_quads`] does.
+///
+/// # Errors
+/// Returns the original typed diagnostic if the quads fail dataset validation or a declared
+/// graph is neither an IRI nor a blank node.
+pub fn flat_dataset_from_quads_declaring(
+    quads: &[RdfQuad], declared_graphs: &[RdfTerm],
+) -> Result<Arc<RdfDataset>, RdfDiagnostic> {
+    freeze_flat_sources(&[quads], declared_graphs)
+}
+
+fn freeze_flat_sources(
+    sources: &[&[RdfQuad]], declared_graphs: &[RdfTerm],
+) -> Result<Arc<RdfDataset>, RdfDiagnostic> {
+    let mut builder = RdfDatasetBuilder::new();
+    for (index, quads) in sources.iter().enumerate() {
+        let scope = source_scope(index)?;
+        for quad in *quads {
+            builder.push_owned_quad_scoped(quad, scope)?;
+        }
+    }
+    for graph in declared_graphs {
+        let id = builder
+            .intern_owned_term_bound(graph, BlankScope::DEFAULT)
+            .map_err(RdfDiagnostic::from)?;
+        builder.declare_named_graph(id)?;
+    }
+    builder.freeze()
+}
+
+/// Freeze a flat owned-[`RdfQuad`] stream into a dataset WITHOUT folding the RDF 1.2
+/// statement layer (every quad — including a `rdf:reifies` triple-term row — stays a
+/// plain quad).
+///
+/// The single-source convenience over [`flat_dataset_from_quad_sources`] (the sanctioned
+/// multi-source flat loader). Because there is exactly one source, every blank node
+/// shares [`BlankScope::DEFAULT`] — correct, since a single parse already minted unique
+/// labels. A caller MERGING independently-parsed sources must use
+/// [`flat_dataset_from_quad_sources`] so their blanks standardize apart rather than
+/// collapse.
+///
+/// The complement of [`dataset_from_quads`] (which DOES fold): a caller that already
+/// holds the un-folded flat stream and wants it canonicalized as a flat triple set (not
+/// the folded overlay) re-freezes through here so [`crate::try_canonicalize`] emits the flat
+/// `rdf:reifies` / annotation triples as ordinary quads.
+///
+/// # Errors
+/// Returns the original typed diagnostic if the quads fail dataset validation.
+pub fn flat_dataset_from_quads(quads: &[RdfQuad]) -> Result<Arc<RdfDataset>, RdfDiagnostic> {
+    flat_dataset_from_quad_sources(&[quads])
+}
+
+/// The RDFC-1.0 canonical N-Quads document of `dataset`, **flattened**: the RDF 1.2
+/// statement overlay (reifier bindings + annotations) is re-materialized to plain
+/// `rdf:reifies` / annotation triples BEFORE canonicalizing, with no overlay re-fold.
+///
+/// Canonicalizes the flat triple set under conformant SHA-256 RDFC-1.0, so every
+/// committed digest/comparison keyed on this string is preserved. The native folded
+/// [`crate::try_canonicalize`] would instead emit the reserved overlay sentinels.
+///
+/// Delegates straight to [`purrdf_core::try_canonicalize_flat_view`] over the frozen
+/// `dataset` view itself — the flat-assertion presentation
+/// ([`CANON_PRESENTATION_FLAT_ASSERTION_ID`](crate::CANON_PRESENTATION_FLAT_ASSERTION_ID))
+/// the canonicalizer core now offers as a presentation axis, not a shape this wrapper
+/// has to re-freeze on the caller's behalf.
+///
+/// # Errors
+/// Returns the original canonicalization refusal. No partial document is returned.
+pub fn canonical_flat_nquads(dataset: &RdfDataset) -> Result<String, crate::CanonError> {
+    canonical_flat_nquads_with(dataset, crate::CanonHash::Sha256)
+}
+
+/// [`canonical_flat_nquads`] with an explicit RDFC-1.0 hash algorithm
+/// ([`CanonHash::Sha384`](crate::CanonHash) selects the SHA-384 variant). Used by the
+/// W3C RDFC-1.0 conformance gate, whose `test075` vector pins SHA-384.
+///
+/// Delegates to [`purrdf_core::try_canonicalize_flat_view`] over `dataset` directly (no
+/// re-freeze through [`flat_dataset_from_quads`]/[`flat_rdf_quads_from_dataset`]).
+///
+/// # Errors
+/// Returns the original canonicalization refusal, including reserved vocabulary
+/// and search-budget exhaustion.
+pub fn canonical_flat_nquads_with(
+    dataset: &RdfDataset, hash: crate::CanonHash,
+) -> Result<String, crate::CanonError> {
+    match purrdf_core::try_canonicalize_flat_view(dataset, hash) {
+        Ok(canonicalized) => Ok(canonicalized.nquads),
+        Err(purrdf_core::ViewCanonError::Refused(err)) => Err(err),
+        Err(purrdf_core::ViewCanonError::NotReady { error, .. }) => match error {
+            // LAW: `&RdfDataset`'s `FallibleDatasetView::Error` is `Infallible` — the
+            // frozen dataset never faults, so this arm is unreachable by construction
+            // and needs no runtime check to prove it.
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_scope_preserves_terminal_identity_and_refuses_wraparound() {
+        use purrdf_lex::allocation::{CapacityError, CapacitySpace, StorageError};
+
+        assert_eq!(source_scope(0).unwrap(), BlankScope::DEFAULT);
+        let last = usize::try_from(u32::MAX).unwrap();
+        assert_eq!(source_scope(last).unwrap(), BlankScope(u32::MAX));
+        if let Some(next) = last.checked_add(1) {
+            let refused = source_scope(next).unwrap_err();
+            assert_eq!(
+                refused,
+                StorageError::Capacity(CapacityError::new(
+                    CapacitySpace::ImportBlankScopes,
+                    u128::from(u32::MAX) + 2,
+                    u128::from(u32::MAX) + 1
+                ))
+            );
+            let diagnostic = RdfDiagnostic::from(refused);
+            assert_eq!(diagnostic.storage_error(), Some(refused));
+            assert_eq!(source_scope(last).unwrap(), BlankScope(u32::MAX));
+        }
+    }
+
+    #[test]
+    fn quads_roundtrip_through_dataset() {
+        let quads = vec![
+            RdfQuad::new(
+                RdfTerm::iri("https://e/s"),
+                "https://e/p",
+                RdfTerm::iri("https://e/o"),
+            ),
+            RdfQuad::new(
+                RdfTerm::iri("https://e/s"),
+                "https://e/p2",
+                RdfTerm::literal(crate::RdfLiteral::simple("lit")),
+            ),
+        ];
+        let ds = dataset_from_quads(&quads).expect("freeze");
+        assert_eq!(ds.quad_count(), 2);
+        let flat = flat_rdf_quads_from_dataset(&ds);
+        assert_eq!(flat.len(), 2);
+    }
+
+    /// The fold/un-fold pair is an exact inverse INCLUDING the graph slot of the
+    /// RDF 1.2 statement layer.
+    ///
+    /// The statement layer is keyed per graph, so a `rdf:reifies` edge and its
+    /// annotation asserted inside `GRAPH g` must come back scoped to `g`. Returning
+    /// them unscoped silently moved them to the default graph, and re-freezing that
+    /// stream folded them into the WRONG graph — a graph-name loss with no diagnostic,
+    /// on every surface that reads the flat quad stream (the Python `parse` and
+    /// CONSTRUCT egress among them).
+    #[test]
+    fn statement_layer_keeps_its_graph_through_the_flat_roundtrip() {
+        let statement = crate::RdfTriple::new(
+            RdfTerm::iri("https://e/s"),
+            "https://e/p",
+            RdfTerm::iri("https://e/o"),
+        );
+        let graph = RdfTerm::iri("https://e/g");
+        let quads = vec![
+            RdfQuad {
+                subject: RdfTerm::iri("https://e/r"),
+                predicate: RDF_REIFIES.to_owned(),
+                object: RdfTerm::triple(statement),
+                graph_name: Some(graph.clone()),
+                location: None,
+            },
+            RdfQuad {
+                subject: RdfTerm::iri("https://e/r"),
+                predicate: "https://e/certainty".to_owned(),
+                object: RdfTerm::literal(crate::RdfLiteral::simple("0.9")),
+                graph_name: Some(graph.clone()),
+                location: None,
+            },
+        ];
+        let ds = dataset_from_quads(&quads).expect("freeze");
+        // Folded away from the base quads into the two side tables, both graph-keyed.
+        assert_eq!(ds.quad_count(), 0);
+        let flat = flat_rdf_quads_from_dataset(&ds);
+        assert_eq!(flat.len(), 2);
+        assert!(
+            flat.iter()
+                .all(|quad| quad.graph_name.as_ref() == Some(&graph)),
+            "the un-fold must return both statement-layer rows to `g`, got {flat:?}"
+        );
+    }
+
+    /// Native flat-canonical determinism + shape gate: over an input that
+    /// exercises every literal/term shape (simple, typed, lang, blank-node, and an RDF
+    /// 1.2 reifier with an annotation), `canonical_flat_nquads` must
+    /// (a) re-materialize the RDF 1.2 statement layer as plain `rdf:reifies` /
+    ///     annotation triples (no overlay sentinels), and
+    /// (b) be DETERMINISTIC — the canonical line set is identical when an isomorphic
+    ///     copy (blank labels renamed) is parsed.
+    ///
+    /// The native engine is the sole authority, so the gate asserts the canonical
+    /// contract directly.
+    #[test]
+    fn canonical_flat_nquads_is_deterministic_and_flattens_statement_layer() {
+        // TriG with BOTH a default graph and a NAMED graph (the carrier composes named
+        // graphs), exercising every literal/term shape + an RDF 1.2 reifier+annotation.
+        const TRIG: &str = r#"
+@prefix ex: <https://example.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+ex:s ex:p ex:o .
+ex:s ex:label "hello" .
+ex:s ex:n "42"^^xsd:integer .
+ex:s ex:greeting "bonjour"@fr .
+ex:s ex:friend [ ex:name "anon" ] .
+ex:r rdf:reifies <<( ex:s ex:p ex:o )>> .
+ex:r ex:confidence "0.9"^^xsd:decimal .
+ex:g {
+  ex:a ex:b ex:c .
+  ex:a ex:lbl "named" .
+}
+"#;
+        let ir = crate::parse_dataset(TRIG.as_bytes(), "application/trig", None).expect("parse");
+        let canon = canonical_flat_nquads(&ir).expect("native flat canon");
+
+        // (a) The statement layer is FLATTENED to plain triples: the `rdf:reifies`
+        // binding and the annotation re-appear as ordinary N-Quads lines, and the
+        // canonical document carries NO native overlay sentinel.
+        assert!(
+            canon.contains("#reifies>"),
+            "the reifier binding must re-appear as a plain rdf:reifies triple:\n{canon}"
+        );
+        assert!(
+            canon.contains("/confidence>"),
+            "the annotation must re-appear as a plain triple:\n{canon}"
+        );
+
+        // (b) Determinism: an isomorphic dataset (blank labels renamed) canonicalizes
+        // to the EXACT same line set.
+        const TRIG_ISO: &str = r#"
+@prefix ex: <https://example.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+ex:s ex:p ex:o .
+ex:s ex:label "hello" .
+ex:s ex:n "42"^^xsd:integer .
+ex:s ex:greeting "bonjour"@fr .
+ex:s ex:friend [ ex:name "anon" ] .
+ex:r rdf:reifies <<( ex:s ex:p ex:o )>> .
+ex:r ex:confidence "0.9"^^xsd:decimal .
+ex:g {
+  ex:a ex:b ex:c .
+  ex:a ex:lbl "named" .
+}
+"#;
+        let ir_iso =
+            crate::parse_dataset(TRIG_ISO.as_bytes(), "application/trig", None).expect("parse iso");
+        let canon_iso = canonical_flat_nquads(&ir_iso).expect("native flat canon iso");
+        assert_eq!(
+            canon, canon_iso,
+            "isomorphic datasets must canonicalize to identical flat N-Quads"
+        );
+    }
+
+    use purrdf_iri::vocab::owl::RESTRICTION as OWL_RESTRICTION;
+    use purrdf_iri::vocab::rdf::TYPE as RDF_TYPE;
+
+    /// Parse a Turtle string and flatten it to the source-faithful owned quad stream.
+    fn turtle_quads(ttl: &str) -> Vec<RdfQuad> {
+        let ds = crate::parse_dataset(ttl.as_bytes(), "text/turtle", None).expect("parse turtle");
+        flat_rdf_quads_from_dataset(&ds)
+    }
+
+    /// The set of DISTINCT blank-node subjects that are `<subj> a owl:Restriction`.
+    fn blank_restriction_subjects(quads: &[RdfQuad]) -> std::collections::BTreeSet<String> {
+        quads
+            .iter()
+            .filter_map(
+                |quad| match (&quad.subject, quad.predicate.as_str(), &quad.object) {
+                    (RdfTerm::BlankNode(label), RDF_TYPE, RdfTerm::Iri(iri))
+                        if iri == OWL_RESTRICTION =>
+                    {
+                        Some(label.clone())
+                    }
+                    _ => None,
+                },
+            )
+            .collect()
+    }
+
+    // Two Turtle sources, each carrying exactly one anonymous `owl:Restriction` the
+    // parser labels `_:b0`. Merged, they must stay two distinct nodes.
+    const RESTRICTION_A: &str = concat!(
+        "@prefix ex: <https://example.org/> .\n",
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n",
+        "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n",
+        "ex:A rdfs:subClassOf [ a owl:Restriction ; ",
+        "owl:onProperty ex:p ; owl:someValuesFrom ex:C ] .\n",
+    );
+    const RESTRICTION_B: &str = concat!(
+        "@prefix ex: <https://example.org/> .\n",
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n",
+        "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n",
+        "ex:B rdfs:subClassOf [ a owl:Restriction ; ",
+        "owl:onProperty ex:p ; owl:someValuesFrom ex:D ] .\n",
+    );
+
+    /// Core fix: merging two independently-parsed sources via
+    /// [`flat_dataset_from_quad_sources`] standardizes their blanks apart, so two
+    /// `_:b0`-labeled restrictions stay DISTINCT — whereas the naive single-source
+    /// concatenation collapses them into one, the bug this fix removes.
+    #[test]
+    fn multi_source_flat_freeze_standardizes_blanks_apart() {
+        let a = turtle_quads(RESTRICTION_A);
+        let b = turtle_quads(RESTRICTION_B);
+
+        // Standardize-apart merge: two distinct blank restriction subjects.
+        let merged = flat_dataset_from_quad_sources(&[&a, &b]).expect("multi-source flat freeze");
+        let merged_flat = flat_rdf_quads_from_dataset(&merged);
+        assert_eq!(
+            blank_restriction_subjects(&merged_flat).len(),
+            2,
+            "two independently-minted _:b0 restrictions must remain distinct after a \
+             standardize-apart merge"
+        );
+
+        // Naive single-source concatenation collapses both `_:b0` into one node —
+        // locked in as the contrast the fix removes.
+        let concatenated = [a, b].concat();
+        let collapsed = flat_dataset_from_quads(&concatenated).expect("single-source flat freeze");
+        let collapsed_flat = flat_rdf_quads_from_dataset(&collapsed);
+        assert_eq!(
+            blank_restriction_subjects(&collapsed_flat).len(),
+            1,
+            "concatenating two sources as ONE parse collapses the shared _:b0 label"
+        );
+    }
+
+    /// The folding twin: [`dataset_from_quad_sources`] threads a per-source scope through
+    /// the RDF 1.2 statement-layer fold, so the same two restrictions stay distinct and
+    /// the fold still succeeds.
+    #[test]
+    fn multi_source_folded_freeze_standardizes_blanks_apart() {
+        let a = turtle_quads(RESTRICTION_A);
+        let b = turtle_quads(RESTRICTION_B);
+
+        let merged = dataset_from_quad_sources(&[&a, &b]).expect("multi-source folded freeze");
+        let merged_flat = flat_rdf_quads_from_dataset(&merged);
+        assert_eq!(
+            blank_restriction_subjects(&merged_flat).len(),
+            2,
+            "the folding path must also standardize blanks apart per source"
+        );
+    }
+
+    /// Canonical byte-lock (scope 0): the single-source `flat_dataset_from_quads` and the
+    /// one-element `flat_dataset_from_quad_sources(&[&q])` it delegates to produce
+    /// datasets with byte-identical canonical flat N-Quads — confirming source 0's
+    /// `BlankScope::DEFAULT` renders bare labels exactly as before the refactor.
+    #[test]
+    fn single_source_canonical_bytes_unchanged_across_delegate() {
+        const TRIG: &str = r#"
+@prefix ex: <https://example.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+ex:s ex:p ex:o .
+ex:s ex:friend [ ex:name "anon" ] .
+ex:r rdf:reifies <<( ex:s ex:p ex:o )>> .
+ex:r ex:confidence "0.9"^^xsd:decimal .
+ex:g {
+  ex:a ex:b ex:c .
+}
+"#;
+        let ir = crate::parse_dataset(TRIG.as_bytes(), "application/trig", None).expect("parse");
+        let quads = flat_rdf_quads_from_dataset(&ir);
+
+        let via_single = flat_dataset_from_quads(&quads).expect("single-source freeze");
+        let via_sources =
+            flat_dataset_from_quad_sources(&[&quads]).expect("one-element sources freeze");
+
+        let canon_single = canonical_flat_nquads(&via_single).expect("canon single");
+        let canon_sources = canonical_flat_nquads(&via_sources).expect("canon sources");
+        assert_eq!(
+            canon_single, canon_sources,
+            "the 1-element delegate must not change the single-source canonical bytes"
+        );
+    }
+
+    /// A dataset carrying a reserved-vocabulary IRI ([`crate::RESERVED_NAMESPACE`]).
+    fn reserved_vocabulary_dataset() -> Arc<RdfDataset> {
+        let mut b = RdfDatasetBuilder::new();
+        let s = b.intern_iri("https://example.org/s").unwrap();
+        let p = b.intern_iri("https://example.org/p").unwrap();
+        let bad = b.intern_iri(crate::RESERVED_NAMESPACE).unwrap();
+        b.push_quad(s, p, bad, None).unwrap();
+        b.freeze().expect("valid")
+    }
+
+    /// Both public presentations return the same original refusal for this input.
+    #[test]
+    fn canonical_flat_nquads_with_returns_the_original_refusal() {
+        let ds = reserved_vocabulary_dataset();
+        let flat = canonical_flat_nquads_with(&ds, crate::CanonHash::Sha256).unwrap_err();
+        let overlay = crate::try_canonicalize_with(&ds, crate::CanonHash::Sha256).unwrap_err();
+        assert!(matches!(&flat, crate::CanonError::ReservedVocabulary(_)));
+        assert_eq!(flat, overlay);
+    }
+
+    /// The direct flat-view entry point retains the same reserved-vocabulary
+    /// refusal as the public N-Quads wrapper. Host surfaces share this typed path.
+    #[test]
+    fn try_canonicalize_flat_view_refuses_reserved_vocabulary_as_a_value() {
+        let ds = reserved_vocabulary_dataset();
+        match purrdf_core::try_canonicalize_flat_view(&*ds, crate::CanonHash::Sha256) {
+            Err(purrdf_core::ViewCanonError::Refused(
+                purrdf_core::CanonError::ReservedVocabulary(_),
+            )) => {}
+            other => panic!("expected a typed reserved-vocabulary refusal; got {other:?}"),
+        }
+    }
+
+    /// Neighbouring-valid check: an ORDINARY dataset carrying no reserved vocabulary
+    /// still canonicalizes successfully through the same typed
+    /// [`purrdf_core::try_canonicalize_flat_view`] path the refusal test above
+    /// exercises — the tightened refusal above does not widen to reject valid input.
+    #[test]
+    fn try_canonicalize_flat_view_admits_an_ordinary_dataset() {
+        let quads = vec![RdfQuad::new(
+            RdfTerm::iri("https://e/s"),
+            "https://e/p",
+            RdfTerm::iri("https://e/o"),
+        )];
+        let ds = dataset_from_quads(&quads).expect("freeze");
+        let canonicalized = purrdf_core::try_canonicalize_flat_view(&*ds, crate::CanonHash::Sha256)
+            .expect("an ordinary dataset must canonicalize, not refuse");
+        assert!(
+            canonicalized.nquads.contains("https://e/p"),
+            "the canonical document must carry the asserted triple:\n{}",
+            canonicalized.nquads
+        );
+    }
+}

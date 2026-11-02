@@ -1,0 +1,934 @@
+<!--
+SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+SPDX-License-Identifier: CC-BY-4.0
+-->
+
+# PurRDF retrieval composition: plan, compile, execute, fuse
+
+PurRDF already answers ranked retrieval two ways: exact BM25 rows from
+`purrdf-text` and kNN rows from the evaluator's `knn` module over PURREMB
+artifacts — each a relation reached through the property-function seam,
+each returning its own ranked list under caller-supplied IRIs. The
+`geof:` family from `purrdf-geo` is reached the same way but is not a
+third: it computes a **set**, with a deterministic ordering and neither a
+score nor a rank, so it composes as a constraint on candidates rather
+than as a stratum of a fused ranking. What does not exist yet is the
+layer that turns "one request" into "one answer" across the ranked ones:
+something has to decide which producers a request reaches, run them, and
+combine their lists into a single ordered result without destroying what
+each producer knew about its own answer.
+
+This document records the design for that layer before any of it is code,
+in the same spirit as the other design records here: the decisions a
+reader would otherwise take for oversights, and the limits of the
+guarantees. It fixes **structure**, not a wire signature or an API name.
+Like every extension in this family it is a composition **outside the
+kernel**: nothing in `purrdf-core` or the property-function seam changes
+to admit it, and PurRDF continues to mint no vocabulary — producers,
+strata, and weights are caller-supplied configuration, `example.org`
+throughout the fixtures.
+
+---
+
+## 1. Four stages, one executor
+
+The unscored candidate seam shares this executor. `plan_candidates` takes
+explicit per-stratum work depths, `compile_candidates` admits and emits their
+native units, and the same `execute` or `execute_within` runs them. `union`
+deduplicates their prefixes by subject and keeps every original per-stratum
+rank, actual work depth, read status and producer evidence. It adds no score or
+relevance order. Its canonical subject order represents a set; callers own any
+subsequent ranking. These depths are independent of the fused answer's `k` and
+of selectivity narrowing.
+
+A candidate prefix is complete only when every selected producer reached its
+requested depth or proved exhaustion through its original verified receipt.
+Producer failures and cap shortfalls remain visible alongside partial ranks;
+incomplete-index and rank-fidelity declarations remain distinct from prefix
+completion. The original `plan`/`compile`/`execute`/`fuse` and `search`
+composition retain their existing semantics and identities.
+
+Retrieval is four composed stages:
+
+```text
+plan(request, registry, statistics)  -> Plan
+compile(plan, environment)           -> one SPARQL unit per stratum
+execute(compiled, registry, dataset) -> per-stratum ranked streams
+fuse(streams, profile, bound)        -> one ordered answer
+
+search(s, d) = fuse(execute(compile(plan(s, registry, statistics), e), registry, d), profile, k)
+```
+
+`compile` admits the plan against an environment and emits one unit per
+stratum rather than a single query, because §6's isolation requirement is
+that one stratum's failure is a status and not the request's; `execute`
+needs the registry as well as the data, because a unit's relation calls
+are reached through it; and `fuse` takes the bound, which the request
+already stated and the plan already derived its depths from.
+
+`execute` is the only stage that runs the *ranked read*, and every
+higher-level entry point is *defined as* the composition — not
+implemented a second time to behave like it. The distinction is
+enforceable: the composition identity above is a testable equality, and
+the test suite carries it as one. A convenience entry point that
+re-implemented the pipeline could drift from it silently; one that calls
+it cannot.
+
+One other query runs, and it runs from the stream rather than from a
+stage: a stratum whose producer declared an exclusion basis is asked, per
+candidate, whether it holds that candidate. `execute` compiles and
+prepares that lookup and hands it back inside the stream; the query itself
+runs when `fuse` asks, because which candidates anyone needs an answer for
+does not exist until the rows are being merged. So the rung `execute`
+returns borrows the caller's dataset, and §4 and §7 both read differently
+because of it.
+
+The registry is the injection point. A producer registers the IRI of its
+relation, the shape of its rows, the stratum labels it emits under, and a
+parse predicate saying which request terms it can consume. All of that is
+caller configuration in the existing style — the composition layer ships
+no producers of its own and no default registry.
+
+## 2. The plan is a value, and that is exactly why it is untrusted
+
+`plan` returns a value the caller can inspect, edit, serialize, and hand
+back. This is deliberate and load-bearing: a caller who knows the data
+better than any statistic does — and such callers exist — corrects the
+plan term by term instead of abandoning planning wholesale, and every
+decision the planner made is visible as the return value rather than as a
+reporting obligation someone must remember to implement.
+
+The same property makes every plan untrusted input. A value that can be
+edited can be edited wrongly, and a value that can be deserialized can be
+forged. So the pipeline **admits** plans at `compile`, and `compile` is
+the narrow waist where one check covers all three origins — freshly
+planned, caller-edited, and deserialized — because all three must pass
+through it to execute.
+
+Admission is not syntax checking, and being compilable is not being
+admissible. The failure that matters is semantic: delete a producer from
+an edited plan and the result still compiles to a perfectly well-formed
+query that silently answers less than the registry promised. Admission
+therefore checks the plan against the registry's declared invariants —
+producers the registry **declares** mandatory are present and receive
+what the registry says they must receive, per-stratum depths respect
+declared bounds — and refuses with the exact violated dimension rather
+than executing a plausible subset.
+
+Stratum weights are **not** among those invariants, and §8 is why: the
+fusion profile is deliberately not a planning input, so a plan records no
+weights for admission to check. The two things a weight dimension would
+have asked are answered where the fusing weights live instead. A weight
+unusable under §5 cannot exist, because `FusionProfile` construction
+refuses a non-positive weight, an empty weight map, and a weight vector
+whose exact sum of rank-one contributions exceeds `u128`. And the mismatch
+that can actually cost a caller rows — a stratum the plan reaches that the
+profile does not weight — is *reported* per stratum on the answer rather
+than refused, because a profile is a reusable law chosen without
+reference to any one plan.
+
+The composition layer itself takes no position on which producers must
+exist. Whether some producer is mandatory, always-applicable, or must
+receive the whole request is **registry policy, declared by the caller**;
+admission enforces whatever the registry declared and adds nothing of its
+own. Coverage doctrine belongs to the systems that configure a registry,
+not to the mechanism that honors one.
+
+## 3. `compile` emits SPARQL, and there is no second algebra
+
+The compiled form of a plan is a SPARQL query over the registered
+property functions — the language the evaluator already executes, not a
+new plan algebra with its own evaluator.
+
+Two properties follow, and both are the point. The compiled query is
+**independently executable**: a caller can take the emitted text and run
+it through `purrdf-sparql-eval` with no composition layer in the path,
+which extends the repository's existing discipline — the conformance
+suites already insist the evaluator is the single source of query truth —
+out to a seam a caller can stand on. And the planner is **structurally
+unable to hide a decision**: if a plan's executable content is query
+text and the executor runs only query text, nothing can live between
+planning and execution — the text is the whole of what runs.
+
+That is a claim about the *executable* content, and it is not the same
+as "every decision is legible in the text". One decision is not, and it
+is named rather than left implicit: a producer's declaration may accept
+a request term's shape and place none of it, in which case the producer
+is called with the term absent from its arguments and the emitted text
+carries no trace of the request. Two different requests then compile to
+the same query, which is exactly what that producer asked for. So the
+decision lives in the plan instead, per term: such a term is bound to
+no producer and is reported in the plan value's own unserved-term evidence,
+which makes an empty evidence list mean the strong thing — every term
+reached a producer *with its content*. Between the text and that list,
+nothing the planner chose is unaccounted for.
+
+SPARQL's reach ends at that rung in both directions. Below: `plan` takes
+free text, which is not a graph pattern, and no one should hand-write a
+query to obtain what planning exists to derive. Above: rank fusion is
+ranking policy, not a graph-pattern operation, and expressing §5 as an
+extension function would embed policy inside the query language where
+neither the conformance corpora nor other engines could follow it.
+
+## 4. Seams are stopping points; there are no mode flags
+
+Every boundary between stages is a supported place to stop. A caller who
+wants only the plan calls `plan` and stops. A caller who wants the query
+text calls through `compile` and stops. A caller who wants per-producer
+ranked streams — because it wants each stratum's ranked list on its own
+terms, with its own receipt and no cross-stratum accounting applied, or
+because it intends to combine them by a law of its own — calls through
+`execute` and stops. Stopping there buys no laziness in the *rows*: under
+`execute` each stratum's result is fully materialized before its first row is
+readable (§7), so a consumer that reads one row has already paid for all of
+them. The same rung taken through `execute_within` at `ReadSchedule::OnDemand`
+— the read `search` takes — is lazy in its rows: each stratum is one invocation
+held open and read a row per pull (§7), and a consumer that reads one row has
+caused one row to be produced. What that rung is not is a closed value. A stream whose producer declared
+an exclusion basis carries a prepared lookup and a borrow of the caller's
+dataset, and answering one runs a query after the rows are in hand — so
+`execute` hands back a live handle over the data it read, and the one
+question it answers lazily is the one a consumer cannot ask a materialized
+list. None of these is a degraded use of the surface, and none is
+requested by passing an option that asks the full pipeline for less.
+
+Every boundary is equally a place to **start**. A caller who has already
+done its own planning — one that knows exactly which producer terms it
+wants, scoped exactly how, with nothing inferred — does not need a
+planner mode that defers to it; it hands the plan it built to `compile`,
+where admission covers it on the same terms as anything the planner
+produced, since §2's three origins already include the hand-built case.
+A caller holding compiled query text likewise runs it through the
+evaluator directly. Stopping early and starting late are one property
+read in both directions, and the design carries one concept — the seam —
+instead of a mode selector per knowing-caller shape.
+
+The rule is what keeps the surface from accumulating options: a flag that
+changes what a stage produces is a second behavior the first must be kept
+in agreement with, while a seam is the same behavior observed earlier.
+When a capability appears to need a flag, the design question is which
+stage boundary it actually belongs at.
+
+## 5. Fusion is stratified reciprocal-rank with exact arithmetic
+
+`fuse` combines per-stratum ranked lists. Within its stratum an item has
+rank `r` (1-based); its contribution is
+
+```text
+contribution(stratum, r) = w_stratum * recip(K + r)
+```
+
+where `recip` is the reciprocal evaluated in fixed point at a declared
+scale with a declared rounding, `w_stratum` is the stratum's declared
+weight, and `K` is the profile's smoothing constant. An item appearing in
+several strata **sums** its contributions, and the final order is by
+fused score descending with a declared, total tie-break.
+
+**Where the weight enters is a declared rule, not an implementation
+detail.** Evaluating `recip` first and applying the weight afterwards
+rounds twice, and the inner rounding is a ceiling the weight cannot
+lift: `trunc(S / D)` with caller-selected `S = 10^scale_digits` stops
+strictly decreasing once `D² > S`, so under that rule every weight at or
+above one shares a monotone range ending near `sqrt(S)` ranks, and a stratum read deeper
+than that answers at a coarser rank resolution rather than being
+refused. Folding the weight into the numerator
+computes the same quantity with one exactly-rounded division —
+`trunc(w_raw / D)`, where a weight's raw integer is already `w · S` —
+and its monotone range runs to about `sqrt(S · w)`. Both are §5 laws;
+neither needs a transcendental; the profile names which one it runs
+under and carries that choice in its identity, so the second rule adds a
+capability without moving any number a previously issued profile ever
+produced. The relation reads in both directions, and a profile author
+needs both: a weight caps the depth that stays ordered, and a required
+depth therefore sets a floor under the weight — `w ≳ depth² / S`.
+Weights are only ever compared with each other, so scaling the whole
+vector buys resolution while preserving the declared ratios; finer rounding
+can distinguish ties the smaller raw weights could not.
+
+The arithmetic is exact for the same reason `purrdf-text`'s is, and the
+reasoning transfers where the kNN module's deliberately does not. The kNN
+kernels use 64-bit binary floats because every operation they need is correctly
+rounded and their artifact format stores those same bits; BM25 left floating
+point because `ln` is not correctly rounded and last-bit disagreement
+reorders near-ties. Rank fusion needs no transcendental — a reciprocal at
+a declared scale is one exactly-rounded division — and near-ties are not
+an edge case here but the workload: fusing ranked lists *is* deciding
+between items whose scores differ by almost nothing, so a representation
+in which two sums can differ by an unrepresentable amount, or in which
+addition order changes the total, converts the mechanism's core case into
+target-dependent output. Fixed point with checked additions closes both:
+sums are associative when they do not overflow, overflow refuses loudly
+rather than wrapping, and the emitted order is byte-identical on every
+target with no fold-order caveats to assert.
+
+Summation, not selection, is the cross-stratum rule, and the reason is
+recorded here because the rule will otherwise be re-litigated by someone
+reasonable. There is no optimal fusion rule to defend: the impossibility
+results for rank aggregation forbid one in general, and exact aggregation
+(Kemeny-style) needs the complete rankings that bounded per-stratum depth
+deliberately denies. So the decidable question is narrower — sum versus
+discard — and there summation dominates. An item surfacing in two strata
+is two independent observations supporting it, and under any
+evidence-combining account two observations for one candidate combine to
+at least as much as either alone; a "best-stratum-wins" rule discards a
+confirming observation, which is the same silent loss §6 forbids for
+status, applied to rank mass. (A caller who wants selection can have it — by
+stopping before `fuse` and selecting from the unfused streams itself.
+What the fused rung does is sum; no arrangement of weights reproduces
+selection, and this surface does not pretend otherwise.)
+
+Weights and `K` live in a **fusion profile**, and the profile is an
+identity, not a knob: two answers fused under different profiles are
+answers to different questions, so a changed weight or a changed `K` is a
+new profile identity, never a runtime parameter drifting silently under a
+stable name. Rank space also makes the weights honest at the top of the
+list — a weight applied to ranks preserves its declared ratio at rank 1,
+where contests are decided, instead of decaying to nothing as matches
+approach perfection the way a multiplier on a bounded distance does.
+
+That last clause decides a configuration question, so it is stated as a
+rule rather than left as an aside. One stratum carries one producer, and
+the refusal at registration names two exits: producers whose scores are
+already comparable merge inside one producer; producers that score by
+different laws take a stratum each. **The first exit requires two things,
+not one: comparable scores, *and* that the host's intended weighting can
+ride inside the score.** Sharing a law buys only the first.
+
+Two classes over one embedding space — headings and bodies — share a law
+exactly, but if one is meant to outweigh the other and the shared score
+is a bounded metric (a cosine distance in `[0, 2]`, lower-better), a
+merge sorted by `d / w` gives the favoured class an edge of only
+`(1 - s)(1 - w_low/w_high)`: `0.45` against a match at similarity `0.1`,
+`0.0005` against one at `0.999`, and zero against a perfect match. The
+weighting is largest where it matters least and vanishes where the top-k
+contest is decided, so the merge silently drops it — and an unweighted
+merge still returns a plausible ranking, which is why nothing looks
+broken.
+
+The margin is only half the result, and the other half is why this is
+structural rather than a tuning problem. It is also **distribution-free**:
+for a weighted threshold `s'`, the expected number of competitors
+outranking a hit is `n · (1 − F(s'))` — *linear in corpus size* — so no
+fixed weight ratio survives corpus growth, even away from the boundary
+where the margin argument bites hardest. No choice of weight inside a
+bounded score is a fix; the weight has to leave the score.
+
+So such a pair takes **a stratum each**, where the fusion weight acts in
+rank space — and rank space is what a stratum is. An unbounded score
+carries a multiplicative weight at every magnitude (BM25F's field weights
+are natively this), so that configuration belongs at the first exit. The
+question a host can act on while reading the refusal is therefore: *do
+you want these two weighted differently, and is the score bounded? Then
+separate strata.*
+
+**The input protocol declares rank progression independently from duplicate
+handling.** `RankSource::Ordinal` assigns distinct contiguous ranks from one.
+`RankSource::Shared { position }` reads positive nondecreasing integer ranks
+from the producer's declared output column: several subjects stating one
+ranked literal retain that literal's rank and receive equal contributions.
+The registration's source and position participate in registry and plan
+identities. Native execution projects that column as `?rank`; caller-supplied
+shared-rank query text must project it too. Fusion and unscored union enforce
+the same `RankLaw`, refusing zero and descending ranks under either law,
+and repeated or gapped ranks under the ordinal law.
+
+Row depth remains a physical prefix bound, independent of rank values.
+Terminal exhaustion counts rows; bounded endings report the last emitted rank.
+The trailer reports physical `rows_pulled`, highest `ranks_pulled`, deliberate
+`shared_ranks_observed`, and quantization `collisions_observed` separately.
+Shared ranks preserve non-increasing contributions, so the existing threshold
+bound remains sound and a score tie still waits for its canonical tie-break.
+
+A ranked producer also declares whether an item may repeat within one
+invocation. `fuse` is the consumer
+that declaration was written for, so it reaches it — carried from the
+registry through the compiled unit and the executed stream rather than
+re-fetched at the end — and is honoured on its own terms. A producer that declares its
+repeats are the consumer's to remove is **de-duplicated**: one
+contribution per `(stratum, item)`, at the best rank the stream gave it,
+never counted twice. A producer that declares an item appears at most
+once is believed, and pays no per-stream identity set for the promise —
+which matters, because that set is the one structure a fusion holds that
+grows with the rows *pulled* rather than with the disagreement window, so
+an honest uniqueness declaration is what makes a deep answer affordable.
+Refusing the permissive declaration instead would be the mirror failure:
+a policy whose own definition names the consumer's obligation, rejected by
+the consumer for exercising it.
+
+**A producer also declares which blocks of the candidate universe it may
+name**, beside its duplicate policy and on the same terms: host-supplied
+configuration, read at registration, carried to the consumer it was
+written for. `Unrestricted` is the *wider* promise — "this producer may
+name anything" — and is what every stream effectively said before the
+declaration existed; a restriction names blocks of a **partition** of the
+candidate universe, so a candidate lies in exactly one block, and it is
+never empty, because a promise to name nothing describes a producer that
+should not be registered rather than a narrow one. Nothing is defaulted
+from a stratum or a graph: the host is the only party that knows whether
+its text index and its vector index name the same entities, and a
+consumer guessing that pair either refuses a query that was valid or
+certifies a score missing a contribution the other stream was about to
+make. A wrong guess here is a wrong answer, so there is no guess.
+
+The declaration is not an optimizer hint, because the threshold it feeds
+is part of the certification argument. `T` bounds the score of an item
+**nobody has named yet**, and such an item lies in exactly one block, so
+the only contributions it can still collect are those of the streams that
+can reach *its* block. The bound is therefore the **largest per-block sum
+of the open heads**, with every unrestricted head counted in every
+block's sum because such a stream may name anything. Summing every head
+instead is also sound — it is an upper bound of this one — but it is
+looser, and a threshold that is too high is precisely what stops
+certification: no candidate rises above it, nothing is emitted, and the
+fusion pulls rows it had no need for. When every open stream declares
+`Unrestricted` there are no blocks to range over and the expression
+reduces **exactly** to the sum of every open head, which is the identical
+value the threshold carried before declarations existed. A per-*candidate*
+sum would be tighter still and is not available: this bound is about
+items nobody has seen, so there is no candidate to take a block from, and
+narrowing it by some *other* item's namers would be unsound.
+
+A rank claim read in contribution space does **not** read the same way,
+and the reason is worth stating because this section once said the
+opposite.
+
+A contribution that *rises* with rank is forbidden for every stream: the
+threshold over the stream heads would otherwise not be an upper bound and
+certification would be unsound. Equality between adjacent ranks is a
+different thing entirely, and it is not the producer's to declare. The
+contribution is computed by the consumer from the decay rule, `K`, the
+stratum weight and the rank; it is re-derived on arrival and refused on
+mismatch; and the producer's own score never crosses the seam at all,
+because `execute` assigns rank by emission order and discards it. Ranks
+are separately held contiguous and ascending for every stream. So two
+adjacent ranks carrying one contribution says nothing about the producer —
+it says the profile's fixed-point arithmetic has stopped separating those
+ranks at that depth, which is a property of `(decay rule, K, weight,
+depth)` alone.
+
+This section previously specified that a producer declaring every rank
+unambiguous was *refused* on that equality, and the admission waist
+refused the matching plan depth. Both refusals rejected correct, usable
+answers: an unambiguous-rank claim is a claim about ranks, and it was
+being held against a quantity the producer supplies no term of. Rank order
+is checked on the rank itself, where it is a single unconditional law, and
+is not read in contribution space at all.
+
+### §5.1 The law's resolution
+
+The arithmetic has a **resolution**, and past the point where it runs out
+the answer degrades in exactly one way. Adjacent ranks fall into
+*indifference classes* — maximal runs of ranks carrying one contribution —
+and the class width at a depth is the layer's resolution there. A width of
+one means the fused score alone orders that rank. A width of `w` means `w`
+consecutive ranks are indistinguishable by score, and their relative order
+falls through to the declared tie-break's later keys: best stratum rank
+ascending, then canonical term bytes. That key is **total**, so the answer
+remains a pure function of its inputs at every depth. It is never wrong;
+it is coarser.
+
+The two decay rules differ in how resolution scales with weight, and the
+difference is not a matter of degree. `ReciprocalRank` truncates the
+reciprocal *before* applying the weight, so once `trunc(S / D)` and
+`trunc(S / (D + 1))` coincide the two ranks have already merged at the
+point the weight arrives: no weight can part them, and the rule saturates
+near `D = sqrt(S)` for every weight at or above one.
+`WeightedReciprocalRank` folds the weight into the numerator as one
+exactly-rounded division and has no such ceiling; its range runs to
+roughly `sqrt(S · w)`. Read in reverse this is a design calculus rather
+than a limit — name the depth, get the weight — and it is exposed as one.
+
+Because none of this is a defect, none of it is a refusal. It is
+**measured and reported** at all three altitudes: the profile answers for
+the law before a plan is written, the compiled plan carries each stratum's
+planned depth against the depth that law separates, and the fused trailer
+reports what the answer in hand actually cost — how deep each stream was
+read, how many adjacent ranks the score could not tell apart (observed on
+the comparison, not inferred from the bound), how many exclusion lookups
+were asked of each stratum, how many rows each stratum's read actually
+returned, and whether the final place in a top-k was settled by the
+tie-break rather than by relevance. The last two are *price* rather than
+arithmetic, and they are the pair that makes a narrowing judgeable: how
+far the fusion walked is what a declaration was meant to lower, and how
+much was materialized to let it walk that far is what the walk was taken
+out of. Each stratum is read once, on demand (§7), so the second is the
+rows that one read produced — the ranks the fusion pulled, and the probe row
+where it read past the planned depth. The one
+refusal retained is exact rather than conservative: asking for a depth no
+weight can reach under the truncated rule is refused, and the saturation
+rank is reported with it.
+
+The middle altitude is reported at every entry point, not only to a
+caller that stops at the waist to look. `compile` against an environment
+naming the law answers what a plan will cost with nothing executed, and
+the one-call composition carries that same map onto its answer beside the
+trailer's measured one — planned and observed kept apart by name, because
+a top-k that certifies early never reaches its planned depth and a depth
+nothing reached cost nothing.
+
+## 6. Producer status survives fusion — the only place it can die
+
+Every producer's stream already names its own completeness: which
+producer it is, whether it answered fully, and if not, why. Below `fuse`,
+honesty is therefore free — N streams carry N statuses and nothing merges
+them. Fusion is the single stage at which that information *can* be
+destroyed, so the obligation binds there: a fused answer carries the
+status of every producer that contributed and of every applicable
+producer that could not, and never reduces them to one aggregate flag.
+"Two producers answered and one could not" and "all three answered" are
+different answers and must remain distinguishable.
+
+The streaming corollary is the easy one to get wrong. A status written at
+the head of a stream can be falsified by a failure later in the same
+stream, so completeness is asserted by a **trailer**: a consumer that
+reads a prefix and stops holds evidence that the answer is incomplete,
+and only the trailer can say otherwise. Nothing readable mid-stream
+entitles a consumer to a completeness claim.
+
+A status per producer is not the same obligation as an *ending* per
+producer, and reading the first as the second would quietly repeal §7.
+A producer the top-k bound stopped mid-stream has a true status — read
+down to this contribution and no further — and that is what the trailer
+carries for it. Draining the stream instead, so that it can be made to
+declare exhaustion, would spend the whole memory bound on the report and
+would then assert a completeness the fusion never established. The
+trailer reports the state each producer is in; it does not put producers
+into a state so that it has something to report.
+
+**There are seven read endings, and exactly one of them names no stopper.**
+`Exhausted` — the producer emitted every row *its search produced* — is that
+one. It is not on its own a claim that everything matching was returned: a
+producer whose search does not find every row that was due still runs out of
+the rows it found and reports exactly this, which is why a stratum's declared
+`RankFidelity` sits beside its status and the two are read together. The other
+six name the stopper rather than
+the state: the planned depth, stated in rank space, for a producer that
+stopped where it was told and had more to give; the producer's **own declared
+row bound**, for the one shape that takes its depth as an argument and was
+planned at a depth already sitting on that bound, so no further row could even
+be asked for and whether one existed was never observable; a **caller's own
+query text**, for a unit this layer bounded only on the outside, whose inner
+bounds it does not read and therefore cannot certify an exhaustion from; a
+contribution bound, stated in the profile's fixed-point space, written by the
+producer or by a top-k that stopped reading; the producer's refusal of the terms
+it was handed; and a run that could not happen. The middle two exist because
+`Exhausted` is the one ending that names no stopper, and minting it for a read
+whose ending nobody could observe is exactly the claim this vocabulary is for.
+The depth ending and the
+contribution ending are deliberately not one variant even though both mean
+"not complete", because they name different knobs: the first is answered
+by re-planning deeper, the second by certifying further rows against the
+same streams, and neither number converts into the other. A depth ending
+is measured against the rows fusion actually pulled — a producer may stop
+at its depth, but it may not miscount what it emitted.
+
+**What the index attested is a different axis, and it is read before any
+row is pulled.** Which generation of its index answered, and whether that
+index was whole, are facts the relation's cursor alone holds: the dataset
+snapshot, the query text and the registry fingerprint are all unchanged by
+a rebuild. A generation is pinned when a cursor opens, so the value read
+there is true of every row that follows.
+
+That ordering is load-bearing rather than tidy, and it is the reason this
+is an axis rather than a sixth ending. A terminal receipt is **overwritten
+by a bounded stop** — a stream the top-k stopped never returns a receipt
+at all — so an incompleteness held terminally would be destroyed exactly in
+the runs where the bound mattered, and the answer would name the bound
+while silently losing the hole beneath it. Held as an attestation, a
+stratum that was both stopped and short reports both facts: the bounded
+stop in its status, the short index in the attestation map beside it. The
+map is keyed only by the streams the fusion was actually handed; a stratum
+whose unit never ran has no attestation, and that absence is left as an
+absence rather than filled with "declared nothing", which would report a
+producer that was never asked as one that declined to answer.
+
+The seam asks the narrow question — *was your index NOT whole?* — and has
+no variant for wholeness, for the same reason §7's ending problem exists: a
+relation that stopped at a ceiling it was licensed to stop at is not
+incomplete, and could not honestly certify completeness either, because it
+never looked at the rows it skipped. Silence is therefore silence, never a
+certificate.
+
+**A short index makes every score an estimate, in both directions, and the answer says so.**
+A stratum serving from a short index omits whatever its missing shard
+held, so a candidate that shard would have named is summed one
+contribution light; labelling that "exact" would be a bound on the read
+presented as a value.
+
+Labelling it a *lower bound* would be worse. Fusion scores by **rank** and
+nothing else, so the omission does not merely withhold the missing row's
+contribution: every row behind it moves up a rank and collects a larger
+one than it earned. The candidate the stratum missed scores too low, the
+candidates it named score too high, and a one-sided name is right about the
+first and wrong about the second — which leaves a consumer confidently
+wrong in the one direction the name told it not to look.
+
+So the trailer carries a score-exactness reading beside the statuses:
+exact when no handed stream was degraded, or estimated **naming exactly the
+strata that were**, on each side, so a caller knows which indexes to
+rebuild and can read each one's verbatim reason under the same key. Each
+row carries the size of its own error in both directions, and the prefix of
+the answer whose places survive it is computable from those. The rows are
+returned either way, because a degraded stratum still produced real rows in
+a real order — what cannot be concluded is that a row absent from the
+answer would have stayed absent.
+
+**The same reading covers an approximate search, and for the same reason.**
+A short index and a lossy search differ in everything an operator cares
+about — one is a fault to repair, the other is what the producer *is* — and
+they are reported separately for that reason, under their own keys. But
+their effect on a score is identical: rows that were due did not arrive.
+What sets both apart from a stratum stopped at its depth is that a depth-
+or ceiling-stopped read **says so in its own status** and can be undone by
+reading deeper, while these announce nothing there and no further reading
+recovers what was never found.
+
+The reading is derived from the declarations and attestations alone, both
+pinned before the first row, so unlike the statuses it does not move as a
+caller certifies further rows: how deep a caller read changes which streams
+are still open, never whether an index was whole or a search exhaustive.
+
+## 7. Fused is top-k by construction; unfused carries no cross-stratum accounting
+
+The two rungs differ in kind, and the difference is algebraic rather than
+an implementation budget. The discriminator is the **absence versus
+presence of cross-stratum accounting**, and not a difference in how
+results are produced.
+
+Unfused enumeration through `execute` is **materialized per stratum**.
+`execute` prepares each unit through the evaluator's
+`prepare_query_with_options` and runs it through
+`query_prepared_governed_view` — the governed lane, because that is the lane
+whose receipt carries the relation witness §6's attestation is read off —
+receives a fully materialized `SparqlResult::Solutions`, converts it to a
+`Vec<(u64, Term, RowBlock)>` and hands back a `VecDeque` behind
+`RankedStreamImpl`. That rung is bounded by what a stratum's own read costs,
+not by the consumer's depth — a consumer that reads one row has already paid
+for all of them.
+
+The same unit can be read **on demand**, and that is the read `search` takes
+(`execute_within` at `ReadSchedule::OnDemand`). A unit this layer rendered is
+exactly one property-function call under row-for-row operators, and the
+evaluator opens such a query as one invocation held open —
+`NativeSparqlEngine::open_call_cursor` — with the same admission, arguments,
+row licence, width check and unification the governed lane applies, producing
+a solution each time it is asked. The stratum's stream pulls that invocation
+once per row and never re-opens it: a consumer that stops at the sixth rank of
+a four-hundred-row plan has caused six rows to be produced, and one that needs
+the four hundredth reads on to it in the same invocation. The ending is judged
+by the same observations as a materialized read's — the probe row one past the
+planned depth, the producer running out, the producer's own bound — one row at
+a time. The receipt is taken when the consumer stops (§6): the stream announces
+what the invocation attested the instant it opened, and settles, when the
+fusion stops, to the witness the invocation stands behind then, read under the
+sole-witness rule and held to that announcement. The schedule asks the prepared
+text's shape, not its origin: a caller's own text that is one call under
+row-for-row operators is read the same way and ends `SuppliedQueryEnded` when it
+runs out, and a text with a join, a `FILTER`, an `ORDER BY` or a dataset clause is
+materialized under either schedule.
+
+The third element of each row is the block of the candidate universe the
+producer drew it from, which exists for the licence below. What the rung
+*does* give is that no cross-stratum accounting exists: with no summation,
+per-stream properties compose, each producer emits in its own rank order, and
+N streams are N independent facts with N receipts. That, and not unboundedness,
+is the property the rung is for.
+
+Fused enumeration is inherently top-k, because §5 sums across strata: no
+item can be emitted until it is known not to reappear in another
+stratum's stream and raise its total. Contributions fall monotonically
+with rank, so a threshold over the stream heads bounds how deep the
+fusion must look to certify its next emission — certification is bounded,
+and the frontier is the memory. *Complete* fused enumeration stays
+excluded for its own reason, which survives any change to how streams are
+produced: complete enumeration may not discard, so it must retain, and
+retention is linear wherever it is put — emitted-set, frontier or spill.
+This surface does not offer it as though it were free. A caller who wants
+to walk everything wants the unfused rung, whose cost is one stratum's
+materialized result.
+
+**The bound on the reading is licensed by what the producers say about
+their own candidates, and it is verified only over the rows actually
+pulled.** The two halves are separate claims and are stated separately.
+
+The *licence* has two halves, and they are different kinds of statement.
+Certification asks whether any open stream could still name a candidate;
+with nothing to answer that question it must assume every open stream
+could, so over strata whose candidate sets do not overlap no candidate is
+ever final while another stream remains open — a top-ten over two disjoint
+million-row strata reads two million rows and grows a frontier to match.
+Weakening the test was not available, and the reason is structural rather
+than a matter of nerve: certifying sooner *while knowing nothing* would
+emit a score that a still-open stream might have raised — a lower bound
+presented as an exact value — and would let an emitted candidate be named
+again by a stream still open. So the finality test stays a membership
+question and gains only a **smaller quantifier**: the streams that
+provably cannot name the candidate are skipped, and nothing about what a
+live stream owes a candidate changes. A live head contributing zero still
+blocks its candidate, because a sum cannot answer a membership question.
+
+**The declarative half** is §5's candidate-domain declaration, made once
+at registration and true of whole blocks of the universe. It settles
+finality exactly where the blocks separate the producers, and not at all
+where they do not: two producers over one block, whose results happen
+never to overlap, have both told the truth and neither has said the thing
+that would let a candidate certify.
+
+**The observational half** is a question the consumer asks. A producer may
+declare an **exclusion basis** — that it can answer, for one named
+candidate, whether that candidate is out of its reach — answered from its
+own index, which holds no entry through which the request could reach the
+candidate, and so exact however lossy its search is. Fusion then asks, once per `(candidate, stream)` pair
+that is actually blocking a candidate worth emitting, and reads
+`Excluded` as "this stream will never name it". That is a *measurement*
+against the producer's own index, not a promise about rows nobody read,
+and it is the reason the two halves are carried separately: a stream that
+excludes a candidate and then names it broke an observation, not a
+declaration, and the refusal says so.
+
+The engine therefore has random access where a producer sold it, and only
+there. A ranked stream offers "next row", "how did you end" and — from a
+producer that declared a basis — "do you hold this one"; a producer that
+declared none offers the first two, and against it the only way to learn
+that a same-domain stream does not hold a candidate is still to read it
+until it names the candidate or ends. Exact scores and a `k`-bounded read
+over strata that do not overlap are jointly achievable by **either**
+route, and by neither if the producers offer neither: a declaration that
+separates the blocks, or a basis that answers per candidate. A lookup is
+counted as its own dimension in the trailer (§5.1) rather than folded into
+the ranks pulled, because it is a different read of a different query: one
+point query, answering *do you hold this one* rather than *what is next*.
+
+The same licence is read one stage **earlier**, and that is where the
+*invocation* is bounded. Skipping a stream bounds how far a result is walked,
+not what the producer was asked for: a unit rendered at the corpus asks its
+producer to rank the corpus — `execute` materializes all of it, and even a read
+taken on demand opens an invocation whose ranking, or whose depth argument, is
+the corpus's — so a top-ten over two disjoint million-row strata would still ask
+for two million rows even with the declaration. It does not: the request
+states its own bound, and the planner derives a depth from that bound
+**per stratum**, for exactly the strata the argument holds for. A stratum `s`
+is licensed the request's bound when `s` declares `Unique` and `s`'s declared
+blocks are disjoint from the union of every other surviving stratum's. Each
+candidate of `s` then has exactly one naming stratum, so its fused score is one
+weighted contribution that falls with rank; the global top `k` is a merge of
+per-stratum prefixes, and nothing below `s`'s rank `k` can enter it. `s`'s depth
+is `min(declared, statistics-narrowed, k)`, exact rather than merely smaller.
+
+The per-stratum reading is the correction of an all-or-nothing one, and the
+difference is an over-refusal rather than a nicety. A stratum that cannot narrow
+takes no other stratum's narrowing with it: two strata sharing a block cost each
+other their prefixes and cost a third, disjoint stratum nothing, and a stratum
+declaring `Allowed` loses its own prefix while a stratum whose blocks it cannot
+reach keeps one — a repeat it cannot receive is not a fact about a stratum it
+cannot name. What still costs *everyone* a prefix is an `Unrestricted`
+declaration among two or more strata, and that exclusion is request-wide because
+the declaration is: "may name anything" is a statement about everyone's
+candidates. Losing a prefix costs nothing but reading — the fallback is the
+declared-or-measured bound that stratum always carried — and no answer moves.
+
+**Finally, a bound the planner could not derive travels the other way, from
+the fusion into the read.** A stratum whose depth no licence narrowed is
+planned at its producer's whole declared length, and a fusion routinely
+certifies such a run inside the first handful of ranks: the plan admitted
+hundreds of rows, the answer needed six. Neither the planner nor any depth
+chosen before a row is read can fix that — the planner's depth is a *sound*
+bound, and the rank a fusion stops at is not knowable until it has stopped —
+so `search` reads every stratum on demand: one invocation per stratum, opened
+at its planned depth, read a row per pull and never re-opened. The read is
+exactly as deep as the fusion's own stop, plus the probe row where the fusion
+read past the planned depth; a fusion that needs more reads on in the same
+invocation, so there is no misprediction to recover from and nothing is read
+twice. A producer that takes its depth as an argument is handed the planned
+depth as its `k` and loses nothing by it: both nearest-neighbour producers do
+the same search at every `k` — the exact scan measures every row, the graph
+search walks a beam of the index's declared `ef_search` — and a smaller `k`
+keeps only a prefix of the same totally ordered ranking, so a shallower first
+invocation would save no search and a continuation past it would repeat the
+whole search. Which units are read this way is decided by the prepared text's
+shape, not by who wrote it: a caller's own text that is one call under
+projections, `OFFSET`-free `LIMIT`s and renaming `BIND`s is read on demand like
+a rendered one, and anything else is materialized. The answer stays verifiable
+because the receipt is taken when the read stops rather than before its first
+row: every stream announces what its
+invocation attested the instant it opened, the fusion certifies under that
+announcement, and at the stop every stream settles to its invocation's witness
+under the sole-witness rule and is held to it — an index that moved under the
+read, or a service level that changed between the open and the stop, is
+refused (`ProtocolError::AttestationMoved`) rather than relabelled. The rows,
+their order, the attestations and the evidence identity are the ones the same
+invocation read to its planned depth gives, and what the read cost is reported
+in the rows-materialized figure §5.1 describes.
+
+The *verification* reaches exactly as far as the rows pulled. A stream
+that names a candidate its declaration cannot reach is refused, and the
+refusal names the stratum whose own declaration — already applied — put
+that candidate out of reach, so the contradiction is legible rather than
+resolved by picking a side. A false declaration that no pulled row
+contradicts yields a score that declaration made wrong. That is the
+identical trust the uniqueness declaration already carries, whose breach
+is likewise detected only when the repeat is actually read, and it is
+recorded here as trust rather than as a proof.
+
+## 8. `plan` is a pure function, and a plan knows what it assumed
+
+Planning consults statistics — cardinalities, selectivities, whatever the
+registry's producers publish — because that is what makes it planning.
+Those statistics are an **explicit input**, not something `plan` reaches
+into the store for, and the emitted plan records what it was planned
+against.
+
+Purity buys three things at once. Planning is golden-testable as text in,
+text out — `(request, registry, statistics) -> plan` with no store, no
+corpus, and no clock in the fixture, so a planner change is a reviewable
+diff in the goldens, in the same way the serializers are held
+byte-deterministic today. Planning is reproducible across processes and
+targets for the same reason. And a plan is **pinnable**, with a
+precisely bounded guarantee: a captured plan reproduces the candidate
+set and the per-stratum ranks, because those are decided by what the
+plan records. It does not by itself reproduce the final order, because
+the fusion profile enters at `fuse` and is deliberately not a plan input
+— planning legitimately happens without knowing how the result will be
+fused, and forcing that choice early would couple two stages this design
+keeps apart. Replaying a plan against
+statistics that have moved is a detectable condition with a declared
+behavior at admission — never a silent replan and never a silent
+pretense that nothing changed.
+
+A reproducible **answer** is a **triple** of identities, and this section
+used to say a pair. The pinned plan names the question that was asked; the
+fusion profile names the law the rows were fused under; and the evidence
+names the index generations that answered, digested over the per-stratum
+attestation map §6 describes. Two answers are comparable iff all three
+agree — one equality comparison over a triple, rather than a map diff
+every caller would write differently.
+
+The third is not a restatement of the other two, and the argument for it
+is precisely that the first two are derived from **configuration**.
+Configuration is exactly what does not change when an index is rebuilt
+underneath a running system: the same plan, under the same law, over a
+rebuilt index returns different rows while both other identities stay
+byte-identical. Only a producer can close that gap, because only its
+cursor knows a rebuild happened.
+
+What is worth recording beside that, because the opposite is the natural
+expectation, is that a rebuild often moves the **plan** identity too. A
+producer that measures its declared row bound from the index — which is
+what an honest unfiltered bound means for an index-backed producer, and
+what the shipped lexical producer does — publishes a different declaration
+after a rebuild that changes its document counts. That declaration reaches
+the registry's content fingerprint, the plan records the fingerprint and
+derives its per-stratum depths from the same declaration, and so the plan
+identity moves with it. The evidence identity is the one that moves on a
+change that alters **no declaration at all** — a rebuild over the same row
+counts, a re-ranking under a different law, a replica catching up — which
+is exactly the case the other two cannot see.
+
+## 9. The producer contract
+
+Every number in a fused answer is a function of what the producers said
+about themselves. The sections above say what the *layer* does with those
+declarations; what a producer owes in exchange is written down as its own
+document, `crates/retrieval/PRODUCER-CONTRACT.md`, shipped with the crate
+and rendered in its API documentation as the `producer_contract` module so
+that a host reads it beside the types that enforce it.
+
+Sixteen obligations, each stating the obligation, the failure it prevents,
+and **who enforces it**. That third part is the reason it is one document
+rather than sixteen scattered doc comments, because the obligations divide
+into two kinds that must not be read as one:
+
+* some are **checked** — the layer measures the rows as they arrive, and a
+  breach is a named refusal that says which dimension failed and which
+  stratum failed it. The rank law, the uniqueness promise, the domain
+  declaration, the depth against the declared row bound and the recorded
+  depth of zero are all of this kind. A producer cannot make the layer
+  unsound in these dimensions; it can only make its own call fail.
+* the rest are **believed** — no consumer-side measure can see inside host
+  code, so a breach is a wrong answer rather than an error. Whether a
+  filter expressed eligibility or relevance, whether a scoring statistic
+  came from the index or from the filtered subset, whether a declared row
+  bound is honest, and whether an attested generation moves when the
+  answerable rows move are all of this kind. Those entries say so plainly
+  and name the test that proves the shipped producers keep the promise,
+  or state that no test covers it.
+
+Three of the sixteen are one doctrine wearing three hats, and reading them
+apart loses the argument: an honest unfiltered row bound, a ceiling
+honoured for efficiency only, and a declared shortfall are three purchases
+of the same distinction, because *"I stopped early"* and *"I am
+exhausted"* are the same empty cursor. The engine withholds a ceiling it
+cannot account for; the executor reads one row past the depth it recorded,
+and that probe row — never emitted onto the stream, never ranked, absent
+from every plan field and every identity, and counted in exactly one
+number, the rows a read materialized (§5.1) — is what separates a cut read
+from an exhausted one; and the producer declares the shortfall only it can
+know. That one number is the exception because it is the only one that
+asks what the read *cost* rather than what the answer is made of, and a
+figure that excluded the probe would report a read as cheaper than it was
+by exactly the row that makes its ending observable. No single
+altitude answers the question, which is why the layer buys it at three.
+
+## Open questions, and the answers the implementation records
+
+This document deliberately left three questions to the implementation. All
+three are now answered, and the answers are recorded here rather than left
+as questions a shipped design record still asks.
+
+1. **Where the composition layer lives — one crate.** The extension
+   precedent said a sibling crate over the seam with `purrdf-sparql-eval`
+   untouched; what it did not fix was whether that sibling is one crate or
+   a `fuse` primitive plus a thin planner. It is **one crate**,
+   `purrdf-retrieval`. Splitting it would put the admission waist on a
+   crate boundary: `compile` re-derives the planner's own matching and
+   placement decisions over a plan it must treat as untrusted, and it can
+   only do that by running the *same* rule the planner ran. Two crates
+   would be two copies of that rule, and a latent divergence between them
+   is invisible to any test on either side — the exact failure the waist
+   exists to prevent. The `fuse` primitive is still separable *as a
+   surface*: it takes streams and a profile and knows nothing about
+   planning, and a caller that wants only that rung calls only that rung.
+2. **Explicit unsigned precision, rounding and exact admission — decided.**
+   A fusion law names zero through 38 decimal fractional digits. Its weights
+   and scores are unsigned `u128` raw values; standalone `Score` values also
+   carry the precision. Profile-scoped frontier cells retain only raw values.
+   This is independent of BM25's signed scale 12 arithmetic and of signed
+   numeric request endpoints. The reciprocal-first rule computes
+   `floor(w_raw * floor(S / D) / S)` and the weighted rule computes
+   `floor(w_raw / D)`, directly at the selected `S = 10^scale_digits`.
+   Wide intermediate products use the shared exact arithmetic home, with
+   narrow division retained when the actual operands fit. A large
+   intermediate is not an overflow if its result fits.
+
+   The admitted ceiling is the exact checked sum of rank-one contributions.
+   It admits every representable full-width score and refuses genuine sum
+   overflow. Degraded unseen-score bounds charge each stratum once: a live
+   head and that stratum's rank-one missing-row allowance are alternatives,
+   rather than two contributions. Resolution, inverse minimum weights and
+   crossing calculations use the same declared precision and rounding law.
+   Exact nonmonotone constraint jumps remain the minimum-weight algorithm.
+
+   Precision and unsigned weights enter canonical profile layout version 2;
+   obsolete versions are refused. Candidate-union layout version 3 also
+   carries the precision of score-bound statuses. A pure plan has no fusion
+   input and keeps its independent identity; the answer's profile identity
+   names the units and arithmetic under which that plan was fused.
+3. **The request lattice is closed, and stays closed.** The modalities a
+   request can name are not bounded by the producers that happen to exist
+   in-tree — producers are caller-supplied configuration, and a registry
+   that has nobody for a modality is a fact about that registry, not about
+   the lattice. So the lattice carries the modalities the layer means to
+   support, including ones no shipped producer accepts, and a term that
+   reaches nothing is reported per term with a typed reason (§6's obligation
+   applied to the request side).
+
+   Given that, the enum is **closed** rather than `#[non_exhaustive]`, and
+   the choice is deliberate. A closed enum gives a caller matching
+   exhaustively a compile error when a modality is added, which is exactly
+   the signal a caller routing terms to its own producers wants;
+   `#[non_exhaustive]` replaces that signal with a wildcard arm that
+   silently swallows the new modality, and charges every caller a wildcard
+   arm forever in exchange. The semver relief it buys is worth less than
+   the signal it costs, and it is cheapest to buy nothing: adding variants
+   before first publication is free, so the modalities that are foreseeable
+   are added now rather than deferred into a later major version.

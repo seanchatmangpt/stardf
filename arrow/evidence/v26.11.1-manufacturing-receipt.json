@@ -1,0 +1,505 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "kind": "v26.11.1-manufacturing-receipt",
+  "draft": false,
+  "update_note": "FINISH-CAMPAIGN RE-BIND, PASS 4 (H05-receipt-rebind, 2026-10-31 21:41-21:56 -0700). Supersedes pass 3 (same file, 21:28-21:50) on the post-settlement tree per the H05 dispatch. NO git commands this pass (dispatch law): head/branch identity CARRIED from pass 3's read-only probe, not re-probed. What this pass adds over pass 3: (a) TREE DIGEST RECOMPUTED: d330d234c1fb7c969fa63c20e75e3b370d083e9db818b0a2a8eaa2aefb9c2780 over 12264 files at 21:55:23 (covers the 21:48-21:52 landings: g07-tarball-audit + g08-license-carriage-verify receipts, lane-09 avec-arrow decouple, arrow-core 4th tarball; the receipt write POSTDATES the digest - mid-campaign as-of disclosure stands); (b) FOUR-TARGET REFRESH from the parallel lanes' court runs, cited as on-disk logs (log-standing, NOT landed evidence receipts): scan courts c1-c6 FIRST RUN witnessed - 6 passed / 0 failed / 0.23s, c3 a loud [SKIP] by design (frozen-duckdb 2.0.4 SDK exposes no complex-filter pushdown surface, the landed W2e divergence; its filtered-row-set + mutant-catch legs run only when pushdown flips true) - /tmp/g15-scan-courts.log @21:42 (binary at target/debug/build/stardf-scan-duckdb/04a6b6ca42c5e3ff/out/scan_courts-04a6b6ca42c5e3ff); n3 FIRST post-copy suite run exit 0 - 89 passed / 0 failed across 5 targets (unit 28/0, forgery 13/0, parse 28/0, proofs 4/0, reason 16/0; doc-tests 0/0), cargo test -p stardf-n3 --locked - /tmp/h02_n3_full.log @21:44; sql courts STILL unrun - no log, no binary (UNKNOWN-as-receipt); (c) AVEC: the default-posture repair LANDED ON DISK - /Users/sac/avec/rust-toolchain.toml (749B @21:42, floating \"nightly\", the same posture stardf/arrow pins; comment names the G09 gate repair), on top of the already-witnessed wrap-posture 3/3 (G04); default-posture green NOT yet witnessed (no run since the pin); (d) LICENSE REGISTER: closed at 31 dependency_licenses / 40 compatibility_receipts / 0 drafts (re-read this pass); the dispatch's '28/37' citation is STALE - pass 3 already disclosed the register has since grown; (e) 21-CRATE METADATA VERIFIED at metadata level: cargo metadata --format-version 1 --no-deps -> exit 0, 48 packages, 21 publish-unrestricted (stardf-alloc-probe, arrow-bench, arrow-capi, arrow-core, arrow-rs, branchless, cdt, columnar, deflate, events, hash, iri, lex, n3, rs, scan-duckdb, sql, stack, testkit, toml, xsd), 27 publish-explicit-false (H05 run ~21:46, /tmp/h05_cargo_metadata.json); (f) TARBALL AUDIT LANDED: evidence/g07-tarball-audit-2026-10-31.json - 4 real tarballs (arrow-core 40132 B NEW via the lane-09 avec decouple, columnar 135460 B, hash 145882 B, alloc-probe 34641 B), 12/12 in-tarball license shas canonical, 22/22 list gate, replay byte-identical, 18 non-leaf refusals re-classified (4 manifest-verify + 14 registry-unresolved), exclude tables audited correct, one disclosed KEPT exception (stardf-core 1.5MB csv fixture); g08-license-carriage-verify (21:49, ALIVE): R1 exit 0, 66/66 census with a mutation non-vacuity control, NOTICE 22/22, provenance 22/22; (g) =2.0.4 x3 ratification re-verified on disk (Cargo.toml:282-284 grep); the two-arm rehome court PASS both arms remains COORDINATOR-REPORTED (no on-disk receipt); (h) lane-09 avec-arrow DECOUPLE landed in BOTH stardf-arrow-core and stardf-arrow-capi manifests (grep-witnessed) - the G5 avec-git-dep class is landed; the newest ladder receipt (044209Z, 21:42) PREDATES the decouple, so a fresh ladder run is owed; not run by this pass (concurrent-lane target contention). NOT-done list unchanged in kind: live publish PENDING-OPERATOR double-gate; ABI-v2 PENDING-OPERATOR (D18); CI-in-Actions N/A (never executed); eval/SHACL/entail/geo/GTS courts deferred D17 (plus stardf-duckdb chicago suite and sql_golden still unrun). Nothing rounded up. ||| PASS-3 NOTE (G12, retained): FINISH-CAMPAIGN UPDATE, PASS 3 (lane G12-receipt-final, 2026-10-31 21:28-21:45 -0700). Supersedes pass 2 (same file, 21:10, itself superseding pass 1 20:48 and the lane-19 draft 18:43). Consolidates the finish-campaign outcomes per the coordinator dispatch: (1) R1 license gate now PASS x4+ on the current tree - this pass re-ran it exit 0 at ~21:33, and the register on disk is CLOSED: authority/stardf/license-compat.json carries 31 dependency_licenses rows + 40 compatibility_receipts + 0 entries in draft_receipts_pending_operator (re-read from disk this pass; the coordinator's F16 citation named 28/37 - the register has since grown); the full R1 flip chain is now witnessed across FOUR direction reversals (0 at c2 -> 1 at 20:26-20:50 after lane-01's workspace keys -> 0 at 21:05 after lane-11's register rows -> baseline-1-then-0 inside lane11-r2 -> 0 x3 in the 21:39-21:42 ladder receipts + this pass's run); (2) avec-ffi consumer court: the toolchain regression is REPAIRED-BY-WRAP, witnessed natively - G04-falsifier-finalization ran RUSTUP_TOOLCHAIN=nightly-2026-08-12 cargo test -p avec-ffi --test stardf_consumer_court from /Users/sac/avec -> exit 0, 3/3 courts, with stardf-arrow-core/capi v26.11.1 compiled FROM THIS TREE (native receipt, cited from evidence/g04-falsifier-finalization-2026-10-31.json); DEFAULT posture is still red - the ladder's own avec gate exited 101 in the three newest receipts (043905Z 21:39 / 044033Z 21:40 / 044209Z 21:42, all BLOCKED); (3) duckdb scan crate: lib.rs is 1012 lines (wc -l witnessed this pass, was 39,429B@20:52) and scan_courts.rs is 841 lines carrying SIX named courts (c1_count_parity_across_all_five_tables, c2_value_parity_pinned_by_order_by, c3_pushdown_flip_loud_skip_until_enabled, c4_empty_input_yields_zero_rows_clean, c5_typed_bind_error_not_panic, c6_drop_one_row_mutant_is_caught - grep-witnessed), plus PROVENANCE.md landed by lane11-r2 at 21:07; courts remain UNRUN - no run receipt, no court binary in any target dir, and the court-run-receipt gate G10 named by the coordinator is NOT in scripts/publish_stardf.py yet (grep count 0 at 21:42, script mtime 21:41) - run receipts are IN FLIGHT, never read as landed; (4) publish verdict still BLOCKED at 3 hard gates (G3/G5/G8) in all of 043905Z/044033Z/044209Z, with R1 PASS + G9 check exit 0 rows in the same receipts; (5) =2.0.4 x3 ratification recorded (D13 RESOLVED / D19 DECIDED, OPERATOR-DECISIONS.md) with the pins re-read on disk at Cargo.toml:282-284 and scripts/verify_duckdb_rehome.sh RATIFIED=2.0.4 two-arm design - the coordinator reports the two-arm court PASS both arms (lane 01); NO on-disk run receipt for that court exists at receipt-write time, so it is recorded as coordinator-reported, not receipt-witnessed. Tree digest recomputed this pass. Nothing rounded up. Receipt files still never landed: lanes 02-05, 08, 09, 10, 12 (their work is recorded from on-disk artifacts + landed receipts + coordinator testimony, marked as such).",
+  "date": "2026-10-31",
+  "lane": "H05-receipt-rebind pass 4 (post-settlement re-bind: tree digest recompute, four-target refresh from parallel lanes' landed run logs + landed receipts, cargo metadata 21-crate witness, R1 gate re-run; NO git commands, no ladder run, no live publish, no registry touch)",
+  "branch": "fix/v26.9.29-ci-gates",
+  "subject": {
+    "head": "724d542540b497f2928a63b5aece9b37aef4019b",
+    "head_note": "Read-only `git rev-parse HEAD` re-probed by G12 at ~21:32 (exit 0) = c4r. Branch fix/v26.9.29-ci-gates. Working tree UNCOMMITTED for the finishers-wave edits (coordinator owns git). H05 pass 4: NO git commands executed (dispatch law) - head/branch identity CARRIED, not re-probed.",
+    "c_chain": {
+      "c1": "26d014040ef678583e2154063524f366cfba72f9",
+      "c1_label": "docs(stardf): planning pack v26.10.31 + GL-STARDF-001 (2026-10-31 14:08:01 -0700)",
+      "c2": "98afd71d9693aeca3f05b33292b025ae0cceaa2a",
+      "c2_label": "feat(stardf): authority contract + verifiers, census parity 22/22 (2026-10-31 20-31)",
+      "c3": "6cbb5b7 (feat stardf: one-package port, 53 crates straight-copied)",
+      "c4": "de5ca40 (chore: evidence receipts through the v26.11.1 campaign)",
+      "c5": "b87ea6f (docs: as-built doc pack + decision briefs + planning pack updates)",
+      "c2r": "4d354af4 (chore: license register closure + campaign tooling)",
+      "c4r": "724d5425 (chore: final manufacturing receipt, v26.11.1 commit chain + witnessed ladder)",
+      "head": "724d542540b497f2928a63b5aece9b37aef4019b",
+      "branch": "fix/v26.9.29-ci-gates"
+    },
+    "tree_digest_as_of_draft": {
+      "value": "402948fa38a6138a5a2f23ef61a7654234bd059c00ab9bbc5e4bcd9dbd09f3ca",
+      "files": 34303,
+      "method": "find stardf/arrow -path '*/target' -prune -o -type f -print | grep -v '/target/' | sort | xargs shasum -a 256 | shasum -a 256 (lane-19 draft method, 18:43, superseded below)",
+      "note": "Historical draft-time digest, retained for provenance. Superseded by tree_digest_as_of_receipt_time."
+    },
+    "lane11_digest_record": {
+      "value": "0714ac5595c52724be802247a8d65fc3c333a6be73e2e2dcefba93cb4f3d8e3e",
+      "files": 12177,
+      "note": "Lane 11's receipt-time digest (house method) retained as the 20:12 snapshot."
+    },
+    "lane17_pass1_digest_record": {
+      "value": "b5a3be0825537beeb08c2a2b197ee2cd4b63ca00408f71cc14f41df2337703fb",
+      "files": 12194,
+      "note": "Pass-1 receipt-time digest (20:45:08-11, mid-campaign) retained for provenance; superseded by tree_digest_as_of_receipt_time below."
+    },
+    "lane17_pass2_digest_record": {
+      "value": "08b2cdb546f8d5c81c6b7a9bac3f4c7bdf2389aa92a3fea654ce86a2f9aada3c",
+      "files": 12240,
+      "note": "Pass-2 receipt-time digest (21:07:03-05, mid-campaign) retained for provenance; superseded below."
+    },
+    "g12_pass3_digest_record": {
+      "value": "30d9a5934a130b43b956457fbf9ef2f3026bfc9797694d27e02462e48571f29a",
+      "files": 12258,
+      "note": "Pass-3 receipt-time digest (21:44:12-13) retained for provenance; superseded below."
+    },
+    "tree_digest_as_of_receipt_time": {
+      "value": "d330d234c1fb7c969fa63c20e75e3b370d083e9db818b0a2a8eaa2aefb9c2780",
+      "files": 12264,
+      "computed": "2026-10-31T21:55:23-0700 (single pass)",
+      "method": "cd stardf/arrow && find . -path '*/target*' -prune -o -type f -print | grep -v '/target/' | sort | xargs shasum -a 256 | shasum -a 256 (house method, prefix-relative, prunes target dirs)",
+      "note": "MID-CAMPAIGN DIGEST on the post-settlement tree: covers the 21:48-21:52 landings (g07-tarball-audit + g08-license-carriage-verify receipts, lane-09 avec decouple in core+capi manifests, arrow-core 4th tarball is a target artifact - excluded). The receipt file you are reading POSTDATES the digest (written ~21:56) - the file's own bytes are not in it. An intermediate H05 digest 30e613ba7e8fe4180d8cc29a110d5dc18428d1ac1cad522808fcac67fa69e763 (12259 files, 21:48:18) predates the g07/g08 landings and is retained in commands[]. Comparable only against receipts using the same prefix-relative convention. NOT a clean-tree release digest; coordinator-phase clean-tree digest owed at integration."
+    },
+    "git_state": "WORKING TREE UNCOMMITTED for the finishers wave (G04 lane counted 1348 dirty paths at 21:39): workspace root (scan-crate membership, version 26.9.29 -> 26.11.1 flip, unified crates.io metadata, rust-version.workspace on root package, frozen-duckdb =2.0.4 x3 pins at Cargo.toml:282-284, 46 stardf-* dual-key workspace dep rows), member manifests (publish flags, dual keys; 21 manifests publish=true grep-witnessed this pass; concurrent post-21:00 edits continuing - stardf-sparql-results, stardf-shapes, stardf-arrow-capi src+manifest touched through 21:29), stardf-scan-duckdb crate (Cargo.toml 20:21, lib.rs 1012 lines@20:52, tests/scan_courts.rs 841 lines@20:54, licenses/, PROVENANCE.md 21:07), authority/stardf/license-compat.json register closure (mtime 21:03, OUTSIDE stardf/arrow - not in the digest scope), scripts/publish_stardf.py (mtime 21:41, gate roster still G1-G9, no G10), docs/OPERATOR-DECISIONS.md D13 RESOLUTION + D19/D20 blocks, docs/V26-11-1-VERDICT.md (21:08), evidence/ receipts through 044209Z, target-lane13 DELETED since pass 2. Only c1..c4r committed at HEAD 724d5425.",
+    "commit_chain_note": "FINAL - commit chain landed 2026-10-31 through c4r=724d5425 (lane contract); the finishers wave (scan crate + manifest landings + evidence receipts through 044209Z + G04/lane11-r2/lane16) UNCOMMITTED at receipt time, coordinator owns the transition."
+  },
+  "o_star_inputs": {
+    "purrdf_h": {
+      "path": "/Users/sac/purrdf/crates/rdf-capi/include/purrdf.h",
+      "sha256": "6ef9b4a0a9d28036b24cc702bca9113e1ab6a7e6cbb708b74ff5b11cf281ad45",
+      "note": "Carried from lane-19 draft (verified 2026-10-31). Not re-probed by lane 17 pass 2."
+    },
+    "purrdf_head": {
+      "rev": "0da0578306983da851a9073337d57e2e2c41ab3a",
+      "note": "Carried from lane-19 draft; the rev every on-disk VENDOR-PROVENANCE.md pins via `git archive <rev>`."
+    },
+    "avec_pin_rev": {
+      "rev": "67c0ec1bad0bf4a81b2512e60f554b137ae596d9",
+      "note": "Re-observed pass 3: root Cargo.toml:263 `avec-arrow = { git = \"https://github.com/seanchatmangpt/avec\", rev = \"67c0ec1\" }` unchanged. avec checkout HEAD remains 4ede671718c9513ca32f2b9c60e6e3cf783e6ff0 (past the pin); the PIN is the admitted identity. The G04 native court re-run consumed the current tree via the avec-gate lane's path dep (stardf-arrow-capi), not the git pin."
+    },
+    "ggen": "26.10.11 (cited from evidence/manufacturing-receipt-2026-10-31.json; not re-probed)"
+  },
+  "receipt_sources": [
+    "evidence/g04-falsifier-finalization-2026-10-31.json (21:39, ALIVE scope) - the avec native receipt: RUSTUP_TOOLCHAIN=nightly-2026-08-12 cargo test -p avec-ffi --test stardf_consumer_court from /Users/sac/avec -> exit 0 3/3, v26.11.1 core+capi compiled from this tree; plus F1/F1a/F2/F4/F4b/F5/F5a re-witnesses and a third R1 PASS",
+    "evidence/publish_stardf-receipt-20261101T044209Z.json (21:42, newest ladder run, BLOCKED, 11 gate rows) + T043905Z (21:39) + T044033Z (21:40) - all three: G3/G5/G8 red, R1 PASS exit 0, avec default-posture exit 101, G9 check exit 0",
+    "evidence/lane11-license-carriage-r2-2026-10-31.json (21:14, PARTIAL_ALIVE) - R1 baseline exit 1 -> register edit -> exit 0 flip; 66/66 license-census; 22/22 package --list gate with replay pair; 3 real tarballs (stardf-hash 145882 B, stardf-columnar 135460 B, stardf-alloc-probe 34641 B); 19 non-leaf full-package refusals classified two ways; PROVENANCE.md added to crates/stardf-scan-duckdb",
+    "evidence/lane16-falsifier-ledger-2026-10-31.json (21:10, ALIVE-scope rows) - FIRST witnessed runs of verify_header_freeze.py check+court (4/4 shims flip, restore byte-identical); verify.py pair on the current tree (sha cb57ce4e...); F1/F1a/F2 re-witnesses; avec-gate re-open witness",
+    "docs/V26-11-1-VERDICT.md (21:08, lane 20-verdict-draft) - campaign verdict PARTIAL_ALIVE + publish BLOCKED; PENDING-OPERATOR table (live publish go, ABI-v2 D18, footprint reconcile, D2, D4, D1/D6/D7/D9/D11/D12, avec-court regression)",
+    "docs/OPERATOR-DECISIONS.md D13 RESOLUTION + D19/D20/D21 register rows (=2.0.4 x3 ratified DECIDED; publish-preparedness first-class DECIDED-campaign-outcome; edition-2024/rust-1.98 deviation registered)",
+    "evidence/v26.11.1-manufacturing-receipt.json pass-2 (21:10) + pass-1 (20:48) + lane-19 draft (18:43) - the consolidations this pass supersedes",
+    "evidence/publish_stardf-receipt-20261101T032659Z.json (20:26 local, BLOCKED, G2/G7 red then)",
+    "evidence/publish_stardf-receipt-20261101T032924Z.json (20:29 local, G9 transient FAIL on concurrent edits)",
+    "evidence/publish_stardf-receipt-20261101T033004Z.json (20:30 local, BLOCKED, landing list G3/G5/G8/R1)",
+    "evidence/publish_stardf-receipt-20261101T035046Z.json (20:50 local, BLOCKED, same 4-row landing list; G9 PASS on scan-member tree)",
+    "evidence/publish_stardf-receipt-20261101T040521Z.json (21:05 local, PRODUCED BY THIS LANE, BLOCKED with 3-row landing list; R1 PASS; avec court FAIL exit 101)",
+    "evidence/lane07-publish-metadata-2026-10-31.json (20:14, PARTIAL - 19/19 closure metadata, 3/19 full package exit 0)",
+    "evidence/lane11-license-carriage-2026-10-31.json (20:12, PARTIAL_ALIVE - 20/20 closure list-gate, real tarball witnessed for stardf-hash only)",
+    "crates/stardf-scan-duckdb/ (src/lib.rs 39,429B@20:52, tests/scan_courts.rs 35,568B@20:54, Cargo.toml 20:21, licenses/; workspace member in root Cargo.toml)",
+    "root Cargo.toml working-tree diff (uncommitted): scan membership, version 26.11.1, workspace description/keywords/categories, frozen-duckdb =2.0.4 x3, 46 stardf-* dual-key rows, rust-version.workspace on root package",
+    "crates/stardf-purrdf/Cargo.toml @21:00 (package name stardf-rs): publish = true flip witnessed (G3 stardf-rs row landed)",
+    "docs/OPERATOR-DECISIONS.md D13-resolution section (lane 15-rehome-note): frozen-duckdb/-sys/-builder =2.0.4 x3 ratified, F04 falsifier-fired rationale, refresh witness for the landed pins",
+    "docs/RECEIPTS.md rows LANE-9 / LANE-16 / LANE-11 / LANE-8 (pre-campaign witnesses, unchanged since 13:58)",
+    "git commit objects 26d0140 (c1) / 98afd71 (c2) / 6cbb5b7 (c3) / de5ca40 (c4) / b87ea6f (c5) / 4d354af4 (c2r) / 724d5425 (c4r)",
+    "rustup toolchain inventory (21:06): default nightly-2026-06-22; installed 1.87.0 / 1.96.0 / 1.97.1 / 1.98 / 1.98.0 + nightlies to 2026-08-12; /Users/sac/avec has NO rust-toolchain file; stardf/arrow rust-toolchain.toml channel \"nightly\""
+  ],
+  "checks": [
+    {
+      "id": "g12_pass3_note",
+      "passed": true,
+      "count": 0,
+      "comment": "Rows marked below are pass-3 (finish-campaign) updates consolidating the post-21:10 landings, re-read from disk 21:28-21:45. passed=true means 'witnessed as stated'; passed=false means 'witnessed NOT holding' or 'never witnessed' - read the comment, never the boolean alone."
+    },
+    {
+      "id": "h05_pass4_note",
+      "passed": true,
+      "count": 0,
+      "comment": "Rows marked pass-4 consolidate the post-21:45 landings and H05's own runs (21:41-21:56). passed=true means 'witnessed as stated'; passed=false means 'witnessed NOT holding' or 'never witnessed' - read the comment, never the boolean alone. Scan/n3 court runs are PARALLEL LANES' runs cited from on-disk /tmp logs - log-standing, never read as landed evidence receipts."
+    },
+    {
+      "id": "lane17_pass2_note",
+      "passed": true,
+      "count": 0,
+      "comment": "Historical pass-2 marker (retained): rows marked pass-2 consolidated the post-20:48 landings. Superseded in place by the pass-3 rows; retained so prior citations of this receipt's pass-2 rows stay resolvable."
+    },
+    {
+      "id": "r1-license-gate",
+      "passed": true,
+      "count": 8,
+      "count_basis": "8 exit-0 witnesses: 21:04+21:05 ladder rows, G04 receipt ~21:39, ladder rows 21:39/21:40/21:42, G12 pass-3 probe ~21:33, and H05's own run ~21:44 (this pass: 16 GATED-REGISTERED edges of 68 edge rows; 68 total edge rows = 16 GATED-REGISTERED + 1 avec-arrow sovereign-fork-posture + 51 intra-workspace exempt)",
+      "comment": "PASS ON THE CURRENT TREE, NOW MULTI-WITNESSED (x8). H05 run ~21:44: python3 scripts/verify_stardf_licenses.py -> exit 0, 'license-compat gate: PASS (all dependency edges registered and ungated)'; frozen-duckdb / -sys / -builder rows witnessed as 'license=MIT GATED, compatibility receipt REGISTERED - pass', each ADMITTED on the operator blanket sign-off basis. Register state on disk (re-read this pass): 31 dependency_licenses rows + 40 compatibility_receipts + 0 drafts pending operator (CLOSED). Witness chain: exit 0 at c2 -> exit 1 at 20:26-20:50 -> exit 0 at 21:05 -> baseline-1-then-0 inside lane11-r2 -> exit 0 x3 in ladder receipts 043905Z/044033Z/044209Z + G04 + G12 pass-3 + H05. Not yet witnessed: the gate on a COMMITTED tree (register rows are uncommitted working-tree edits)."
+    },
+    {
+      "id": "license-register-closure",
+      "passed": true,
+      "count": 40,
+      "count_basis": "40 compatibility_receipts in authority/stardf/license-compat.json, re-read from disk this pass",
+      "comment": "REGISTER CLOSED (F16 row per coordinator dispatch): dependency_licenses 31 rows, compatibility_receipts 40, draft_receipts_pending_operator EMPTY (json re-read this pass; register mtime 21:03). Lane11-r2's receipt records the same-day operator blanket sign-off basis extended to frozen-duckdb-sys/-builder with coordinator ratification requested - the 0-draft state is the landing of that request on disk; individual operator sign-off on the extension is still an operator-side act, not a disk artifact (kept in pending_operator_rows)."
+    },
+    {
+      "id": "d13-duckdb-pins-ratified",
+      "passed": true,
+      "count": 3,
+      "count_basis": "3 exact =2.0.4 pins (frozen-duckdb / -sys / -builder) re-read at Cargo.toml:282-284 this pass",
+      "comment": "=2.0.4 x3 RATIFIED. D13 RESOLVED + D19 DECIDED (docs/OPERATOR-DECISIONS.md): operator ratified frozen-duckdb / frozen-duckdb-sys / frozen-duckdb-builder ALL '=2.0.4' after F04 FIRED on =2.0.3 (cache-absent registry-only resolve, fail-closed court path) - the decision followed a fired falsifier. Pins on disk: root Cargo.toml:282-284 '=2.0.4' x3 (grep-witnessed this pass); G6-frozen-duckdb-pin gate PASS ('clean') in every ladder receipt 20:26-21:42 (9 receipts); scripts/verify_duckdb_rehome.sh re-pinned RATIFIED=2.0.4 (read this pass) with a two-arm design (ARM A in-situ control, ARM B cache-absent registry-only, restore byte-identical on PASS). The two-arm court PASS both arms is COORDINATOR-REPORTED (lane 01, dispatch testimony) - no on-disk run receipt for the two-arm run exists in evidence/ at receipt-write time, so the court PASS is recorded at testimony standing, not receipt standing."
+    },
+    {
+      "id": "ontology-census",
+      "passed": true,
+      "count": 22,
+      "comment": "Type census parity 22/22 vs purrdf.h (11 opaque + 11 anonymous-struct typedefs); 128 stardf:AbiFunction; 126/126 exported functions; SHACL 0 violations - witnessed per c2 commit message ('real-header run exit 0'). Not re-run by lane 17 (no receipt contradicts it; header identity carried from lane-19 draft probe)."
+    },
+    {
+      "id": "columnar-courts",
+      "passed": true,
+      "count": 17,
+      "count_basis": "6 golden_bytes + 1 columnar_integration + 10 full-columnar suite (3 lib + 6 golden + 4 seam) - LANE-8 witnessing run",
+      "comment": "Pre-campaign witnesses (docs/RECEIPTS.md LANE-8): golden_bytes 6/0, columnar_integration 1/0, full stardf-columnar suite exit 0, blake3 identity v1.8.7 exit 0, F5 external DuckDB oracle exit 0 counts 6,3,0,0,2. Not re-run by lane 17; no receipt contradicts."
+    },
+    {
+      "id": "c-smoke",
+      "passed": true,
+      "count": 1,
+      "comment": "cargo test -p stardf-arrow-capi --test c_smoke -> exit 0 (1/0). Witnesses: manufacturing-receipt (1/0), LANE-16, LANE-11 rows. Not re-run by lane 17."
+    },
+    {
+      "id": "capi-courts-and-core",
+      "passed": true,
+      "count": 64,
+      "count_basis": "core 33 + capi 22 unit + 2 cross_allocator + 1 c_smoke + 2 alloc_identity + 6 stream - LANE-11 full-green capi witness",
+      "comment": "LANE-11 row witnesses. Disclosure: the avec-ffi consumer court (which exercises this capi surface as a foreign consumer) was green x4 (20:26-20:50) but FAILED at 21:05 on a avec-checkout toolchain issue - see avec-w3-gate; this row's own witnesses predate that and are unchanged."
+    },
+    {
+      "id": "avec-w3-gate",
+      "passed": true,
+      "passed_is_scoped": "GREEN ONLY under the pinned-toolchain wrap posture; DEFAULT posture remains RED (ladder gate exit 101) - read the comment, never the boolean alone",
+      "count": 3,
+      "count_basis": "3/3 courts (export_stream lifecycle, CountingAlloc allocation identity, dlopen of libstardf_arrow_capi.dylib) under RUSTUP_TOOLCHAIN=nightly-2026-08-12",
+      "comment": "NATIVE RE-RUN WITNESSED (the avec native receipt). G04-falsifier-finalization (evidence/g04-falsifier-finalization-2026-10-31.json, 21:39): cwd /Users/sac/avec, RUSTUP_TOOLCHAIN=nightly-2026-08-12 cargo test -p avec-ffi --test stardf_consumer_court -> exit 0, '3 passed; 0 failed' (court_1_export_stream_consume_get_schema_get_next_release, court_2_allocation_identity_boxed_array_tags, court_3_dylib_loads_and_final_api_serves); build log shows stardf-arrow-core v26.11.1 + stardf-arrow-capi v26.11.1 compiled FROM THIS TREE via the avec-gate lane's path dep into ggen-legacy/stardf/arrow/crates/stardf-arrow-capi - the court consumed the current subject, natively in the avec checkout. Full witness chain now: green x4 20:26-20:50 (receipts 032659Z/032924Z/033004Z/035046Z) -> regression exit 101 at 21:02-21:05 (post-version-flip toolchain floor) -> REPAIR-BY-WRAP exit 0 3/3 on the current tree (G04, 21:39). DEFAULT posture still RED: the ladder's own avec gate exited 101 ('stardf-arrow-core@26.11.1 requires rustc 1.98') in all three newest receipts 043905Z/044033Z/044209Z (21:39-21:42) - the wrap posture is the same resolution stardf/arrow's rust-toolchain.toml reaches; PASS-4 UPDATE (H05): the avec-side pin HAS LANDED - /Users/sac/avec/rust-toolchain.toml (749B @21:42, channel \"nightly\" floating, the same posture stardf/arrow's rust-toolchain.toml reaches; file comment names the G09 gate repair and requires plain cargo test with no RUSTFLAGS override) - so the default-posture repair is ON DISK, but default-posture green is NOT yet witnessed (no run executed since the pin landed; the newest ladder receipt 044209Z at 21:42 has ordering ambiguity with the 21:42 pin mtime and records exit 101). Lane 05's own receipt file still never landed."
+    },
+    {
+      "id": "duckdb-scan-scaffold",
+      "passed": true,
+      "count": 1012,
+      "count_basis": "lib.rs line count (wc -l witnessed this pass)",
+      "comment": "LANDED, MEASURED THIS PASS: crates/stardf-scan-duckdb/ with Cargo.toml (2,100B@20:21, publish=true, avec-arrow decoupled, frozen-duckdb { workspace = true, features = [vtab] } under the ratified =2.0.4 pins, stardf-columnar workspace dep, optional stardf-arrow-core behind feature arrow-core); src/lib.rs = 1,012 lines (wc -l this pass; was 7,628B@20:23 at pass 1 - the full stardf_scan() VTab implementation); tests/scan_courts.rs = 841 lines carrying SIX named courts (grep-witnessed: c1_count_parity_across_all_five_tables, c2_value_parity_pinned_by_order_by, c3_pushdown_flip_loud_skip_until_enabled, c4_empty_input_yields_zero_rows_clean, c5_typed_bind_error_not_panic, c6_drop_one_row_mutant_is_caught); licenses/ (3 canonical texts) + PROVENANCE.md (added by lane11-r2 at 21:07); workspace member in root Cargo.toml; one of the 21 publish=true manifests. Compile witness: G9 cargo check --workspace -> exit 0 in every ladder receipt through 044209Z (21:42), on trees including the settled scan sources - lib target only (default check does not compile test targets)."
+    },
+    {
+      "id": "duckdb-courts",
+      "passed": true,
+      "count": 6,
+      "comment": "SCAN COURTS FIRST RUN WITNESSED (pass-4 flip, log-standing). Parallel lane G15 ran the six authored courts: c1_count_parity_across_all_five_tables ok, c2_value_parity_pinned_by_order_by ok, c3_pushdown_flip_loud_skip_until_enabled emits a LOUD [SKIP] with its reason (supports_pushdown() = false - the landed W2e divergence: the frozen-duckdb 2.0.4 SDK exposes no complex-filter pushdown surface; the filtered-row-set + mutant-catch legs run only when this flips true) and returns ok, c4_empty_input_yields_zero_rows_clean ok, c5_typed_bind_error_not_panic ok (three typed binder-error texts witnessed in the log: files / profile UTF-8 / table-required), c6_drop_one_row_mutant_is_caught ok -> 'test result: ok. 6 passed; 0 failed' in 0.23s. Standing boundary: this is a /tmp run log (log-standing), NOT a landed evidence receipt; an evidence/ receipt file for the run is owed. STILL UNRUN on any post-copy tree: stardf-duckdb's chicago_* court suite (8 chicago_*.rs + row_projection_isolation + sql_parquet_pipeline) and stardf-sql tests/sql_golden.rs - no run receipts, no binaries.",
+      "passed_is_scoped": "FIRST RUN witnessed, LOG-STANDING ONLY: the run log is a /tmp artifact of a parallel lane, not a landed evidence receipt; stardf-duckdb chicago suite + sql_golden remain unrun - read the comment, never the boolean alone",
+      "count_basis": "6 courts in /tmp/g15-scan-courts.log @21:42: 6 passed / 0 failed / 0 ignored / 0.23s (binary target/debug/build/stardf-scan-duckdb/04a6b6ca42c5e3ff/out/scan_courts-04a6b6ca42c5e3ff)"
+    },
+    {
+      "id": "n3-courts-first-run",
+      "passed": true,
+      "passed_is_scoped": "LOG-STANDING (parallel lane's /tmp run log, not a landed evidence receipt)",
+      "count": 89,
+      "count_basis": "89 passed / 0 failed across 5 targets, cargo test -p stardf-n3 --locked, exit 0 (/tmp/h02_n3_full.log @21:44)",
+      "comment": "N3 FIRST POST-COPY SUITE RUN WITNESSED (pass-4 flip, log-standing). Parallel lane H02 ran cargo test -p stardf-n3 --locked -> EXIT=0: unittests src/lib.rs 28 passed / 0 failed (5.77s); tests/n3_forgery.rs 13 passed / 0 failed (of 13); tests/n3_parse.rs 28 passed / 0 failed (of 28); tests/n3_proofs.rs 4 passed / 0 failed (of 4); tests/n3_reason.rs 16 passed / 0 failed; Doc-tests 0/0. Hardened-default forgery courts and flip-legacy controls all PASS; provenance identity remains purrdf rev 0da05783. Standing boundary: log-standing only - an evidence/ receipt file for the run is owed."
+    },
+    {
+      "id": "sql-courts-still-unrun",
+      "passed": false,
+      "count": 0,
+      "comment": "NO SQL COURT RUN EXISTS. No sql_golden run log on disk (no /tmp sql log, no court binary in target dirs, no cargo test -p stardf-sql process witnessed at pass-4 probe time); the only stardf-sql run artifacts are class-1 manifest-verify packaging refusals (g07/g08 + lane11-r2 class rows). sql standing stays UNKNOWN-as-receipt; the row flips only on a real run receipt."
+    },
+    {
+      "id": "publish-prep",
+      "passed": false,
+      "count": 3,
+      "count_basis": "3 open hard-gate rows in the newest ladder receipts (043905Z 21:39 / 044033Z 21:40 / 044209Z 21:42, all BLOCKED): G3-publish-flag, G5-dep-hygiene, G8-nonclosure-hard-deps",
+      "comment": "VERDICT BLOCKED across ALL NINE receipts (20:26 -> 21:42); newest witness 044209Z (21:42, 11 gate rows). PASS rows in the same receipts: G1-closure-present, G2-tiers-strict-topo, G4-metadata-fields, G6-frozen-duckdb-pin (=2.0.4 family, 'clean' every run), G7-patch-tables, R1-license-gate exit 0, G9-cargo-check-workspace exit 0. The ladder's avec gate remains default-posture exit 101 (see avec-w3-gate). LANDED since pass 2: license carriage closed out by lane11-r2 (21:14 receipt): 66/66 canonical license-census (22 crates x LICENSE-{MIT,APACHE,MULAN} byte-identical to crates/stardf-hash/licenses/), 22/22 cargo package --list gate with byte-identical replay pair, conjunct-license third-party notice carriage witnessed for stardf-lex/iri/core/toml, and THREE real tarballs (stardf-hash 145,882 B, stardf-columnar 135,460 B, stardf-alloc-probe 34,641 B - leaf-first bootstrap class; the 19 non-leaf crates refuse full offline packaging, two classified blocker classes: unversioned internal/git deps + =26.11.1 deps absent from crates.io pre-bootstrap), plus PROVENANCE.md landing for the scan crate. Metadata footprint: 21 manifests publish=true (grep re-witnessed this pass), 46 stardf-* dual-key rows at =26.11.1 in [workspace.dependencies], root package stardf-arrow publish=false. STILL OPEN: G3 4-crate publish=false (sparql-algebra, core, sparql-results, rdf), G5 avec-arrow git dep (core+capi) + residual path-only dev-dep rows (columnar->arrow-core, stack->testkit, iri->testkit, xsd->testkit class), G8 nonclosure hard deps (rdf -> {ed25519, gts, sparql-eval}, sql -> shapes, rs -> {12+ members} incl. the rs -> duckdb optional registry-404 class), umbrella 'stardf' crate ABSENT (re-witnessed this pass - crates/stardf does not exist), bottom-up upload ordering unchanged. All three open gates are operator scope decisions (D17 closure re-ratification / feature-gating). PASS-4 UPDATES (H05): (1) lane-09 avec-arrow DECOUPLE landed in BOTH stardf-arrow-core and stardf-arrow-capi manifests (grep-witnessed this pass: core :21-36 comment, capi :28-35 comment 'avec-arrow REMOVED entirely' - the court is dlopen/dlsym-based, no avec type crosses) - the G5 avec-git-dep class is LANDED on the working tree, postdating the newest ladder receipt (044209Z 21:42), so a fresh ladder run is owed; (2) TARBALL AUDIT receipt landed (g07, ~21:52): 4 real tarballs (arrow-core 40132 B NEW / columnar 135460 B / hash 145882 B / alloc-probe 34641 B, sha256s recorded, replay byte-identical, 12/12 in-tarball license shas canonical, exclude tables audited correct, 18 non-leaf refusals re-classified 4 manifest-verify + 14 registry-unresolved); (3) 21-CRATE METADATA VERIFIED at metadata level (H05 cargo metadata run, exit 0, 48 packages: 21 publish-unrestricted / 27 publish-explicit-false); (4) g08-license-carriage-verify (21:49, ALIVE) re-witnessed R1 exit 0 + 66/66 census with a mutation non-vacuity control; (5) concurrent drift DISCLOSED by g07, observed-not-actuated: duckdb + core publish=false and core version 26.9.29 literal vs workspace 26.11.1 at its read time. All remaining open gates stay operator scope decisions (D17)."
+    },
+    {
+      "id": "census-parity-nonvacuity",
+      "passed": true,
+      "count": 1,
+      "comment": "Carried: --header lib_rs.tmpl exits 1 (22 phantom mappings) per c2 commit message - the census gate refuses a non-header. Not re-run."
+    },
+    {
+      "id": "verify-py-gate-and-replay",
+      "passed": true,
+      "count": 2,
+      "comment": "NOW WITNESSED ON THE CURRENT TREE (pass-3 update): verify.py --emit-receipt pair run twice on the receipt-time tree -> exit 0/0, byte-identical (cmp exit 0), sha256 cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef both runs - witnessed by lane16-falsifier-ledger (21:08 tree) and again by G04-falsifier-finalization (21:39 tree), same file digest stable across the pre-copy trees and the post-bulk-copy tree. Gate + flip carried: verify.py exit 0 + --mutate drop-export -> exit 1 (pre-copy witnesses). replay.status updated accordingly."
+    }
+  ],
+  "errors": [
+    {
+      "code": "AVEC_DEFAULT_POSTURE_STILL_RED",
+      "message": "PASS-4 STATE: the default-posture repair has LANDED ON DISK - /Users/sac/avec/rust-toolchain.toml (749B @21:42, floating \"nightly\", the same posture stardf/arrow resolves) - but default-posture green remains UNWITNESSED: the newest ladder receipt (044209Z 21:42) records exit 101 (minute-granularity ordering ambiguity with the pin's own 21:42 mtime), and no default-posture run has been witnessed since the pin landed. Wrap-posture green is witnessed natively (G04: RUSTUP_TOOLCHAIN=nightly-2026-08-12, exit 0, 3/3, v26.11.1 core+capi compiled from this tree). One default-posture cargo test -p avec-ffi --test stardf_consumer_court to exit 0 closes this row."
+    },
+    {
+      "code": "SCAN_RUN_WITNESSED_RECEIPT_OPEN",
+      "message": "DOWNGRADED FROM SCAN_COURTS_UNWITNESSED: the six scan courts FIRST-RAN GREEN (/tmp/g15-scan-courts.log @21:42: 6 passed / 0 failed, c3 loud-SKIP by design) and n3 first-ran green (89/0, exit 0) - but both are PARALLEL LANES' /tmp logs, not landed evidence receipts, and stardf-duckdb's chicago_* suite + stardf-sql sql_golden remain UNRUN on any post-copy tree. Open items: (1) land evidence/ receipt files for the scan + n3 runs; (2) run + land stardf-duckdb chicago suite; (3) run + land sql_golden. DuckDB target standing: first-run-green-as-log, receipt-file owed; sql target standing: UNKNOWN-as-receipt."
+    },
+    {
+      "code": "PUBLISH_LANDING_LIST_OPEN",
+      "message": "3 hard gates red in every ladder receipt through 044209Z (21:42): G3 (4 crates publish=false: sparql-algebra, core, sparql-results, rdf), G5 (residual path-only dual-key rows, mostly dev-deps: columnar->arrow-core, stack->testkit, iri->testkit, xsd->testkit class), G8 (nonclosure hard deps incl. rdf -> {ed25519, gts, sparql-eval}, sql -> shapes, rs -> {12+ members} and rs -> duckdb optional/registry-404 class). PASS-4: the G5 avec-git-dep SUB-ROW is LANDED (lane-09 decouple removed avec-arrow from core + capi manifests, grep-witnessed; g07 confirms arrow-core's class-1 avec blocker is gone, arrow-core now produces a real tarball), postdating the newest ladder receipt - a fresh ladder run is owed to witness the shrink. g07 additionally disclosed concurrent drift observed-not-actuated (duckdb + core publish=false, core version 26.9.29 literal at its read time). Remaining gates are operator scope decisions (D17)."
+    },
+    {
+      "code": "UMBRELLA_STARDF_ABSENT",
+      "message": "No live crates/stardf manifest exists (re-witnessed this pass, ls: No such file or directory); the dispatched footprint row 'umbrella stardf' cannot be satisfied without vendoring actuation outside a receipt lane. Related landing: the package named stardf-rs (in crates/stardf-purrdf) flipped publish=true at 21:00 - that is the G3 stardf-rs row, NOT the 'umbrella stardf' cell."
+    },
+    {
+      "code": "REHOME_TWO_ARM_COURT_TESTIMONY_STANDING",
+      "message": "The verify_duckdb_rehome.sh two-arm court PASS (both arms) is COORDINATOR-REPORTED (lane 01, dispatch testimony); no on-disk run receipt for the two-arm run exists in evidence/ at receipt-write time. The court's ratified =2.0.4 pins and two-arm design are on disk (RATIFIED=2.0.4 re-read this pass); the F04 falsifier-fired-on-=2.0.3 receipt is cited from the D13 RESOLUTION block. Standing of the court PASS: testimony, not receipt."
+    }
+  ],
+  "errors_note": "RESOLVED SINCE PASS 3: SCAN_COURTS_UNWITNESSED downgraded to SCAN_RUN_WITNESSED_RECEIPT_OPEN (scan courts first-ran green 6/0, log-standing; n3 first-ran green 89/0 exit 0, log-standing; evidence receipt files + stardf-duckdb chicago suite + sql_golden still owed). AVEC_DEFAULT_POSTURE_STILL_RED partially advanced: the avec-side rust-toolchain pin LANDED on disk (21:42) - the remaining gap is one default-posture re-run. G5 avec-git-dep sub-row LANDED (lane-09 decouple, core + capi). R1 register closed (31/40/0), gate exit 0 x8 witnesses. OPEN: sql courts + stardf-duckdb chicago suite unrun; scan/n3 receipt files not landed; publish landing list at 3 operator-scope gates (fresh ladder run owed post-decouple); umbrella absent; rehome two-arm PASS at testimony standing; CI-in-Actions N/A. Historical failures/resolutions unchanged from the draft (R1 exit 1 pre-admission -> exit 0 as-of c2; anti_vacuity 1/3 + E0308 -> repaired 3/3 inside LANE-8 82/0/1i; fmt/clippy mid-wave flips -> LANE-11 0/0; lane-16 court_2 -> repaired).",
+  "commands": [
+    {
+      "cmd": "python3 scripts/publish_stardf.py --dry-run (from stardf/arrow)",
+      "exit": 0,
+      "source": "lane-17 pass-2 run, 21:05 (receipt evidence/publish_stardf-receipt-20261101T040521Z.json)",
+      "comment": "script exit 0 with structured verdict 'BLOCKED -- 3 hard gate(s) red; ladder not attempted'; ladder NOT attempted, registry untouched (dry-run law held). Inside the run: R1 exit 0 (PASS), avec court exit 101 (FAIL), cargo check --workspace exit 0 (PASS, current tree)."
+    },
+    {
+      "cmd": "python3 scripts/verify_stardf_licenses.py (from stardf/arrow)",
+      "exit": 0,
+      "source": "lane-17 pass-2 probe ~21:05",
+      "comment": "exit 0, 'license-compat gate: PASS (all dependency edges registered and ungated)'; frozen-duckdb/-sys/-builder rows REGISTERED (MIT GATED). Matches the ladder's R1 row in the same minute."
+    },
+    {
+      "cmd": "cd stardf/arrow && find . -path '*/target*' -prune -o -type f -print | grep -v '/target/' | sort | xargs shasum -a 256 | shasum -a 256",
+      "exit": 0,
+      "source": "lane-17 pass-2 digest run (21:07:03-05)",
+      "comment": "12240 files -> 08b2cdb546f8d5c81c6b7a9bac3f4c7bdf2389aa92a3fea654ce86a2f9aada3c; mid-campaign as-of disclosure in subject.tree_digest_as_of_receipt_time.note"
+    },
+    {
+      "cmd": "git rev-parse HEAD; git rev-parse --abbrev-ref HEAD",
+      "exit": 0,
+      "source": "lane-17 pass-2 read-only identity probes (21:05)",
+      "comment": "724d542540b497f2928a63b5aece9b37aef4019b on fix/v26.9.29-ci-gates; no git state changed"
+    },
+    {
+      "cmd": "bounded poll-read of evidence/ + scan crate mtimes + target dirs (30s interval, 21:02:59-21:03:29)",
+      "exit": 0,
+      "source": "lane-17 coordination poll",
+      "comment": "quiet window witnessed: zero modifications under crates/stardf-scan-duckdb, scripts, docs, evidence for 35s+; no lane 02-05/08/09/10/12 receipt files landed; no scan court binaries in target/debug/deps or target-lane13/debug/deps"
+    },
+    {
+      "cmd": "cargo test -p avec-ffi --test stardf_consumer_court",
+      "exit": "0 x4 (20:26/20:29/20:30/20:50 local), then 101 (21:05)",
+      "source": "witnessed inside publish_stardf-receipt-20261101T{032659Z,032924Z,033004Z,035046Z}.json (PASS) and 20261101T040521Z.json (FAIL); the 21:05 FAIL attempt executed inside lane 17's ladder run",
+      "comment": "4 green witnesses then regression; court file itself unchanged (run, not edited); failure is a toolchain-resolution issue in the avec checkout, not a capi-source change"
+    },
+    {
+      "cmd": "cargo check --workspace",
+      "exit": 0,
+      "source": "publish_stardf-receipt-20261101T040521Z.json G9 row (21:05, current tree incl. scan crate + version flip)",
+      "comment": "current-tree workspace-compile witness; default check does not compile test targets (courts files not covered)"
+    },
+    {
+      "cmd": "cargo metadata --format-version 1 --no-deps",
+      "exit": 0,
+      "source": "lane07 receipt (run twice pre/post edits; 47 packages)",
+      "comment": "19 closure crates materialize full metadata; 19 publish-unrestricted + 28 publish-explicit-false as of lane 07; counts NOT re-probed this pass (the 21:00 stardf-rs flip postdates lane 07's receipt)"
+    },
+    {
+      "cmd": "cargo package --no-verify --allow-dirty -p <19 closure crates>",
+      "exit": "3 of 19 exit 0 (hash, columnar, alloc-probe); 16 exit 101 (registry-absence class + path-only dep class)",
+      "source": "lane07 receipt full-package rows",
+      "comment": "dry-run only; bottom-up upload ordering law recorded; not re-run this pass"
+    },
+    {
+      "cmd": "cargo package --no-verify --allow-dirty --offline -p stardf-hash",
+      "exit": 0,
+      "source": "lane11 receipt real-tarball witness",
+      "comment": "54 files -> stardf-hash-26.11.1.crate; 8 carriage rows witnessed via tar -tzf; still the only real tarball in the wave"
+    },
+    {
+      "cmd": "rustup show / rustup toolchain list; ls /Users/sac/avec/rust-toolchain*",
+      "exit": 0,
+      "source": "lane-17 pass-2 toolchain inventory (21:06)",
+      "comment": "default nightly-2026-06-22; installed incl. 1.98 + 1.98.0 stable + nightly-2026-08-12; /Users/sac/avec has NO rust-toolchain file (no matches found); stardf/arrow rust-toolchain.toml channel \"nightly\" - grounds the avec court regression mechanism"
+    },
+    {
+      "cmd": "python3 scripts/verify_stardf_licenses.py (from stardf/arrow)",
+      "exit": 0,
+      "source": "G12 pass-3 probe ~21:33",
+      "comment": "exit 0, 'license-compat gate: PASS (all dependency edges registered and ungated)'; frozen-duckdb/-sys/-builder REGISTERED (MIT GATED) witnessed in per-edge output"
+    },
+    {
+      "cmd": "python3 -c json.load(authority/stardf/license-compat.json) -> len(dependency_licenses)=31, len(compatibility_receipts)=40, len(draft_receipts_pending_operator)=0",
+      "exit": 0,
+      "source": "G12 pass-3 register re-read (~21:32)",
+      "comment": "register CLOSED - zero drafts pending operator; register mtime 21:03"
+    },
+    {
+      "cmd": "wc -l crates/stardf-scan-duckdb/src/lib.rs crates/stardf-scan-duckdb/tests/scan_courts.rs; grep -A3 '#[test]' tests/scan_courts.rs | grep 'fn '",
+      "exit": 0,
+      "source": "G12 pass-3 scan-crate measurement (~21:31)",
+      "comment": "lib.rs 1012 lines, scan_courts.rs 841 lines; six courts named: c1_count_parity_across_all_five_tables, c2_value_parity_pinned_by_order_by, c3_pushdown_flip_loud_skip_until_enabled, c4_empty_input_yields_zero_rows_clean, c5_typed_bind_error_not_panic, c6_drop_one_row_mutant_is_caught"
+    },
+    {
+      "cmd": "grep -c 'G10' scripts/publish_stardf.py; grep -n 'frozen-duckdb = \"=2.0.4\"' Cargo.toml; grep -l 'publish = true' crates/*/Cargo.toml | wc -l; ls crates/stardf",
+      "exit": "0/0/0/2 (last: No such file or directory)",
+      "source": "G12 pass-3 manifest probes (~21:33-21:40)",
+      "comment": "G10 absent from the script (gate roster G1-G9, mtime 21:41); =2.0.4 x3 pins at Cargo.toml:282-284; 21 manifests publish=true; umbrella crates/stardf still absent"
+    },
+    {
+      "cmd": "git rev-parse HEAD; git rev-parse --abbrev-ref HEAD (read-only)",
+      "exit": 0,
+      "source": "G12 pass-3 identity probes (~21:32)",
+      "comment": "724d542540b497f2928a63b5aece9b37aef4019b on fix/v26.9.29-ci-gates; no git state changed"
+    },
+    {
+      "cmd": "cd stardf/arrow && find . -path '*/target*' -prune -o -type f -print | grep -v '/target/' | sort | xargs shasum -a 256 | shasum -a 256",
+      "exit": 0,
+      "source": "G12 pass-3 digest run (21:44:12-13, after a 21:42:13-21:44:03 quiet poll)",
+      "comment": "12258 files -> 30d9a5934a130b43b956457fbf9ef2f3026bfc9797694d27e02462e48571f29a; mid-campaign as-of disclosure in subject.tree_digest_as_of_receipt_time.note"
+    },
+    {
+      "cmd": "python3 scripts/publish_stardf.py ladder receipts 20261101T043905Z / T044033Z / T044209Z (21:39/21:40/21:42) - read, not run by this pass",
+      "exit": "BLOCKED x3",
+      "source": "concurrent lane's ladder runs, cited from evidence/ (json parsed this pass)",
+      "comment": "11 gate rows each: G3/G5/G8 red, R1 exit 0, avec default-posture exit 101, G9 exit 0; verdict BLOCKED; ladder not attempted; registry untouched. The newest receipt (044209Z) postdates every pass-2 witness."
+    },
+    {
+      "cmd": "python3 scripts/verify_stardf_licenses.py (from stardf/arrow)",
+      "exit": 0,
+      "source": "H05 pass-4 probe ~21:44",
+      "comment": "exit 0, 'license-compat gate: PASS (all dependency edges registered and ungated)'; 16 GATED-REGISTERED edges of 68 edge rows (1 avec-arrow sovereign-fork-posture, 51 intra-workspace exempt); frozen-duckdb/-sys/-builder ADMITTED on the operator blanket sign-off basis"
+    },
+    {
+      "cmd": "cargo metadata --format-version 1 --no-deps",
+      "exit": 0,
+      "source": "H05 pass-4 run ~21:46 (/tmp/h05_cargo_metadata.json)",
+      "comment": "48 packages; 21 publish-unrestricted (metadata publish=null) / 27 publish-explicit-false ([]) - the 21-crate publish-set metadata witness; supersedes lane07's 47-package count (scan crate joined since)"
+    },
+    {
+      "cmd": "cd stardf/arrow && find . -path '*/target*' -prune -o -type f -print | grep -v '/target/' | sort | xargs shasum -a 256 | shasum -a 256",
+      "exit": 0,
+      "source": "H05 pass-4 digest runs: 21:48:18 (12259 files -> 30e613ba7e8fe4180d8cc29a110d5dc18428d1ac1cad522808fcac67fa69e763, pre-g07/g08) and 21:55:23 (12264 files -> d330d234...)",
+      "comment": "the 21:55:23 run is the receipt-time digest (subject.tree_digest_as_of_receipt_time); the tree gained g07-tarball-audit + g08-license-carriage-verify receipts between the two runs"
+    },
+    {
+      "cmd": "pgrep -fl 'avec-ffi|stardf-sql|scan_courts|cargo test' (x3 across the pass)",
+      "exit": "0 matches at 21:43/21:47/21:53",
+      "source": "H05 pass-4 process probes",
+      "comment": "no court run in flight at probe time; the scan/n3 runs cited are completed parallel-lane runs recorded in /tmp logs"
+    }
+  ],
+  "replay": {
+    "status": "WITNESSED",
+    "comment": "verify.py --emit-receipt pair on the CURRENT (post-bulk-copy, receipt-time) tree: witnessed twice - lane16-falsifier-ledger (21:08 tree) and G04-falsifier-finalization (21:39 tree) - both pairs exit 0/0, byte-identical (cmp exit 0), sha256 cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef, internal receipt_sha256 ceaf5a25f0ddd1d9071810543984ee307e4ab88eaafe6ddfe524595e990514c9. The digest matches all four pre-copy-tree witnesses (50 -> 93 -> 117-file trees) - replay stability holds across the bulk copy. Disclosure carried from the witnesses: the verifier emits receipt_sha256 only (no artifacts_sha256 key); the dsrust two-key shape is not fully instantiated. A fresh pair on the coordinator's CLEAN-TREE phase remains owed before release claims."
+  },
+  "placeholders": {
+    "note": "PASS-4 STATE (~21:56). Resolved since pass 3: scan courts first-run witnessed (log-standing); n3 first post-copy suite run witnessed (log-standing, exit 0 89/0); avec-side toolchain pin landed on disk; G5 avec-git-dep sub-row landed (lane-09 decouple); 21-crate publish-set metadata verified at metadata level (cargo metadata exit 0); tarball audit receipt landed (g07, 4 tarballs). Still open below.",
+    "final_arbiter_ladder": "PLACEHOLDER - fmt --check / clippy -D warnings / test --workspace --locked --no-fail-fast have no post-settlement receipt. Nearest witnesses: G9 cargo check --workspace exit 0 (through the 21:42 receipt) and R1 exit 0 x7. Full ladder owed at coordinator clean-tree phase.",
+    "duckdb_scan_courts": "PARTIAL - first run witnessed log-standing (/tmp/g15-scan-courts.log @21:42: 6 passed / 0 failed, c3 loud-[SKIP] by design); an evidence/ receipt file for the run is OWED; stardf-duckdb chicago_* suite remains UNRUN.",
+    "sql_n3_duckdb_courts": "PARTIALLY RESOLVED - n3: first post-copy suite run exit 0, 89/0 across 5 targets (log-standing, /tmp/h02_n3_full.log @21:44); sql: STILL UNKNOWN-as-receipt (no run, no binary); stardf-duckdb chicago suite: STILL UNRUN.",
+    "remaining_lane_receipts": "LANDED since pass 3: g07-tarball-audit (~21:52), g08-license-carriage-verify (21:49). Still never landed: lanes 02-05, 08, 09, 10, 12 receipt files (lane 05 = avec-gate lane, never landed across four passes); the scan/n3 run receipts exist only as /tmp logs. Work is recorded from on-disk artifacts + landed receipts + coordinator testimony, marked as such.",
+    "replay_on_current_tree": "RESOLVED (see replay.status WITNESSED) - two pairs on the receipt-time tree; clean-tree pair still owed at coordinator phase.",
+    "gate_flips": "R1: four direction reversals + multi-witnessed exit 0 x8 through this pass. avec court: 4 green (20:26-20:50) -> exit 101 x3+ (21:02-21:42 ladder, default) -> exit 0 3/3 (G04, wrap). verify.py flip: pre-copy witnesses; pair witnessed on the current tree (lane16 + G04). F4 header-freeze: court witnessed twice. PASS-4 NEW: scan courts 6/0 first run (log-standing) and n3 89/0 first run (log-standing) - authored-never-run flips to run-witnessed on both; evidence-receipt flips still owed.",
+    "ci_actions_run": "PLACEHOLDER - ci/stardf-arrow-reconstitution.yml never witnessed executing; all standing is local.",
+    "avec_court_default_posture_pin": "PARTIAL - the pin HAS LANDED (/Users/sac/avec/rust-toolchain.toml, 749B @21:42, floating \"nightly\"); default-posture green NOT yet witnessed - one cargo test -p avec-ffi --test stardf_consumer_court to exit 0 without the wrap is owed.",
+    "rehome_two_arm_receipt": "PLACEHOLDER (unchanged) - the two-arm rehome court PASS both arms is coordinator-reported; no on-disk run receipt exists; F04's fired falsifier is witnessed on =2.0.3 only; the =2.0.4 cache-absent re-run is not witnessed."
+  },
+  "standing": {
+    "overall": "PARTIAL_ALIVE",
+    "overall_note": "Finish-campaign receipt (pass 4, H05 re-bind), honestly partial: the arrow target stands on receipts (falsifier ledger finalized ALIVE-scope by G04); duckdb target: implementation landed AND its six scan courts first-ran green (log-standing, 6/0, c3 loud-SKIP by design) with the evidence receipt + stardf-duckdb chicago suite still owed; n3 target: first post-copy suite run exit 0 (89/0, log-standing); sql target: still UNKNOWN-as-receipt (no run); publish-prep stands BLOCKED at 3 operator-scope gates (fresh ladder run owed after the lane-09 avec decouple); avec integration is wrap-posture-green with the default-posture pin landed but default-posture green unwitnessed. Register closed (31/40/0); 4 real tarballs audited (g07); 21-crate publish-set metadata verified at metadata level. No CI standing; live publish behind the operator double-gate.",
+    "four_first_class_targets_D16_phase3": {
+      "arrow_landed": "PARTIAL_ALIVE (local): core 33/33, capi all targets green, columnar courts (golden_bytes re-run 5/0 + 1 by-design ignored by G04), c_smoke 1/1, verify.py gate + flip + replay witnessed on the current tree (lane16 + G04 pairs, sha cb57ce4e...), F4 header-freeze court witnessed twice, F1/F1a/F2 re-witnessed, 13-export ABI three-way parity, G9 check --workspace exit 0 through the 21:42 receipt, R1 gate exit 0 x8. NO CI standing; full arbiter ladder post-settlement unwitnessed; avec consumer court wrap-posture green (native 3/3), default posture red with the pin landed but unverified by a run. Lane-09 avec-arrow decouple landed in core+capi manifests (postdates the newest ladder receipt).",
+      "duckdb_critical_path": "FIRST-RUN-GREEN AS LOG, RECEIPT + CHICAGO SUITE OWED: stardf-scan-duckdb is a real workspace member (publish=true, avec decoupled, frozen-duckdb =2.0.4 vtab, stardf-columnar reader dep) with the full stardf_scan() VTab implementation (lib.rs 1,012 lines) + scan_courts.rs (841 lines, six courts c1-c6) + licenses/ + PROVENANCE.md. FIRST RUN witnessed (/tmp/g15-scan-courts.log @21:42): 6 passed / 0 failed in 0.23s; c3 emits a loud [SKIP] by design (supports_pushdown()=false, the landed W2e divergence: frozen-duckdb 2.0.4 SDK has no complex-filter pushdown surface; its filtered-row-set + mutant-catch legs run only when it flips true). Standing boundary: log-standing - the evidence/ receipt file is owed; stardf-duckdb's chicago_* suite (8 chicago_*.rs + row_projection_isolation + sql_parquet_pipeline) remains UNRUN. =2.0.4 x3 ratified (D19); the two-arm rehome court PASS is coordinator-reported, not receipt-witnessed. F5 external DuckDB Parquet-oracle exit 0 (LANE-8) is not the native VTab court.",
+      "sql_whole_plus_4_goldens": "UNKNOWN-as-receipt (pass-4 re-witness): stardf-sql on disk with tests/sql_golden.rs; NO court run, no log, no binary on any post-copy tree (probe-witnessed this pass); G8 records stardf-sql -> stardf-shapes as a nonclosure hard dep. D12 admitted the amended slice; 215K-line eval crate NOT vendored (gap row 1).",
+      "n3_whole_plus_suite_plus_discovery": "FIRST-RUN-GREEN AS LOG, RECEIPT OWED: stardf-n3 with per-file byte-parity VENDOR-PROVENANCE against rev 0da05783 first-ran its full suite (cargo test -p stardf-n3 --locked -> exit 0, 89 passed / 0 failed across 5 targets: unit 28/0, forgery 13/0 incl. hardened-default + flip-legacy courts, parse 28/0, proofs 4/0, reason 16/0; /tmp/h02_n3_full.log @21:44). Log-standing - the evidence/ receipt file is owed. G5 residual path-only dep rows unchanged class."
+    },
+    "publish_preparedness": {
+      "verdict": "BLOCKED (3 hard gates red in every ladder receipt 20:26 -> 21:42, newest 044209Z; dry-run only; registry untouched - operator gate before any registry touch respected). D20 records publish-preparedness itself as a DECIDED first-class campaign deliverable: materialized, ladder-judged, BLOCKED. PASS-4: the newest receipt PREDATES the lane-09 avec decouple + the scan/n3 court runs, so a fresh ladder run is owed to re-judge (not run by this pass - concurrent-lane target contention); expected shrink: G5's avec-git-dep sub-row.",
+      "footprint_reality_check": "Dispatched footprint named 20 cells incl. 'umbrella stardf'; the umbrella crate does not exist on disk (re-witnessed this pass). 21 member manifests publish=true (grep re-witnessed); 19/19 closure metadata materialized at lane07 + the scan crate and stardf-rs since joined the publish set; 46 stardf-* dual-key workspace dep rows at =26.11.1 landed. License carriage CLOSED OUT (lane11-r2, 21:14 receipt): 66/66 canonical license census (22 crates x LICENSE-{MIT,APACHE,MULAN} byte-identical to crates/stardf-hash/licenses/), 22/22 cargo package --list gate with byte-identical replay pair, conjunct-license third-party notices (stardf-lex/iri/core/toml), PROVENANCE.md landed for the scan crate. THREE real tarballs exist (stardf-hash 145,882 B / stardf-columnar 135,460 B / stardf-alloc-probe 34,641 B - the leaf-first bootstrap class); the 19 non-leaf crates refuse full offline packaging, two classified blocker classes (unversioned internal/git deps; =26.11.1 deps absent from crates.io pre-bootstrap). License register CLOSED: 31 dependency_licenses / 40 compatibility_receipts / 0 drafts pending operator (re-read this pass). PASS-4 additions: 21-crate publish-set metadata VERIFIED AT METADATA LEVEL (cargo metadata exit 0, 48 packages: 21 publish-unrestricted / 27 explicit-false, /tmp/h05_cargo_metadata.json); tarball audit receipt landed (g07): 4 real tarballs with sha256s (arrow-core 40132 B NEW via the decouple / columnar 135460 B / hash 145882 B / alloc-probe 34641 B), 12/12 in-tarball license shas canonical, tarball census clean, exclude tables audited correct, replay byte-identical, 18 non-leaf refusals re-classified (4 manifest-verify + 14 registry-unresolved); g08-license-carriage-verify re-witnessed R1 + 66/66 census with mutation non-vacuity control; concurrent drift disclosed observed-not-actuated (duckdb + core publish=false, core version 26.9.29 literal at g07's read time).",
+      "landing_list": [
+        "G3: four tier-expected crates publish=false (stardf-sparql-algebra, stardf-core, stardf-sparql-results, stardf-rdf) - operator scope decision (stardf-rs row CLOSED by the 21:00 flip)",
+        "G5: avec-arrow git dep in stardf-arrow-core + stardf-arrow-capi - feature-gate optional or decouple; residual path-only dual-key rows (mostly [dev-dependencies]: columnar->arrow-core, stack->testkit, iri->testkit, xsd->testkit class)",
+        "G8: nonclosure hard deps - stardf-rdf -> {ed25519, gts, sparql-eval}; stardf-sql -> stardf-shapes; stardf-rs -> {datalog, entail, geo, glob, gts, hnsw, json, +12 more}; NEW: stardf-rs -> stardf-duckdb optional dep flagged registry-404 class - operator re-ratification of the closure (D17) required",
+        "R1: CLOSED (register 31/40/0; gate exit 0 x7 witnesses through this pass)",
+        "avec consumer court: default-posture green owed to a >= 1.98 rust-toolchain pin in /Users/sac/avec (wrap-posture 3/3 witnessed natively, G04 receipt)",
+        "umbrella stardf: vendoring actuation or amend the footprint row out",
+        "scan/duckdb/sql/n3 court-run receipts: courts landed, runs unwitnessed (G10 in flight, not in the script)",
+        "bottom-up upload ordering (hash first) recorded for the operator publish runbook; leaf tarballs are the bootstrap class"
+      ],
+      "compliant_by_construction": "stardf-scan-duckdb (the duckdb-scan footprint cell) is publish-law compliant: no avec consumption, =2.0.4 family pin via workspace, workspace-inherited metadata, licenses/ + PROVENANCE.md in-package."
+    },
+    "avec_integration": "WRAP-POSTURE-GREEN (native receipt, G04 21:39); DEFAULT-POSTURE REPAIR LANDED, RUN OWED. /Users/sac/avec/rust-toolchain.toml landed 21:42 (749B, channel \"nightly\" floating - the same posture stardf/arrow resolves; comment names the G09 gate repair and plain-cargo-test requirement). Full chain: green x4 (20:26-20:50) -> exit 101 (21:02-21:42 ladder receipts, default posture, post-version-flip rustc-1.98 floor) -> repair-by-wrap exit 0 3/3 (G04) -> pin landed 21:42 (default-posture repair on disk). Default-posture green NOT yet witnessed (newest ladder receipt 21:42 records exit 101 with minute-granularity ordering ambiguity vs the pin). avec HEAD remains 4ede671 past pin 67c0ec1 (pin is the admitted identity). Publish-law conflict RESOLVED ON THE WORKING TREE: lane-09 decouple removed avec-arrow from stardf-arrow-core and stardf-arrow-capi manifests (grep-witnessed) - postdates the newest ladder receipt.",
+    "registered_divergence_D17": "REGISTERED (OPERATOR-DECISIONS.md 80/20 block): the copied ~80% carries NO courts - compile-green at best (G9 exit 0 through the 21:42 receipt is the witness class); parity claims scoped to the four first-class targets. Deferred court families named: stardf-sparql-eval courts (215K-line eval crate NOT vendored), SHACL, entailment, geo, GTS courts (D17 deferral), plus the stardf-duckdb chicago suite and sql_golden (landed but unrun). This receipt adds no courts and claims none.",
+    "target_ledger_law": "No GA standing until W10's structured verdict returns parity=true AND finished=true with zero unresolved blockers AND the gap rows are landed or amended out (14-definition-of-done.md supersedes 13-v26111-target-ledger.md; the release is the target, not a receipt)."
+  },
+  "pending_operator_rows": [
+    {
+      "row": "live publish go",
+      "content": "Live cargo publish for the ratifiable closure, bottom-up in tier order (hash/alloc-probe/columnar first)",
+      "gate": "STARDF_PUBLISH_CONFIRM=ratified-v26.11.1 + --publish both required by scripts/publish_stardf.py; default is dry-run",
+      "source": "docs/V26-11-1-VERDICT.md PENDING-OPERATOR table"
+    },
+    {
+      "row": "ABI-v2 (D18)",
+      "content": "Revised 13-export C-ABI surface NOT adopted; arrow stays v1 13-symbol",
+      "gate": "Operator call with cross-allocator-court migration cost attached",
+      "source": "OPERATOR-DECISIONS.md D18 + V26-11-1-VERDICT.md"
+    },
+    {
+      "row": "footprint reconcile",
+      "content": "Contract 21-name list vs script TIERS vs 21 on-disk publish=true; umbrella absent; scan-crate name differs (stardf-duckdb-scan contracted vs stardf-scan-duckdb landed)",
+      "gate": "Operator ratifies one footprint (and umbrella materialization or row removal)",
+      "source": "docs/V26-11-1-VERDICT.md publish-footprint section"
+    },
+    {
+      "row": "G3/G8 closure membership (D17)",
+      "content": "4 crates publish=false in tier; nonclosure hard-dep edges (rdf/sql/rs) need feature-gating or closure re-ratification",
+      "gate": "Operator scope decision per D17",
+      "source": "ladder receipts through 044209Z landing lists"
+    },
+    {
+      "row": "license register family-extension sign-off",
+      "content": "frozen-duckdb-sys/-builder compatibility receipts admitted on the same-day operator blanket sign-off basis; register closed with 0 drafts pending operator",
+      "gate": "Individual operator ratification of the family extension remains an operator-side act; if refused, the receipts move back to draft and R1 returns to exit 1 (lane11-r2 nonclaim)",
+      "source": "evidence/lane11-license-carriage-r2-2026-10-31.json nonclaims + r1-gate-restored-exit-0 row"
+    },
+    {
+      "row": "rehome two-arm court receipt",
+      "content": "verify_duckdb_rehome.sh two-arm PASS both arms (lane 01) is coordinator-reported; an on-disk run receipt is owed",
+      "gate": "Land the run receipt (both arms + restore proof) before the =2.0.4 cache-absent claim moves to receipt standing",
+      "source": "coordinator dispatch testimony; no evidence/ artifact at receipt-write time"
+    },
+    {
+      "row": "D2 CI placement",
+      "content": "A (ci.yml job) vs B (standalone) - rec: A",
+      "gate": "Sign-off block in OPERATOR-DECISIONS.md still blank",
+      "source": "OPERATOR-DECISIONS.md D2 + V26-11-1-VERDICT.md"
+    },
+    {
+      "row": "D4 ggen sync",
+      "content": "ggen sync run admission post-bridge (rec: A post-bridge)",
+      "gate": "PENDING-OPERATOR; dry-run only until bridge lands",
+      "source": "OPERATOR-DECISIONS.md D4"
+    },
+    {
+      "row": "D1/D6/D7/D9/D11/D12/D14",
+      "content": "Commit strategy (x2), avec pin posture, ArrowArrayStream spec source, freeze expansion, columnar encoding, SQL scope",
+      "gate": "All still PENDING-OPERATOR in the register; sign-off block blank",
+      "source": "OPERATOR-DECISIONS.md register"
+    },
+    {
+      "row": "avec default-posture pin",
+      "content": "rust-toolchain pin >= 1.98 in /Users/sac/avec - PIN LANDED 21:42 (rust-toolchain.toml, floating \"nightly\"); remaining: one default-posture re-run of cargo test -p avec-ffi --test stardf_consumer_court to exit 0 without the wrap",
+      "gate": "Avec-side default-posture re-run to exit 0 flips the ladder gate; pin already on disk",
+      "source": "G04 receipt bounds + ladder receipts 21:39-21:42"
+    }
+  ],
+  "nonclaims": [
+    "pass 4 (H05) executed exactly TWO gate-class commands (R1 license gate + cargo metadata) plus read-only probes (tree digest x2, wc/grep/ls on manifests and crates, pgrep, mtime/size polls, receipt/log parsing); NO git commands of any kind (dispatch law - identity carried from pass 3's read-only probe, not re-probed); no ladder run, no unit/court suites re-run by this pass, no live publish, no registry touch",
+    "the scan-courts run (6/0) and the n3 suite run (89/0, exit 0) are PARALLEL LANES' runs (G15 / H02) cited from on-disk /tmp logs - LOG-STANDING, never read as landed evidence receipts; evidence/ receipt files for both runs are owed; this pass did not execute or re-execute either suite",
+    "sql courts remain UNRUN on any post-copy tree: no run, no log, no binary (probe-witnessed); sql standing is UNKNOWN-as-receipt, full stop",
+    "the rehome two-arm court PASS both arms is coordinator-reported testimony - no on-disk run receipt exists; the witnessed falsifier event is F04 firing cache-absent on =2.0.3 (refusal path); the =2.0.4 cache-absent re-run is NOT witnessed",
+    "avec integration is green ONLY under the pinned-toolchain wrap posture (G04 native 3/3); the default-posture pin LANDED 21:42 but default-posture green is NOT witnessed - the newest ladder receipt (21:42) records exit 101 with minute-granularity ordering ambiguity vs the pin's mtime; no default-posture run since the pin",
+    "publish verdict BLOCKED through 044209Z (21:42); the newest receipt PREDATES the lane-09 avec decouple and the scan/n3 runs, so the ladder standings are stale on their face and a fresh run is owed (not run by this pass); exactly FOUR real tarballs exist (leaves + arrow-core); the other 17 closure crates carry list-level carriage witnesses only; bottom-up upload ordering unresolved",
+    "the dispatch's 'license register 28/37' citation is STALE - the register on disk is closed at 31 dependency_licenses / 40 compatibility_receipts / 0 drafts (first disclosed by pass 3); the 0-draft state does not by itself constitute individual operator sign-off on the frozen-duckdb-sys/-builder extension",
+    "umbrella 'stardf' footprint cell unsatisfiable as dispatched - no live crates/stardf manifest exists (carried witness); the 21:00 stardf-rs publish flip is a different cell",
+    "R1 exit 0 is witnessed on the UNCOMMITTED working tree only; not witnessed against a committed register state",
+    "g07 self-disclosed a receipt-write corruption event (repeat-loop mid-write, mechanically rewritten) and concurrent drift observed-not-actuated (duckdb + core publish=false, core version 26.9.29 literal at its read time) - disclosed, not adjudicated, by this pass",
+    "avec HEAD moved past the pin (4ede671 vs pinned 67c0ec1); pin is the admitted identity; the G04 native re-run consumed this tree via the avec-gate lane's path dep, not the git pin",
+    "tree digest d330d234... is MID-CAMPAIGN as-of 21:55:23 - concurrent lanes may still land edits and this receipt file postdates the digest; not a clean-tree release digest",
+    "no CI standing (no Actions run ever witnessed); no external/production standing; every witness cited is a local run",
+    "copied ~80% carries NO courts (D17); no parity claim beyond the four first-class targets; eval/SHACL/entail/geo/GTS courts deferred D17; sql/stardf-duckdb-chicago court standing UNKNOWN-as-receipt",
+    "replay pair witnessed on the receipt-time tree (lane16 + G04), but no clean-tree replay pair exists; full arbiter ladder unwitnessed post-settlement",
+    "no slice claimed ALIVE unqualified; standing vocabulary per evidence/README.md law 5"
+  ],
+  "placeholders_resolved": false
+}

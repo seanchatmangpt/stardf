@@ -1,0 +1,5264 @@
+# authority/stardf/stardf_contract.ttl
+# Mechanically extracted and synchronized from purrdf legacy C ABI.
+# Authority: seanchatmangpt/ggen-legacy GL-STARDF-001
+
+@prefix stardf:  <https://ggen.io/ontology/stardf#> .
+@prefix sh:      <http://www.w3.org/ns/shacl#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix prov:    <http://www.w3.org/ns/prov#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+
+# --- Root Mechanical Authority ---
+stardf:SubstrateContract
+    a stardf:MechanicalAuthority ;
+    stardf:targetNamespace "stardf" ;
+    stardf:predecessor "purrdf" ;
+    stardf:executionModel stardf:BranchlessConstantTime ;
+    stardf:memoryModel stardf:ZeroAllocationArena ;
+    stardf:downstreamSubstrate "cgap" ;
+    prov:wasDerivedFrom <file:///Users/sac/purrdf/crates/rdf-capi/include/purrdf.h> ;
+    stardf:sourceDigestSha256 "6ef9b4a0a9d28036b24cc702bca9113e1ab6a7e6cbb708b74ff5b11cf281ad45" .
+
+# --- Execution Invariants SHACL Shape ---
+stardf:ExecutionInvariantsShape
+    a sh:NodeShape ;
+    sh:targetClass stardf:KernelOperation ;
+    sh:property [
+        sh:path stardf:hasConditionalBranches ;
+        sh:hasValue false ;
+        sh:message "Kernel operations must compile to branchless bitwise/CMOV sequences." ;
+    ] ;
+    sh:property [
+        sh:path stardf:dynamicAllocations ;
+        sh:hasValue 0 ;
+        sh:message "Heap allocation during state admission is strictly prohibited." ;
+    ] .
+
+# --- Memory Layouts ---
+stardf:TermIdArenaDefinition
+    a stardf:MemoryLayout ;
+    stardf:byteAlignment 64 ;
+    stardf:indexWidth "u32"^^xsd:string ;
+    stardf:fingerprintHash "BLAKE3"^^xsd:string ;
+    stardf:interopSurface "ArrowArrayStream" .
+
+# --- ABI Function Validation Shape ---
+stardf:AbiFunctionShape
+    a sh:NodeShape ;
+    sh:targetClass stardf:AbiFunction ;
+    sh:property [
+        sh:path stardf:targetSymbol ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path stardf:predecessorSymbol ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path stardf:returnType ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path stardf:subsystem ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+    ] .
+
+# --- Data Types & Structs ---
+stardf:type_StardfBuffer
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfBuffer" ;
+    stardf:predecessorSymbol "PurrdfBuffer" ;
+    stardf:targetSymbol "StardfBuffer" .
+
+stardf:type_StardfCancellation
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfCancellation" ;
+    stardf:predecessorSymbol "PurrdfCancellation" ;
+    stardf:targetSymbol "StardfCancellation" .
+
+stardf:type_StardfCursor
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfCursor" ;
+    stardf:predecessorSymbol "PurrdfCursor" ;
+    stardf:targetSymbol "StardfCursor" .
+
+stardf:type_StardfDataset
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfDataset" ;
+    stardf:predecessorSymbol "PurrdfDataset" ;
+    stardf:targetSymbol "StardfDataset" .
+
+stardf:type_StardfError
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfError" ;
+    stardf:predecessorSymbol "PurrdfError" ;
+    stardf:targetSymbol "StardfError" .
+
+stardf:type_StardfGeoPointIndex
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfGeoPointIndex" ;
+    stardf:predecessorSymbol "PurrdfGeoPointIndex" ;
+    stardf:targetSymbol "StardfGeoPointIndex" .
+
+stardf:type_StardfGeoSession
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfGeoSession" ;
+    stardf:predecessorSymbol "PurrdfGeoSession" ;
+    stardf:targetSymbol "StardfGeoSession" .
+
+stardf:type_StardfGraph
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfGraph" ;
+    stardf:predecessorSymbol "PurrdfGraph" ;
+    stardf:targetSymbol "StardfGraph" .
+
+stardf:type_StardfJsonLdContext
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfJsonLdContext" ;
+    stardf:predecessorSymbol "PurrdfJsonLdContext" ;
+    stardf:targetSymbol "StardfJsonLdContext" .
+
+stardf:type_StardfReasoner
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfReasoner" ;
+    stardf:predecessorSymbol "PurrdfReasoner" ;
+    stardf:targetSymbol "StardfReasoner" .
+
+stardf:type_StardfRowCursor
+    a stardf:TypeDefinition ;
+    rdfs:label "StardfRowCursor" ;
+    stardf:predecessorSymbol "PurrdfRowCursor" ;
+    stardf:targetSymbol "StardfRowCursor" .
+
+stardf:type_stardf_quad_t
+    a stardf:TypeDefinition ;
+    rdfs:label "stardf_quad_t" ;
+    stardf:targetSymbol "stardf_quad_t" ;
+    stardf:byteAlignment 64 .
+
+stardf:type_stardf_term_arena_t
+    a stardf:TypeDefinition ;
+    rdfs:label "stardf_term_arena_t" ;
+    stardf:targetSymbol "stardf_term_arena_t" ;
+    stardf:byteAlignment 64 .
+
+# --- Foundational Kernel Operations ---
+stardf:fn_turnstile_admit
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_turnstile_admit" ;
+    stardf:targetSymbol "stardf_turnstile_admit" ;
+    stardf:predecessorSymbol "none" ;
+    stardf:subsystem "Turnstile" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "bcinr" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "arena" ;
+        stardf:paramType "stardf_term_arena_t*"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "quad" ;
+        stardf:paramType "const stardf_quad_t*"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "uint8_t*"
+    ] .
+
+stardf:fn_avec_export_stream
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_cgap_export_stream" ;
+    stardf:targetSymbol "stardf_cgap_export_stream" ;
+    stardf:predecessorSymbol "none" ;
+    stardf:subsystem "Arrow" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset*"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_stream" ;
+        stardf:paramType "struct ArrowArrayStream*"
+    ] .
+
+# --- Exported C ABI Functions (126 instances) ---
+stardf:fn_buffer_data
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_buffer_data" ;
+    stardf:targetSymbol "stardf_buffer_data" ;
+    stardf:predecessorSymbol "purrdf_buffer_data" ;
+    stardf:subsystem "Buffer" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "buf" ;
+        stardf:paramType "const StardfBuffer *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_ptr" ;
+        stardf:paramType "const uint8_t **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_len" ;
+        stardf:paramType "size_t *"
+    ] .
+
+stardf:fn_buffer_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_buffer_free" ;
+    stardf:targetSymbol "stardf_buffer_free" ;
+    stardf:predecessorSymbol "purrdf_buffer_free" ;
+    stardf:subsystem "Buffer" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "buf" ;
+        stardf:paramType "StardfBuffer *"
+    ] .
+
+stardf:fn_quads_for_pattern
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_quads_for_pattern" ;
+    stardf:targetSymbol "stardf_quads_for_pattern" ;
+    stardf:predecessorSymbol "purrdf_quads_for_pattern" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "s" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "p" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "o" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "g" ;
+        stardf:paramType "const StardfGraphMatch *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_cursor" ;
+        stardf:paramType "StardfCursor **"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_cursor_next
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_cursor_next" ;
+    stardf:targetSymbol "stardf_cursor_next" ;
+    stardf:predecessorSymbol "purrdf_cursor_next" ;
+    stardf:subsystem "Cursor" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "cursor" ;
+        stardf:paramType "StardfCursor *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_s" ;
+        stardf:paramType "StardfTermView *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_p" ;
+        stardf:paramType "StardfTermView *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_o" ;
+        stardf:paramType "StardfTermView *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_g" ;
+        stardf:paramType "StardfTermView *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_has_graph" ;
+        stardf:paramType "uint8_t *"
+    ] .
+
+stardf:fn_cursor_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_cursor_free" ;
+    stardf:targetSymbol "stardf_cursor_free" ;
+    stardf:predecessorSymbol "purrdf_cursor_free" ;
+    stardf:subsystem "Cursor" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "cursor" ;
+        stardf:paramType "StardfCursor *"
+    ] .
+
+stardf:fn_entail_materialize_to_nquads
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_materialize_to_nquads" ;
+    stardf:targetSymbol "stardf_entail_materialize_to_nquads" ;
+    stardf:predecessorSymbol "purrdf_entail_materialize_to_nquads" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "program" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "premise_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "premise_iri_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "max_term_arena_bytes" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_nquads" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_report" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_rules
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_rules" ;
+    stardf:targetSymbol "stardf_entail_rules" ;
+    stardf:predecessorSymbol "purrdf_entail_rules" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_implemented_rules
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_implemented_rules" ;
+    stardf:targetSymbol "stardf_entail_implemented_rules" ;
+    stardf:predecessorSymbol "purrdf_entail_implemented_rules" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_extensions
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_extensions" ;
+    stardf:targetSymbol "stardf_entail_extensions" ;
+    stardf:predecessorSymbol "purrdf_entail_extensions" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_consistency
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_consistency" ;
+    stardf:targetSymbol "stardf_entail_consistency" ;
+    stardf:predecessorSymbol "purrdf_entail_consistency" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "premise_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "premise_iri_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "step_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "work_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_classify
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_classify" ;
+    stardf:targetSymbol "stardf_entail_classify" ;
+    stardf:predecessorSymbol "purrdf_entail_classify" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "step_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "work_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_realize
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_realize" ;
+    stardf:targetSymbol "stardf_entail_realize" ;
+    stardf:predecessorSymbol "purrdf_entail_realize" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "step_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "work_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_instances
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_instances" ;
+    stardf:targetSymbol "stardf_entail_instances" ;
+    stardf:predecessorSymbol "purrdf_entail_instances" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "class_" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "step_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "work_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_entails
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_entails" ;
+    stardf:targetSymbol "stardf_entail_entails" ;
+    stardf:predecessorSymbol "purrdf_entail_entails" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "axiom" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "step_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "work_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_profile
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_profile" ;
+    stardf:targetSymbol "stardf_entail_profile" ;
+    stardf:predecessorSymbol "purrdf_entail_profile" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_extract_module
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_extract_module" ;
+    stardf:targetSymbol "stardf_entail_extract_module" ;
+    stardf:predecessorSymbol "purrdf_entail_extract_module" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "signature" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "method" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_justify
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_justify" ;
+    stardf:targetSymbol "stardf_entail_justify" ;
+    stardf:predecessorSymbol "purrdf_entail_justify" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "axiom" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_explain_conclusion
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_explain_conclusion" ;
+    stardf:targetSymbol "stardf_entail_explain_conclusion" ;
+    stardf:predecessorSymbol "purrdf_entail_explain_conclusion" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "conclusion" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_certain_answers
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_certain_answers" ;
+    stardf:targetSymbol "stardf_entail_certain_answers" ;
+    stardf:predecessorSymbol "purrdf_entail_certain_answers" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "pattern" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "premise_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "premise_iri_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "max_term_arena_bytes" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_graph_entails
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_graph_entails" ;
+    stardf:targetSymbol "stardf_entail_graph_entails" ;
+    stardf:predecessorSymbol "purrdf_entail_graph_entails" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "premise" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "conclusion" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "premise_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "premise_iri_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "max_term_arena_bytes" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_verify_entailment
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_verify_entailment" ;
+    stardf:targetSymbol "stardf_entail_verify_entailment" ;
+    stardf:predecessorSymbol "purrdf_entail_verify_entailment" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "premise" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "conclusion" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "premise_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "premise_iri_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "max_term_arena_bytes" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_prove
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_prove" ;
+    stardf:targetSymbol "stardf_entail_prove" ;
+    stardf:predecessorSymbol "purrdf_entail_prove" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "service" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "argument" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "step_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "work_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_proof" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_entail_check_proof
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_entail_check_proof" ;
+    stardf:targetSymbol "stardf_entail_check_proof" ;
+    stardf:predecessorSymbol "purrdf_entail_check_proof" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "service" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "argument" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "answer" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "certificate" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "proof" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_report" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_reasoner_open
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_open" ;
+    stardf:targetSymbol "stardf_reasoner_open" ;
+    stardf:predecessorSymbol "purrdf_reasoner_open" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "document" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "step_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "work_cap" ;
+        stardf:paramType "uint32_t"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_reasoner" ;
+        stardf:paramType "StardfReasoner **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_reasoner_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_free" ;
+    stardf:targetSymbol "stardf_reasoner_free" ;
+    stardf:predecessorSymbol "purrdf_reasoner_free" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "reasoner" ;
+        stardf:paramType "StardfReasoner *"
+    ] .
+
+stardf:fn_reasoner_consistency
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_consistency" ;
+    stardf:targetSymbol "stardf_reasoner_consistency" ;
+    stardf:predecessorSymbol "purrdf_reasoner_consistency" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "reasoner" ;
+        stardf:paramType "StardfReasoner *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_reasoner_classify
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_classify" ;
+    stardf:targetSymbol "stardf_reasoner_classify" ;
+    stardf:predecessorSymbol "purrdf_reasoner_classify" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "reasoner" ;
+        stardf:paramType "StardfReasoner *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_reasoner_realize
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_realize" ;
+    stardf:targetSymbol "stardf_reasoner_realize" ;
+    stardf:predecessorSymbol "purrdf_reasoner_realize" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "reasoner" ;
+        stardf:paramType "StardfReasoner *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_reasoner_instances
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_instances" ;
+    stardf:targetSymbol "stardf_reasoner_instances" ;
+    stardf:predecessorSymbol "purrdf_reasoner_instances" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "reasoner" ;
+        stardf:paramType "StardfReasoner *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "class_" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_reasoner_entails
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_entails" ;
+    stardf:targetSymbol "stardf_reasoner_entails" ;
+    stardf:predecessorSymbol "purrdf_reasoner_entails" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "reasoner" ;
+        stardf:paramType "StardfReasoner *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "axiom" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_reasoner_justify
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_justify" ;
+    stardf:targetSymbol "stardf_reasoner_justify" ;
+    stardf:predecessorSymbol "purrdf_reasoner_justify" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "reasoner" ;
+        stardf:paramType "StardfReasoner *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "axiom" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_reasoner_profile
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_profile" ;
+    stardf:targetSymbol "stardf_reasoner_profile" ;
+    stardf:predecessorSymbol "purrdf_reasoner_profile" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "reasoner" ;
+        stardf:paramType "const StardfReasoner *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_reasoner_extract_module
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_extract_module" ;
+    stardf:targetSymbol "stardf_reasoner_extract_module" ;
+    stardf:predecessorSymbol "purrdf_reasoner_extract_module" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "reasoner" ;
+        stardf:paramType "const StardfReasoner *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "signature" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "method" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_reasoner_explain_conclusion
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_reasoner_explain_conclusion" ;
+    stardf:targetSymbol "stardf_reasoner_explain_conclusion" ;
+    stardf:predecessorSymbol "purrdf_reasoner_explain_conclusion" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "reasoner" ;
+        stardf:paramType "const StardfReasoner *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "conclusion" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_answer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_certificate" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_error_execution_receipt_json
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_error_execution_receipt_json" ;
+    stardf:targetSymbol "stardf_error_execution_receipt_json" ;
+    stardf:predecessorSymbol "purrdf_error_execution_receipt_json" ;
+    stardf:subsystem "Error" ;
+    stardf:returnType "const char *" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "error" ;
+        stardf:paramType "const StardfError *"
+    ] .
+
+stardf:fn_error_code
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_error_code" ;
+    stardf:targetSymbol "stardf_error_code" ;
+    stardf:predecessorSymbol "purrdf_error_code" ;
+    stardf:subsystem "Error" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "err" ;
+        stardf:paramType "const StardfError *"
+    ] .
+
+stardf:fn_error_message
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_error_message" ;
+    stardf:targetSymbol "stardf_error_message" ;
+    stardf:predecessorSymbol "purrdf_error_message" ;
+    stardf:subsystem "Error" ;
+    stardf:returnType "const char *" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "err" ;
+        stardf:paramType "const StardfError *"
+    ] .
+
+stardf:fn_error_presentation_json
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_error_presentation_json" ;
+    stardf:targetSymbol "stardf_error_presentation_json" ;
+    stardf:predecessorSymbol "purrdf_error_presentation_json" ;
+    stardf:subsystem "Error" ;
+    stardf:returnType "const char *" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "err" ;
+        stardf:paramType "const StardfError *"
+    ] .
+
+stardf:fn_error_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_error_free" ;
+    stardf:targetSymbol "stardf_error_free" ;
+    stardf:predecessorSymbol "purrdf_error_free" ;
+    stardf:subsystem "Error" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "err" ;
+        stardf:paramType "StardfError *"
+    ] .
+
+stardf:fn_geo_session_create
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_geo_session_create" ;
+    stardf:targetSymbol "stardf_geo_session_create" ;
+    stardf:predecessorSymbol "purrdf_geo_session_create" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_session" ;
+        stardf:paramType "StardfGeoSession **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_geo_session_call
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_geo_session_call" ;
+    stardf:targetSymbol "stardf_geo_session_call" ;
+    stardf:predecessorSymbol "purrdf_geo_session_call" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "session" ;
+        stardf:paramType "const StardfGeoSession *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "request" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_response" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_geo_session_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_geo_session_free" ;
+    stardf:targetSymbol "stardf_geo_session_free" ;
+    stardf:predecessorSymbol "purrdf_geo_session_free" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "session" ;
+        stardf:paramType "StardfGeoSession *"
+    ] .
+
+stardf:fn_geo_point_index_create
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_geo_point_index_create" ;
+    stardf:targetSymbol "stardf_geo_point_index_create" ;
+    stardf:predecessorSymbol "purrdf_geo_point_index_create" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "session" ;
+        stardf:paramType "const StardfGeoSession *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "request" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_index" ;
+        stardf:paramType "StardfGeoPointIndex **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_geo_point_index_call
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_geo_point_index_call" ;
+    stardf:targetSymbol "stardf_geo_point_index_call" ;
+    stardf:predecessorSymbol "purrdf_geo_point_index_call" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "index" ;
+        stardf:paramType "const StardfGeoPointIndex *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "request" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_response" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_geo_point_index_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_geo_point_index_free" ;
+    stardf:targetSymbol "stardf_geo_point_index_free" ;
+    stardf:predecessorSymbol "purrdf_geo_point_index_free" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "index" ;
+        stardf:paramType "StardfGeoPointIndex *"
+    ] .
+
+stardf:fn_query_governors_init
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_governors_init" ;
+    stardf:targetSymbol "stardf_query_governors_init" ;
+    stardf:predecessorSymbol "purrdf_query_governors_init" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "out" ;
+        stardf:paramType "StardfQueryGovernors *"
+    ] .
+
+stardf:fn_cancellation_new
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_cancellation_new" ;
+    stardf:targetSymbol "stardf_cancellation_new" ;
+    stardf:predecessorSymbol "purrdf_cancellation_new" ;
+    stardf:subsystem "Cancellation" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "out" ;
+        stardf:paramType "StardfCancellation **"
+    ] .
+
+stardf:fn_cancellation_cancel
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_cancellation_cancel" ;
+    stardf:targetSymbol "stardf_cancellation_cancel" ;
+    stardf:predecessorSymbol "purrdf_cancellation_cancel" ;
+    stardf:subsystem "Cancellation" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "cancellation" ;
+        stardf:paramType "const StardfCancellation *"
+    ] .
+
+stardf:fn_cancellation_is_cancelled
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_cancellation_is_cancelled" ;
+    stardf:targetSymbol "stardf_cancellation_is_cancelled" ;
+    stardf:predecessorSymbol "purrdf_cancellation_is_cancelled" ;
+    stardf:subsystem "Cancellation" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "cancellation" ;
+        stardf:paramType "const StardfCancellation *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out" ;
+        stardf:paramType "uint8_t *"
+    ] .
+
+stardf:fn_cancellation_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_cancellation_free" ;
+    stardf:targetSymbol "stardf_cancellation_free" ;
+    stardf:predecessorSymbol "purrdf_cancellation_free" ;
+    stardf:subsystem "Cancellation" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "cancellation" ;
+        stardf:paramType "StardfCancellation *"
+    ] .
+
+stardf:fn_graph_from_dataset
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_graph_from_dataset" ;
+    stardf:targetSymbol "stardf_graph_from_dataset" ;
+    stardf:predecessorSymbol "purrdf_graph_from_dataset" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "graph_existence" ;
+        stardf:paramType "int32_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_graph" ;
+        stardf:paramType "StardfGraph **"
+    ] .
+
+stardf:fn_graph_insert
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_graph_insert" ;
+    stardf:targetSymbol "stardf_graph_insert" ;
+    stardf:predecessorSymbol "purrdf_graph_insert" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "graph" ;
+        stardf:paramType "StardfGraph *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "s" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "p" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "o" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "g" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_changed" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_graph_remove
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_graph_remove" ;
+    stardf:targetSymbol "stardf_graph_remove" ;
+    stardf:predecessorSymbol "purrdf_graph_remove" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "graph" ;
+        stardf:paramType "StardfGraph *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "s" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "p" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "o" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "g" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_changed" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_graph_freeze
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_graph_freeze" ;
+    stardf:targetSymbol "stardf_graph_freeze" ;
+    stardf:predecessorSymbol "purrdf_graph_freeze" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "graph" ;
+        stardf:paramType "const StardfGraph *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_dataset" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_graph_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_graph_free" ;
+    stardf:targetSymbol "stardf_graph_free" ;
+    stardf:predecessorSymbol "purrdf_graph_free" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "graph" ;
+        stardf:paramType "StardfGraph *"
+    ] .
+
+stardf:fn_from_gts
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_from_gts" ;
+    stardf:targetSymbol "stardf_from_gts" ;
+    stardf:predecessorSymbol "purrdf_from_gts" ;
+    stardf:subsystem "GTS" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "bytes" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_dataset" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_to_gts
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_to_gts" ;
+    stardf:targetSymbol "stardf_to_gts" ;
+    stardf:predecessorSymbol "purrdf_to_gts" ;
+    stardf:subsystem "GTS" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_dataset_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_dataset_free" ;
+    stardf:targetSymbol "stardf_dataset_free" ;
+    stardf:predecessorSymbol "purrdf_dataset_free" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "StardfDataset *"
+    ] .
+
+stardf:fn_dataset_quad_count
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_dataset_quad_count" ;
+    stardf:targetSymbol "stardf_dataset_quad_count" ;
+    stardf:predecessorSymbol "purrdf_dataset_quad_count" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out" ;
+        stardf:paramType "size_t *"
+    ] .
+
+stardf:fn_dataset_term_count
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_dataset_term_count" ;
+    stardf:targetSymbol "stardf_dataset_term_count" ;
+    stardf:predecessorSymbol "purrdf_dataset_term_count" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out" ;
+        stardf:paramType "size_t *"
+    ] .
+
+stardf:fn_parse
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_parse" ;
+    stardf:targetSymbol "stardf_parse" ;
+    stardf:predecessorSymbol "purrdf_parse" ;
+    stardf:subsystem "Parsing" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "bytes" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "media_type" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "source_name" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_dataset" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_project
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_project" ;
+    stardf:targetSymbol "stardf_project" ;
+    stardf:predecessorSymbol "purrdf_project" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "config_json" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "config_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_archive" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_loss_ledger_json" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_project_with_assets
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_project_with_assets" ;
+    stardf:targetSymbol "stardf_project_with_assets" ;
+    stardf:predecessorSymbol "purrdf_project_with_assets" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "config_json" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "config_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "assets_archive" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "assets_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_archive" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_loss_ledger_json" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_lift
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_lift" ;
+    stardf:targetSymbol "stardf_lift" ;
+    stardf:predecessorSymbol "purrdf_lift" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "archive" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "archive_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "config_json" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "config_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_dataset" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_loss_ledger_json" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_dataset_set_division_policy
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_dataset_set_division_policy" ;
+    stardf:targetSymbol "stardf_dataset_set_division_policy" ;
+    stardf:predecessorSymbol "purrdf_dataset_set_division_policy" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "policy" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_dataset_division_policy
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_dataset_division_policy" ;
+    stardf:targetSymbol "stardf_dataset_division_policy" ;
+    stardf:predecessorSymbol "purrdf_dataset_division_policy" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query" ;
+    stardf:targetSymbol "stardf_query" ;
+    stardf:predecessorSymbol "purrdf_query" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_kind" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_rows" ;
+        stardf:paramType "StardfRowCursor **"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_graph" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_boolean" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_xpath_regex" ;
+    stardf:targetSymbol "stardf_query_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_query_xpath_regex" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_kind" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_rows" ;
+        stardf:paramType "StardfRowCursor **"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_graph" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_boolean" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_json
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_json" ;
+    stardf:targetSymbol "stardf_query_json" ;
+    stardf:predecessorSymbol "purrdf_query_json" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "provenance_prefix" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "provenance_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_json_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_json_xpath_regex" ;
+    stardf:targetSymbol "stardf_query_json_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_query_json_xpath_regex" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "provenance_prefix" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "provenance_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_canon_arrow
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_canon_arrow" ;
+    stardf:targetSymbol "stardf_query_canon_arrow" ;
+    stardf:predecessorSymbol "purrdf_query_canon_arrow" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_governed
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_governed" ;
+    stardf:targetSymbol "stardf_query_governed" ;
+    stardf:predecessorSymbol "purrdf_query_governed" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "aggregate_namespace" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "governors" ;
+        stardf:paramType "const StardfQueryGovernors *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_outcome" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_kind" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_rows" ;
+        stardf:paramType "StardfRowCursor **"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_graph" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_boolean" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_evidence" ;
+        stardf:paramType "StardfGovernorEvidence *"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "out_partial" ;
+        stardf:paramType "StardfPartialCertificate *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_governed_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_governed_xpath_regex" ;
+    stardf:targetSymbol "stardf_query_governed_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_query_governed_xpath_regex" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "aggregate_namespace" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "governors" ;
+        stardf:paramType "const StardfQueryGovernors *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_outcome" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_kind" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_rows" ;
+        stardf:paramType "StardfRowCursor **"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_graph" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_boolean" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "out_evidence" ;
+        stardf:paramType "StardfGovernorEvidence *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "out_partial" ;
+        stardf:paramType "StardfPartialCertificate *"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_entailment_governed
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_entailment_governed" ;
+    stardf:targetSymbol "stardf_query_entailment_governed" ;
+    stardf:predecessorSymbol "purrdf_query_entailment_governed" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "program" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "premise_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "premise_iri_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "max_term_arena_bytes" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "aggregate_namespace" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "governors" ;
+        stardf:paramType "const StardfQueryGovernors *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 17 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 18 ;
+        stardf:paramName "out_outcome" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 19 ;
+        stardf:paramName "out_kind" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 20 ;
+        stardf:paramName "out_rows" ;
+        stardf:paramType "StardfRowCursor **"
+    ], [
+        stardf:paramIndex 21 ;
+        stardf:paramName "out_graph" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 22 ;
+        stardf:paramName "out_boolean" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 23 ;
+        stardf:paramName "out_evidence" ;
+        stardf:paramType "StardfGovernedEntailmentEvidence *"
+    ], [
+        stardf:paramIndex 24 ;
+        stardf:paramName "out_partial" ;
+        stardf:paramType "StardfPartialCertificate *"
+    ], [
+        stardf:paramIndex 25 ;
+        stardf:paramName "out_report" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 26 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_entailment_governed_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_entailment_governed_xpath_regex" ;
+    stardf:targetSymbol "stardf_query_entailment_governed_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_query_entailment_governed_xpath_regex" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "program" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "premise_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "premise_iri_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "max_term_arena_bytes" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "aggregate_namespace" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "governors" ;
+        stardf:paramType "const StardfQueryGovernors *"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 17 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 18 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 19 ;
+        stardf:paramName "out_outcome" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 20 ;
+        stardf:paramName "out_kind" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 21 ;
+        stardf:paramName "out_rows" ;
+        stardf:paramType "StardfRowCursor **"
+    ], [
+        stardf:paramIndex 22 ;
+        stardf:paramName "out_graph" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 23 ;
+        stardf:paramName "out_boolean" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 24 ;
+        stardf:paramName "out_evidence" ;
+        stardf:paramType "StardfGovernedEntailmentEvidence *"
+    ], [
+        stardf:paramIndex 25 ;
+        stardf:paramName "out_partial" ;
+        stardf:paramType "StardfPartialCertificate *"
+    ], [
+        stardf:paramIndex 26 ;
+        stardf:paramName "out_report" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 27 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_update_governed
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_update_governed" ;
+    stardf:targetSymbol "stardf_update_governed" ;
+    stardf:predecessorSymbol "purrdf_update_governed" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "request" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "aggregate_namespace" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "graph_existence" ;
+        stardf:paramType "int32_t"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "governors" ;
+        stardf:paramType "const StardfQueryGovernors *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_outcome" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_evidence" ;
+        stardf:paramType "StardfGovernorEvidence *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_update_governed_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_update_governed_xpath_regex" ;
+    stardf:targetSymbol "stardf_update_governed_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_update_governed_xpath_regex" ;
+    stardf:subsystem "RegexProfile" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "request" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "aggregate_namespace" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "graph_existence" ;
+        stardf:paramType "int32_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "governors" ;
+        stardf:paramType "const StardfQueryGovernors *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_outcome" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_evidence" ;
+        stardf:paramType "StardfGovernorEvidence *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_with_geo
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_with_geo" ;
+    stardf:targetSymbol "stardf_query_with_geo" ;
+    stardf:predecessorSymbol "purrdf_query_with_geo" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "geo" ;
+        stardf:paramType "const StardfGeoSession *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_kind" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_rows" ;
+        stardf:paramType "StardfRowCursor **"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_graph" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_boolean" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_json_with_geo
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_json_with_geo" ;
+    stardf:targetSymbol "stardf_query_json_with_geo" ;
+    stardf:predecessorSymbol "purrdf_query_json_with_geo" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "geo" ;
+        stardf:paramType "const StardfGeoSession *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "provenance_prefix" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "provenance_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_governed_with_geo
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_governed_with_geo" ;
+    stardf:targetSymbol "stardf_query_governed_with_geo" ;
+    stardf:predecessorSymbol "purrdf_query_governed_with_geo" ;
+    stardf:subsystem "Query" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "geo" ;
+        stardf:paramType "const StardfGeoSession *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "aggregate_namespace" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "governors" ;
+        stardf:paramType "const StardfQueryGovernors *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_outcome" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_kind" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_rows" ;
+        stardf:paramType "StardfRowCursor **"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_graph" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "out_boolean" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "out_evidence" ;
+        stardf:paramType "StardfGovernorEvidence *"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "out_partial" ;
+        stardf:paramType "StardfPartialCertificate *"
+    ], [
+        stardf:paramIndex 17 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_query_entailment_governed_with_geo
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_query_entailment_governed_with_geo" ;
+    stardf:targetSymbol "stardf_query_entailment_governed_with_geo" ;
+    stardf:predecessorSymbol "purrdf_query_entailment_governed_with_geo" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "geo" ;
+        stardf:paramType "const StardfGeoSession *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "query" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "regime" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "program" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "premise_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "premise_iri_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "max_term_arena_bytes" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "aggregate_namespace" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "governors" ;
+        stardf:paramType "const StardfQueryGovernors *"
+    ], [
+        stardf:paramIndex 17 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 18 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 19 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 20 ;
+        stardf:paramName "out_outcome" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 21 ;
+        stardf:paramName "out_kind" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 22 ;
+        stardf:paramName "out_rows" ;
+        stardf:paramType "StardfRowCursor **"
+    ], [
+        stardf:paramIndex 23 ;
+        stardf:paramName "out_graph" ;
+        stardf:paramType "StardfDataset **"
+    ], [
+        stardf:paramIndex 24 ;
+        stardf:paramName "out_boolean" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 25 ;
+        stardf:paramName "out_evidence" ;
+        stardf:paramType "StardfGovernedEntailmentEvidence *"
+    ], [
+        stardf:paramIndex 26 ;
+        stardf:paramName "out_partial" ;
+        stardf:paramType "StardfPartialCertificate *"
+    ], [
+        stardf:paramIndex 27 ;
+        stardf:paramName "out_report" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 28 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_update_governed_with_geo
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_update_governed_with_geo" ;
+    stardf:targetSymbol "stardf_update_governed_with_geo" ;
+    stardf:predecessorSymbol "purrdf_update_governed_with_geo" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "geo" ;
+        stardf:paramType "const StardfGeoSession *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "StardfDataset *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "request" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "aggregate_namespace" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "graph_existence" ;
+        stardf:paramType "int32_t"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "governors" ;
+        stardf:paramType "const StardfQueryGovernors *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_outcome" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_evidence" ;
+        stardf:paramType "StardfGovernorEvidence *"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_rowcursor_variable_count
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_rowcursor_variable_count" ;
+    stardf:targetSymbol "stardf_rowcursor_variable_count" ;
+    stardf:predecessorSymbol "purrdf_rowcursor_variable_count" ;
+    stardf:subsystem "Cursor" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "rc" ;
+        stardf:paramType "const StardfRowCursor *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out" ;
+        stardf:paramType "size_t *"
+    ] .
+
+stardf:fn_rowcursor_variable_name
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_rowcursor_variable_name" ;
+    stardf:targetSymbol "stardf_rowcursor_variable_name" ;
+    stardf:predecessorSymbol "purrdf_rowcursor_variable_name" ;
+    stardf:subsystem "Cursor" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "rc" ;
+        stardf:paramType "const StardfRowCursor *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "i" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out" ;
+        stardf:paramType "const char **"
+    ] .
+
+stardf:fn_rowcursor_next
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_rowcursor_next" ;
+    stardf:targetSymbol "stardf_rowcursor_next" ;
+    stardf:predecessorSymbol "purrdf_rowcursor_next" ;
+    stardf:subsystem "Cursor" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "rc" ;
+        stardf:paramType "StardfRowCursor *"
+    ] .
+
+stardf:fn_rowcursor_term
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_rowcursor_term" ;
+    stardf:targetSymbol "stardf_rowcursor_term" ;
+    stardf:predecessorSymbol "purrdf_rowcursor_term" ;
+    stardf:subsystem "Cursor" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "rc" ;
+        stardf:paramType "const StardfRowCursor *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "column" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_view" ;
+        stardf:paramType "StardfTermView *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_bound" ;
+        stardf:paramType "uint8_t *"
+    ] .
+
+stardf:fn_rowcursor_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_rowcursor_free" ;
+    stardf:targetSymbol "stardf_rowcursor_free" ;
+    stardf:predecessorSymbol "purrdf_rowcursor_free" ;
+    stardf:subsystem "Cursor" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "rc" ;
+        stardf:paramType "StardfRowCursor *"
+    ] .
+
+stardf:fn_jsonld_context_compile
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_jsonld_context_compile" ;
+    stardf:targetSymbol "stardf_jsonld_context_compile" ;
+    stardf:predecessorSymbol "purrdf_jsonld_context_compile" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "options_json" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "options_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_context" ;
+        stardf:paramType "StardfJsonLdContext **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_jsonld_context_free
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_jsonld_context_free" ;
+    stardf:targetSymbol "stardf_jsonld_context_free" ;
+    stardf:predecessorSymbol "purrdf_jsonld_context_free" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "void" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "context" ;
+        stardf:paramType "StardfJsonLdContext *"
+    ] .
+
+stardf:fn_serialize_jsonld_configured
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_serialize_jsonld_configured" ;
+    stardf:targetSymbol "stardf_serialize_jsonld_configured" ;
+    stardf:predecessorSymbol "purrdf_serialize_jsonld_configured" ;
+    stardf:subsystem "Serialization" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "media_type" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "options_json" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "options_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "context" ;
+        stardf:paramType "const StardfJsonLdContext *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "yaml_schema_url" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_serialize
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_serialize" ;
+    stardf:targetSymbol "stardf_serialize" ;
+    stardf:predecessorSymbol "purrdf_serialize" ;
+    stardf:subsystem "Serialization" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "media_type" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_statement_rows_dropped" ;
+        stardf:paramType "size_t *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_directional_literals_dropped" ;
+        stardf:paramType "size_t *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_named_graph_rows_dropped" ;
+        stardf:paramType "size_t *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_serialize_empty_named_graphs_dropped
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_serialize_empty_named_graphs_dropped" ;
+    stardf:targetSymbol "stardf_serialize_empty_named_graphs_dropped" ;
+    stardf:predecessorSymbol "purrdf_serialize_empty_named_graphs_dropped" ;
+    stardf:subsystem "Dataset" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "cgap" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "media_type" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_count" ;
+        stardf:paramType "size_t *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_serialize_to_callback
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_serialize_to_callback" ;
+    stardf:targetSymbol "stardf_serialize_to_callback" ;
+    stardf:predecessorSymbol "purrdf_serialize_to_callback" ;
+    stardf:subsystem "Serialization" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "media_type" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "on_chunk" ;
+        stardf:paramType "StardfWriteCallback"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "user_data" ;
+        stardf:paramType "void *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_statement_rows_dropped" ;
+        stardf:paramType "size_t *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_directional_literals_dropped" ;
+        stardf:paramType "size_t *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_named_graph_rows_dropped" ;
+        stardf:paramType "size_t *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_validate_to_sarif
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_validate_to_sarif" ;
+    stardf:targetSymbol "stardf_shacl_validate_to_sarif" ;
+    stardf:predecessorSymbol "purrdf_shacl_validate_to_sarif" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "conformance_disallows" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "conformance_disallows_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "subclass_of_in_shapes_graph" ;
+        stardf:paramType "bool"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_validate_to_sarif_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_validate_to_sarif_xpath_regex" ;
+    stardf:targetSymbol "stardf_shacl_validate_to_sarif_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_shacl_validate_to_sarif_xpath_regex" ;
+    stardf:subsystem "RegexProfile" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "conformance_disallows" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "conformance_disallows_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "subclass_of_in_shapes_graph" ;
+        stardf:paramType "bool"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_validate_to_sarif_law
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_validate_to_sarif_law" ;
+    stardf:targetSymbol "stardf_shacl_validate_to_sarif_law" ;
+    stardf:predecessorSymbol "purrdf_shacl_validate_to_sarif_law" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "conformance_disallows" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "conformance_disallows_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "subclass_of_in_shapes_graph" ;
+        stardf:paramType "bool"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "shacl_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_validate_changes_to_sarif
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_validate_changes_to_sarif" ;
+    stardf:targetSymbol "stardf_shacl_validate_changes_to_sarif" ;
+    stardf:predecessorSymbol "purrdf_shacl_validate_changes_to_sarif" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "added_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "removed_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "conformance_disallows" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "conformance_disallows_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "subclass_of_in_shapes_graph" ;
+        stardf:paramType "bool"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_scope" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "out_focus_nodes" ;
+        stardf:paramType "size_t *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "out_reason" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_validate_changes_to_sarif_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_validate_changes_to_sarif_xpath_regex" ;
+    stardf:targetSymbol "stardf_shacl_validate_changes_to_sarif_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_shacl_validate_changes_to_sarif_xpath_regex" ;
+    stardf:subsystem "RegexProfile" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "added_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "removed_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "conformance_disallows" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "conformance_disallows_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "subclass_of_in_shapes_graph" ;
+        stardf:paramType "bool"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "out_scope" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "out_focus_nodes" ;
+        stardf:paramType "size_t *"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "out_reason" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 17 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_entail_to_ntriples
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_entail_to_ntriples" ;
+    stardf:targetSymbol "stardf_shacl_entail_to_ntriples" ;
+    stardf:predecessorSymbol "purrdf_shacl_entail_to_ntriples" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "max_term_generating_rounds" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "max_generated_terms" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "out_diagnostics" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_entail_to_ntriples_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_entail_to_ntriples_xpath_regex" ;
+    stardf:targetSymbol "stardf_shacl_entail_to_ntriples_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_shacl_entail_to_ntriples_xpath_regex" ;
+    stardf:subsystem "Entailment" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "max_term_generating_rounds" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "max_generated_terms" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "out_diagnostics" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 17 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_apply_rules
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_apply_rules" ;
+    stardf:targetSymbol "stardf_shacl_apply_rules" ;
+    stardf:predecessorSymbol "purrdf_shacl_apply_rules" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "srl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "srl_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "max_term_generating_rounds" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "max_generated_terms" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "out_inferred" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 17 ;
+        stardf:paramName "out_proof" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 18 ;
+        stardf:paramName "out_diagnostics" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 19 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_apply_rules_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_apply_rules_xpath_regex" ;
+    stardf:targetSymbol "stardf_shacl_apply_rules_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_shacl_apply_rules_xpath_regex" ;
+    stardf:subsystem "RegexProfile" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "srl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "srl_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "max_term_generating_rounds" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "max_generated_terms" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "max_stored_facts" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "max_join_steps" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "now" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "entropy_seed" ;
+        stardf:paramType "const uint64_t *"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "out_receipt" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 17 ;
+        stardf:paramName "out_inferred" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 18 ;
+        stardf:paramName "out_proof" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 19 ;
+        stardf:paramName "out_diagnostics" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 20 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_check_rules
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_check_rules" ;
+    stardf:targetSymbol "stardf_shacl_check_rules" ;
+    stardf:predecessorSymbol "purrdf_shacl_check_rules" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "srl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "srl_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "level" ;
+        stardf:paramType "int32_t"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_summary" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_eval_node_expr
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_eval_node_expr" ;
+    stardf:targetSymbol "stardf_shacl_eval_node_expr" ;
+    stardf:predecessorSymbol "purrdf_shacl_eval_node_expr" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "expr" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "expr_at" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "expr_via" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "expr_via_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "expr_turtle" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "focus" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "scope" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "scope_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "out_terms" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "out_diagnostics" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_eval_node_expr_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_eval_node_expr_xpath_regex" ;
+    stardf:targetSymbol "stardf_shacl_eval_node_expr_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_shacl_eval_node_expr_xpath_regex" ;
+    stardf:subsystem "RegexProfile" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "expr" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "expr_at" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "expr_via" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "expr_via_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "expr_turtle" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "focus" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "scope" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 10 ;
+        stardf:paramName "scope_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 11 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 12 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 13 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 14 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 15 ;
+        stardf:paramName "out_terms" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 16 ;
+        stardf:paramName "out_diagnostics" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 17 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shacl_lint_shapes
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shacl_lint_shapes" ;
+    stardf:targetSymbol "stardf_shacl_lint_shapes" ;
+    stardf:predecessorSymbol "purrdf_shacl_lint_shapes" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_report" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_clean" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 8 ;
+        stardf:paramName "out_findings" ;
+        stardf:paramType "size_t *"
+    ], [
+        stardf:paramIndex 9 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_encode
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_encode" ;
+    stardf:targetSymbol "stardf_shapes_product_encode" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_encode" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "shapes_ttl" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "shapes_base_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "shapes_graph_iri" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "import_iris" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "import_documents" ;
+        stardf:paramType "const char *const *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "import_count" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 7 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_open
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_open" ;
+    stardf:targetSymbol "stardf_shapes_product_open" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_open" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "product" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "product_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_admit
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_admit" ;
+    stardf:targetSymbol "stardf_shapes_product_admit" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_admit" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "product" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "product_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_admit_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_admit_xpath_regex" ;
+    stardf:targetSymbol "stardf_shapes_product_admit_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_admit_xpath_regex" ;
+    stardf:subsystem "RegexProfile" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "product" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "product_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_admit_expecting
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_admit_expecting" ;
+    stardf:targetSymbol "stardf_shapes_product_admit_expecting" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_admit_expecting" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "product" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "product_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "expect_identity" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_admit_expecting_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_admit_expecting_xpath_regex" ;
+    stardf:targetSymbol "stardf_shapes_product_admit_expecting_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_admit_expecting_xpath_regex" ;
+    stardf:subsystem "RegexProfile" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "product" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "product_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "expect_identity" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_rebuild
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_rebuild" ;
+    stardf:targetSymbol "stardf_shapes_product_rebuild" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_rebuild" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "product" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "product_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_rebuild_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_rebuild_xpath_regex" ;
+    stardf:targetSymbol "stardf_shapes_product_rebuild_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_rebuild_xpath_regex" ;
+    stardf:subsystem "RegexProfile" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "product" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "product_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_rebuild_expecting
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_rebuild_expecting" ;
+    stardf:targetSymbol "stardf_shapes_product_rebuild_expecting" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_rebuild_expecting" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "product" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "product_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "expect_identity" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_rebuild_expecting_xpath_regex
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_rebuild_expecting_xpath_regex" ;
+    stardf:targetSymbol "stardf_shapes_product_rebuild_expecting_xpath_regex" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_rebuild_expecting_xpath_regex" ;
+    stardf:subsystem "RegexProfile" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "product" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "product_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "data_nt" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "expect_identity" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "regex_profile" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_certify
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_certify" ;
+    stardf:targetSymbol "stardf_shapes_product_certify" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_certify" ;
+    stardf:subsystem "SHACL" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "product" ;
+        stardf:paramType "const uint8_t *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "product_len" ;
+        stardf:paramType "size_t"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_shapes_product_error_dimension
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_product_error_dimension" ;
+    stardf:targetSymbol "stardf_shapes_product_error_dimension" ;
+    stardf:predecessorSymbol "purrdf_shapes_product_error_dimension" ;
+    stardf:subsystem "Error" ;
+    stardf:returnType "const char *" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "err" ;
+        stardf:paramType "const StardfError *"
+    ] .
+
+stardf:fn_shapes_import_error_kind
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_import_error_kind" ;
+    stardf:targetSymbol "stardf_shapes_import_error_kind" ;
+    stardf:predecessorSymbol "purrdf_shapes_import_error_kind" ;
+    stardf:subsystem "Error" ;
+    stardf:returnType "const char *" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "err" ;
+        stardf:paramType "const StardfError *"
+    ] .
+
+stardf:fn_shapes_import_error_iri_count
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_import_error_iri_count" ;
+    stardf:targetSymbol "stardf_shapes_import_error_iri_count" ;
+    stardf:predecessorSymbol "purrdf_shapes_import_error_iri_count" ;
+    stardf:subsystem "Error" ;
+    stardf:returnType "size_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "err" ;
+        stardf:paramType "const StardfError *"
+    ] .
+
+stardf:fn_shapes_import_error_iri
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_shapes_import_error_iri" ;
+    stardf:targetSymbol "stardf_shapes_import_error_iri" ;
+    stardf:predecessorSymbol "purrdf_shapes_import_error_iri" ;
+    stardf:subsystem "Error" ;
+    stardf:returnType "const char *" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "err" ;
+        stardf:paramType "const StardfError *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "index" ;
+        stardf:paramType "size_t"
+    ] .
+
+stardf:fn_term_to_ntriples
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_term_to_ntriples" ;
+    stardf:targetSymbol "stardf_term_to_ntriples" ;
+    stardf:predecessorSymbol "purrdf_term_to_ntriples" ;
+    stardf:subsystem "Term" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "view" ;
+        stardf:paramType "const StardfTermView *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_abi_version
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_abi_version" ;
+    stardf:targetSymbol "stardf_abi_version" ;
+    stardf:predecessorSymbol "purrdf_abi_version" ;
+    stardf:subsystem "Version" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "out" ;
+        stardf:paramType "StardfAbiVersion *"
+    ] .
+
+stardf:fn_capabilities
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_capabilities" ;
+    stardf:targetSymbol "stardf_capabilities" ;
+    stardf:predecessorSymbol "purrdf_capabilities" ;
+    stardf:subsystem "General" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "dataset" ;
+        stardf:paramType "const StardfDataset *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "out" ;
+        stardf:paramType "StardfCapabilities *"
+    ] .
+
+stardf:fn_xsd_canonical_lexical
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_xsd_canonical_lexical" ;
+    stardf:targetSymbol "stardf_xsd_canonical_lexical" ;
+    stardf:predecessorSymbol "purrdf_xsd_canonical_lexical" ;
+    stardf:subsystem "XSD" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "lexical" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "datatype" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "out_buffer" ;
+        stardf:paramType "StardfBuffer **"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .
+
+stardf:fn_xsd_value_compare
+    a stardf:AbiFunction, stardf:KernelOperation ;
+    rdfs:label "stardf_xsd_value_compare" ;
+    stardf:targetSymbol "stardf_xsd_value_compare" ;
+    stardf:predecessorSymbol "purrdf_xsd_value_compare" ;
+    stardf:subsystem "XSD" ;
+    stardf:returnType "int32_t" ;
+    stardf:hasConditionalBranches false ;
+    stardf:dynamicAllocations 0 ;
+    stardf:downstreamSubstrate "stardf-kernel" ;
+    stardf:parameter [
+        stardf:paramIndex 0 ;
+        stardf:paramName "left_lexical" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 1 ;
+        stardf:paramName "left_datatype" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 2 ;
+        stardf:paramName "right_lexical" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 3 ;
+        stardf:paramName "right_datatype" ;
+        stardf:paramType "const char *"
+    ], [
+        stardf:paramIndex 4 ;
+        stardf:paramName "out_comparable" ;
+        stardf:paramType "uint8_t *"
+    ], [
+        stardf:paramIndex 5 ;
+        stardf:paramName "out_order" ;
+        stardf:paramType "int32_t *"
+    ], [
+        stardf:paramIndex 6 ;
+        stardf:paramName "out_error" ;
+        stardf:paramType "StardfError **"
+    ] .

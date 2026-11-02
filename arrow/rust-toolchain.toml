@@ -1,0 +1,10 @@
+# DEVELOPMENT/CI toolchain: floating nightly, same posture as purrdf.
+# No `#![feature(...)]` in this workspace; nightly buys sharper clippy/rustdoc
+# analysis only. MSRV is carried by `rust-version` in member manifests, not here.
+#
+# `targets` cover the cross-build gates: wasm32 (footprint gate) and
+# aarch64-linux (simd-asm / cross gate).
+[toolchain]
+channel = "nightly"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown", "aarch64-unknown-linux-gnu"]

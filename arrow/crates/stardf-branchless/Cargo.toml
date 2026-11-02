@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+# Vendored from PurRDF `crates/branchless` at rev 0da05783 (see PROVENANCE.md).
+# Rename scope: package-level only. Lib name kept verbatim (`purrdf_branchless`)
+# so every vendored source file, doctest path and `tests/integration.rs`
+# (`use purrdf_branchless as b;`) stays byte-preserved.
+name = "stardf-branchless"
+# Lane 07-publish-metadata (2026-10-31): v26.11.1 first-class closure —
+# description/repository now workspace-inherited; keywords/categories
+# (never declared by the vendor) join via inheritance.
+description.workspace = true
+# Workspace-inherited upstream fields materialized (stardf/arrow workspace has
+# no [workspace.package] entry for these); values follow the Lane-9 vendor
+# precedent (crates/stardf-columnar/Cargo.toml).
+# Lane 08-dual-key (2026-10-31): closure version inherits the workspace 26.11.1.
+version.workspace = true
+edition = "2021"
+# Lane 06-msrv (2026-10-31): upstream 1.88 claim superseded by the
+# operator-ratified v26.11.1 deviation (workspace MSRV 1.98 = true member max).
+rust-version.workspace = true
+publish = true
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+# Lane 10 (2026-10-31): crates.io 10MB tarball ceiling — the generated golden
+# vectors (oracles/vectors, 1.9MB; regenerate via oracles/gen) stay in-tree,
+# excluded from the packaged crate. oracles/gen + oracles/ref + the test_*.py
+# drivers still ride. No src/tests/benches runtime reader (witnessed).
+exclude = ["oracles/vectors"]
+
+[lib]
+# Lib name VERBATIM from upstream (default lib target of `purrdf-branchless`).
+# Renaming it would force source edits across every `use purrdf_branchless::`
+# site — outside the declared rename scope.
+name = "purrdf_branchless"
+path = "src/lib.rs"
+
+[dependencies]
+# Renamed dep key (vendoring law: first-party purrdf dep keys -> stardf-*).
+# Import paths resolve through the dependency's lib name, which stays verbatim
+# upstream (`purrdf_hash`) — see PROVENANCE.md divergence register for the
+# lib-name contract this crate depends on.
+stardf-hash = { workspace = true }
+
+# Upstream `[dev-dependencies] purrdf-testkit.workspace = true` is DEFERRED,
+# not dropped: `benches/kernel_table.rs` is its only consumer and is parked at
+# benches/disabled/ until stardf-testkit lands in this workspace (same
+# disclosed-park pattern as crates/stardf-columnar/tests/disabled/).
+
+# Upstream `[[bench]] name = "kernel_table"` + `[lints] workspace = true` are
+# withheld while the bench is parked and because the stardf/arrow workspace
+# defines no [workspace.lints] table; the in-source `#![warn(missing_docs)]`
+# (byte-preserved in src/lib.rs) carries the crate-level doc lint.

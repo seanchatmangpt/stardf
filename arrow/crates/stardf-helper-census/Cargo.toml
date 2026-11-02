@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "helper-census"
+description = "The structural helper census: finds isomorphic function bodies, repeated constants and hex tables across the PurRDF workspace and checks them against helpers-ledger.toml"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["purrdf", "clone-detection", "census"]
+categories = ["development-tools"]
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "helper-census"
+path = "src/main.rs"
+
+[[example]]
+name = "glossary_hook_probe"
+path = "examples/glossary_hook_probe.rs"
+# This explicit qualification tool modifies a private index and temporarily
+# poisons the working catalogue; run only under the serialized build lane.
+test = false
+
+[dependencies]
+stardf-toml.workspace = true
+# Fingerprints are BLAKE3 digests of normalised token streams, so a body's id is
+# the same on every host and every build.
+stardf-hash = { workspace = true }
+# The workspace root the census scans when `--root` is not given. The tool is
+# unpublished, so a normal edge to the unpublished test support is allowed.
+stardf-testkit = { workspace = true }
+# The Rust parser and its token substrate: items, attributes and module
+# structure come from `syn`; bodies are re-lexed into `proc_macro2` tokens so
+# macro arguments are normalised along with everything else.
+syn = { workspace = true }
+proc-macro2 = { workspace = true }
+# Forbidden-name patterns in the ledger are regular expressions.
+regex = { workspace = true }
+# The baseline and the machine-readable index are JSON documents.
+stardf-lex = { workspace = true }
+# The glossary gate uses the workspace's one bounded ECMA pattern evaluator.
+stardf-jsonschema = { workspace = true }

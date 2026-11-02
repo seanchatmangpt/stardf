@@ -1,0 +1,185 @@
+# branchless_manifest.toml — kernel inventory for the branchless ABI audit gate
+# (stardf-arrow instance; modeled on cgap/scripts/branchless_manifest.toml)
+#
+# Scope law: every hot-path kernel of stardf-arrow-core must appear here; a
+# kernel present in hot paths but absent from this manifest is a gate
+# violation on the inventory check.
+#
+# Schema (per [[kernel]]) — see the cgap manifest for the full field spec:
+#   scope_pattern     : unanchored regex matched against the symbol name as
+#                       rendered by homebrew llvm-objdump 21.1.7
+#                       (/opt/homebrew/opt/llvm/bin)
+#   accepted_remainder: classes of branch opcodes tolerated under the
+#                       ADR-14-analogue policy (hot data paths carry 0
+#                       data-dependent branches)
+#   expected_max_count: maximum accepted remainder sites; audit above this
+#                       count is a violation even in INFORMATIONAL mode
+#   gate_mode         : ENFORCED / INFORMATIONAL (reports hits honestly, exit
+#                       1 only beyond expected_max_count)
+#   observed_mnemonics: the opcodes this remainder set actually covers; a hit
+#                       whose mnemonic is absent from this list is a FAIL even
+#                       under the ceiling.
+#
+# TOOLCHAIN SKEW NOTE (witnessed 2026-10-31): the workspace's floating nightly
+# (rustc 1.101.0-nightly, LLVM 23.1.4 producer) emits object files that Apple
+# nm AND homebrew llvm-nm/llvm-objdump 21.1.7 CANNOT READ at the .o/.rlib
+# level ("Unknown attribute kind (102)" / "Not an int attribute"). The linked
+# mach-o, however, disassembles cleanly. All counts below are therefore taken
+# on the LINKED audit binary
+# (crates/stardf-arrow-bench/target/release/stardf-arrow-bench), not the rlib.
+#
+# Symbol-visibility blind spots (documented, lane-12, 2026-10-31):
+#   - layout.rs Quad64::term_matches / Quad64::matches: #[inline], fully
+#     inlined — NO standalone symbol exists in the linked binary (verified:
+#     llvm-objdump --syms | grep matches -> 0 stardf hits). The pattern-scan
+#     host kernel is the bench's own ScanKey (inlined into
+#     bench_pattern_scan's CGU). These kernels are registered below as
+#     blind-spot rows so the inventory check stays loud, not silent.
+#   - arena.rs FrozenArena::get / FrozenArena::term: fully inlined, no
+#     symbols (verified same method).
+#   - stream.rs next_batch: fully inlined into the bench CGU, no symbol.
+
+[meta]
+spec = "stardf/docs/jira (branchless kernel ABI, stardf-arrow instance)"
+gate = "scripts/audit_branchless.sh (TO BE LANDED: stardf-arrow port of cgap scripts/audit_branchless.sh; until then this manifest is the inventory of record)"
+updated = "2026-10-31 lane-13 completion re-witness on the settled as-built release binary: unchanged — 1 observed kernel + 3 documented inlining blind spots; intern 78 branch sites (ceiling 80 holds), same region/mnemonics; only materialized FrozenArena-matching symbol remains drop_slow @ 0x18028 (narrowed pattern 11FrozenArenaE(4get|4term) 0-hit); layout/stream blind-spot rows 0-hit"
+
+# ---------------------------------------------------------------------------
+# Observed kernel (receipt: llvm-objdump 21.1.7 disassembly of the linked
+# bench binary, symbol region 0x17680..0x18028, 2026-10-31 lane-13).
+# ---------------------------------------------------------------------------
+[[kernel]]
+name = "TermArena::intern (monomorphized into the bench binary)"
+owner = "crates/stardf-arrow-core/src/arena.rs TermArena::intern"
+scope_pattern = "9TermArena6intern"
+accepted_remainder = [
+  "ALLOCATOR_NULL_CHECK",   # cbz family — allocator null / entry guards on
+                            #    the growth path
+  "BTREE_GUARD",            # b.hs/b.ls — BTreeMap probe bounds (index lookup)
+  "ZERO_TRIP_GUARD",        # cbz/cbnz — empty-arena / zero-length copy guards
+  "LOOP_LATCH",             # b / b.ne — copy-loop and probe-loop back-edges;
+                            #    no latch-free design exists yet
+  "RESULT_ERROR_GUARD",     # b.eq/b.lo/b.hi — typed ArenaError return joins
+  "UNWIND_LANDING",         # tbz — panic/unwind landing edge (udf tail)
+]
+# Observed 2026-10-31 (lane-11 finishing-wave re-witness on the fresh
+# lane-11 build), /opt/homebrew/opt/llvm/bin/llvm-objdump -d
+# --disassemble-symbols=<intern mangled name> over the linked bench binary,
+# region 0x17680..0x18028 (bounded by the next symbol): 78 unique branch
+# sites — cbz 17, cbnz 7, b 23, b.ne 10, b.hs 12, b.ls 3, b.eq 3, tbz 1,
+# b.lo 1, b.hi 1. 0 data-dependent branches on the hot dedup-hit path
+# (BTreeMap probe + length arithmetic). Ceiling observed+1.
+expected_max_count = 80
+gate_mode = "INFORMATIONAL"
+observed_mnemonics = ["cbz", "cbnz", "b", "b.ne", "b.hs", "b.ls", "b.eq", "tbz", "b.lo", "b.hi"]
+
+# ---------------------------------------------------------------------------
+# Inlining blind-spot registrations (0 attributed hits by construction; the
+# rows exist so the inventory check is loud and a future symbol-materializing
+# build flips them live automatically).
+#
+# Re-witnessed 2026-10-31 lane-11 finishing wave on the fresh release build:
+# the ONLY materialized FrozenArena-matching symbol is Arc drop glue
+# (Arc<FrozenArena>::drop_slow @ 0x18028) — not a hot kernel. get/term are
+# fully inlined (0 hits). scope_pattern narrowed from the previous
+# unqualified "11FrozenArena" (which falsely matched the drop-glue symbol at
+# expected_max_count=0) to "11FrozenArenaE(4get|4term)", matching the legacy
+# rustc rendering where impl-path methods follow the closing E.
+# ---------------------------------------------------------------------------
+[[kernel]]
+name = "layout term_matches / Quad64::matches (inlined)"
+owner = "crates/stardf-arrow-core/src/layout.rs (term_matches, matches)"
+scope_pattern = "12term_matches|7matches"
+accepted_remainder = [
+  "INLINED_NO_SYMBOL",  # #[inline] kernels have no standalone symbol; any
+                        #    future hit means the compiler materialized one —
+                        #    re-audit the host kernel before accepting.
+]
+expected_max_count = 0
+gate_mode = "INFORMATIONAL"
+observed_mnemonics = []
+
+[[kernel]]
+name = "arena probe paths: FrozenArena get/term (inlined)"
+owner = "crates/stardf-arrow-core/src/arena.rs (FrozenArena::get, FrozenArena::term)"
+scope_pattern = "11FrozenArenaE(4get|4term)"
+accepted_remainder = [
+  "INLINED_NO_SYMBOL",
+]
+expected_max_count = 0
+gate_mode = "INFORMATIONAL"
+observed_mnemonics = []
+
+[[kernel]]
+name = "stream next_batch (inlined)"
+owner = "crates/stardf-arrow-core/src/stream.rs (StardfStream::next_batch / CursorProducer)"
+scope_pattern = "next_batch"
+accepted_remainder = [
+  "INLINED_NO_SYMBOL",
+]
+expected_max_count = 1
+gate_mode = "INFORMATIONAL"
+observed_mnemonics = ["cbz"]
+
+# ---------------------------------------------------------------------------
+# Columnar codec rows (lane 7 FINAL, 2026-10-31). DIVERGENCE DISCLOSED: the
+# codec benched here is the BENCH-LOCAL SoA codec in
+# crates/stardf-arrow-bench/src/columnar_bench.rs. Lane-7-final reconciliation:
+# lane 6's landed crates/stardf-columnar is NOT a supersession — measured
+# BUILD_BROKEN (cargo check -p stardf-columnar: 6 errors, vendor/alloc_probe.rs:82,
+# vendor/testkit.rs:81/91/135, vendor/core/term_fixture.rs:37-38) and its
+# DatasetView+ContentStore API has no Quad64-slab entry point / allocates by
+# construction (writer.rs project_read), so it cannot feed a zero-alloc
+# timed-loop gate. Bench-local codec retained; no rows dropped. See
+# columnar_bench.rs LANE-7-FINAL note and docs/BENCH_BASELINE.json
+# "columnar.reconciliation".
+#
+# Receipt (re-witnessed on the lane-7-final linked release binary
+# target/release/stardf-arrow-bench, llvm-objdump 21.1.7, 2026-10-31):
+# symbols __RNvNtCsj5A3NeZdxi9_18stardf_arrow_bench14columnar_bench11{encode,decode}_into:
+# b.ne x9 each (8 assert_eq caller-preallocation guards + copy-loop latch) —
+# UNCHANGED from the lane-13 witness; plus bl x8 each (panic-path calls for
+# the assert guards — call sites, not data-path branch remainders; disclosed,
+# not counted against the ceiling). No standalone symbol for the sum(s) scan
+# or for run itself (0 hits, verified this session).
+# ---------------------------------------------------------------------------
+[[kernel]]
+name = "columnar encode_into (bench-local SoA codec)"
+owner = "crates/stardf-arrow-bench/src/columnar_bench.rs (encode_into)"
+scope_pattern = "14columnar_bench11encode_into"
+accepted_remainder = [
+  "ASSERT_GUARD",       # b.ne — caller-preallocation assert_eq guards (x8)
+  "LOOP_LATCH",         # b.ne — row copy loop back-edge
+]
+expected_max_count = 9
+gate_mode = "INFORMATIONAL"
+observed_mnemonics = ["b.ne"]
+
+[[kernel]]
+name = "columnar decode_into (bench-local SoA codec)"
+owner = "crates/stardf-arrow-bench/src/columnar_bench.rs (decode_into)"
+scope_pattern = "14columnar_bench11decode_into"
+accepted_remainder = [
+  "ASSERT_GUARD",
+  "LOOP_LATCH",
+]
+expected_max_count = 9
+gate_mode = "INFORMATIONAL"
+observed_mnemonics = ["b.ne"]
+
+# Single-column scan kernel (iter().map().sum() over the u32 column): fully
+# inlined into the bench CGU closure — no standalone symbol (re-verified
+# lane-7-final: llvm-objdump --syms | grep columnar_bench5run -> 0 hits;
+# the only columnar symbols remain drop glue, with_capacity, encode_into,
+# decode_into). Registered so the inventory check is loud.
+[[kernel]]
+name = "columnar sum(s) scan (inlined)"
+owner = "crates/stardf-arrow-bench/src/columnar_bench.rs (run: columnar sum s_id closure)"
+scope_pattern = "columnar_bench5run"
+accepted_remainder = [
+  "INLINED_NO_SYMBOL",  # scan closure inlined; only run's own symbol would
+                        #    match, and a future hit means re-audit.
+]
+expected_max_count = 0
+gate_mode = "INFORMATIONAL"
+observed_mnemonics = []

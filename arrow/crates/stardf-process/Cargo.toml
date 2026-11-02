@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-process"
+version.workspace = true
+edition.workspace = true
+publish = false
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Process mining and planning over branchless columnar primitives: POWL 2.0 models, OCEL 2.0 event logs, HTN/FOND synthesis, and the conformance turnstile."
+
+[lib]
+# Vendoring law: lib name upstream-verbatim (package renamed, lib unchanged).
+name = "purrdf_process"
+
+[dependencies]
+# LANE 09 decouple completion (2026-10-31, cross-lane unblock by lane 8,
+# disclosed): the cgap-arrow.workspace = true line is REMOVED. LANE 09's
+# decouple took cgap-arrow out of root [workspace.dependencies] and
+# stardf-arrow-capi/core but left this inheritance dangling — workspace
+# resolution failed for the ENTIRE workspace (~62 min; root mtime 21:48).
+# Registry check: cgap-arrow does not exist on crates.io (404, witnessed
+# 2026-10-31); avec@67c0ec1 (the lock's pinned rev) carries no cgap-arrow
+# package. src/log/columnar.rs still consumes cgap_arrow:: — that migration
+# is Lane 09's remaining work; until it lands, stardf-process does not
+# compile (loud, attributable), but the workspace resolves.
+stardf-branchless.workspace = true
+stardf-hash.workspace = true
+stardf-lex.workspace = true
+stardf-xsd.workspace = true
+
+[lints]
+workspace = true

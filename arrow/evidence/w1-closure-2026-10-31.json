@@ -1,0 +1,111 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "lane": "w1-closure-lane-16",
+  "date": "2026-10-31",
+  "subject": {
+    "head": "c9f8028ced8c89feb7eb5d6e0fcb651bb3fd1781 (parent repo HEAD; stardf/ untracked in parent)",
+    "branch": "fix/v26.9.29-ci-gates",
+    "tree_digest": "fe9e2e1f715ac372110a3fc675fb70db949c90c4ebfcfc0de8298d1aefaeefb4",
+    "digest_method": "whole-tree sha256 over all files under stardf/arrow/ excluding */target via `find . -path \"*/target\" -prune -o -type f -print | sort | xargs shasum -a 256 | shasum -a 256`, computed BEFORE this receipt file was written; 93 files",
+    "file_count": 93
+  },
+  "trigger": "Written after completion-lane-15's receipt (evidence/replay-2026-10-31.json) was observed on disk (mtime 12:57).",
+  "per_lane_standing": {
+    "lanes_1_3_5_8_10_12_13": "UNKNOWN — no artifact keyed to lanes 1-8, 10, 12, 13 resolves to an on-disk receipt; construction-wave receipts exist only in parent-session wave reports. UNKNOWN, not guessed. source:none-on-disk",
+    "lane2": "UNKNOWN as receipt — output exists at tickets/GL-STARDF-002-freeze-expansion.md (D9 evidence) but carries no receipt schema. source:artifact-no-receipt",
+    "lane4": "UNKNOWN as receipt — BLAKE3 arbitration pack at stardf/docs/jira/v26.10.31/11-blake3-arbitration.md (D10 evidence); no receipt artifact. source:artifact-no-receipt",
+    "lane6": "UNKNOWN as receipt — SQL scope pack at stardf/docs/jira/v26.10.31/09-sql-adaptation-scope.md (D12 evidence); no receipt artifact. source:artifact-no-receipt",
+    "lane7": "Landed observables only — workspace Cargo.toml comment credits lane 7 with the bench member promotion; no receipt artifact. source:artifact-no-receipt",
+    "lane14": "UNKNOWN as receipt — ggen.toml [ontology]/[packs] route on disk (D4 evidence); no receipt artifact. source:artifact-no-receipt",
+    "lane9": "On-disk: docs/RECEIPTS.md LANE-9 row — verify.py gate PARTIAL_ALIVE (local gate only); verify.py → 0, --mutate drop-export → 1 (flip witnessed); replay WITNESSED. source:on-disk-row",
+    "lane11": "On-disk: docs/RECEIPTS.md LANE-11 row — completion truth pass #2, PARTIAL_ALIVE; core 33 passed, capi all targets green, workspace → 1 (anti_vacuity 1/3 only red), clippy/fmt 0 at receipt time. source:on-disk-row",
+    "lane15": "On-disk: evidence/replay-2026-10-31.json (completion-lane-15) — verify-receipt pair PASS/ALIVE (byte-identical, sha b0ad3281…); purrdf-contract-extract pair PASS/ALIVE (extractor sha-stable 8a9df387… across two in-place rewrites; verify_stardf_ontology.py exit 0: 4951 triples, 128 AbiFunction instances, 100% census of 126 purrdf.h functions, SHACL 0 violations); bench-determinism pair PARTIAL_ALIVE (deterministic counts/allocs; throughput variance under concurrent load). source:on-disk-receipt",
+    "lane16": "This lane — PARTIAL_ALIVE (this receipt). The earlier artifact wave-finish-lane16-2026-10-31.json is from a DIFFERENT earlier lane that also used number 16 (name collision recorded, not merged)."
+  },
+  "checks": [
+    {
+      "id": "tree-digest-and-file-count",
+      "passed": true,
+      "count": 93,
+      "comment": "93 files, digest fe9e2e1f… computed pre-receipt-write. Tree grew 50 → 58 → 93 across the consolidated → columnar-wave → this receipt."
+    },
+    {
+      "id": "verify-py-replay-pair",
+      "passed": true,
+      "count": 2,
+      "comment": "THIS LANE'S OWN RUN: python3 scripts/verify.py --emit-receipt /tmp/l16c_v1.json → exit 0 (109 triples, 22 individuals, 13==13==13 three-way parity); run 2 → exit 0; cmp exit 0 (byte-identical); sha256 cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef — IDENTICAL to the lane-18 (columnar-wave) witness despite the tree growing 58 → 93 files: verify.py output is stable across the columnar landings because the columnar scaffold adds nothing to the verified surface (not a workspace member, no header decls). Scratch deleted after."
+    }
+  ],
+  "conflict_log": [
+    {
+      "id": "K1-prior-arbiter-superseded",
+      "observation": "Prior arbiter recorded a 69/0 arbitration pre-columnar; this lane's contract flagged it as superseded by lane 15's run if it landed",
+      "superseding": "LANDED: evidence/replay-2026-10-31.json records the purrdf-contract-extract pair PASS — extractor sha-stable (8a9df387…) across two in-place rewrites, verify_stardf_ontology.py exit 0, 100% census of 126 purrdf.h functions, SHACL 0 violations",
+      "resolution": "the later receipt (12:57) outranks the pre-columnar 69/0 arbiter record; extractor/verifier determinism is witnessed on the final tree",
+      "source": "on-disk-receipt"
+    },
+    {
+      "id": "K2-s8-s16-not-on-disk",
+      "observation": "Dispatch named per-lane receipts S8-S16; no artifact under those designators exists on disk (also recorded by the lane-18 receipt)",
+      "superseding": "on-disk receipts are keyed LANE-9/11/15/16 + wave-consolidated + columnar-wave + manufacturing; per-lane standing recorded as UNKNOWN where nothing resolves",
+      "resolution": "naming did not survive to disk; recorded, not guessed",
+      "source": "lane-run"
+    },
+    {
+      "id": "K3-extractor-census-vs-next-steps",
+      "observation": "Lane 15's receipt records verify_stardf_ontology.py exit 0 (100% function census); 05-next-steps.md §1 (lane-20 refresh) states the value-struct census FAILs pre-fix and the F1 ladder has never been run",
+      "superseding": "these coexist: lane 15's exit 0 covers the function census on the extractor's function-only output; the value-struct FAIL claim is a lane-20 file-content observation, never run-witnessed by any receipt",
+      "resolution": "recorded as a tension, not resolved by this lane; the F1 ladder (FAIL → extract → PASS → mutate refused) remains run-unwitnessed",
+      "source": "on-disk-receipts"
+    },
+    {
+      "id": "K4-columnar-mid-wave-growth",
+      "observation": "05-next-steps.md §6 (lane-20 refresh, ~13:25) recorded stardf-columnar as ONE un-compilable test file, NOT a crate; stardf-columnar is not a workspace member (members: core, capi, bench)",
+      "superseded_by_disk_truth_at_this_receipt_time": "stardf-columnar now carries src/ (lib, parquet, schema, column, writer, reader, projection, compact, error, files, plain_bench, vendor/), tests/ (structured_errors.rs, seam_courts.rs), licenses/ — the 93-file tree",
+      "unchanged": "still NO Cargo.toml in the crate dir and NOT a workspace member — a scaffold that cannot compile; G_COL_EXIT stays blocked",
+      "resolution": "mid-wave supersession of the lane-20 observation in one direction only (files landed; crate status unchanged)",
+      "source": "lane-run"
+    },
+    {
+      "id": "K5-bench-member-promotion",
+      "observation": "Bench crate promoted to workspace member mid-wave (Cargo.toml comment credits lane 7)",
+      "superseding": "D5 (PENDING-ON-LANE C7) may be resolved de facto; the OPERATOR-DECISIONS register was not updated",
+      "resolution": "recorded, not flipped by this lane",
+      "source": "on-disk-artifact"
+    },
+    {
+      "id": "K6-sign-off-unsigned",
+      "observation": "Sign-off blocks (D1-D8 and D9-D14 addendum) remain entirely unsigned as of this receipt",
+      "resolution": "no decision row flipped this session",
+      "source": "on-disk-artifact"
+    }
+  ],
+  "commands": [
+    { "cmd": "find . -path \"*/target\" -prune -o -type f -print | wc -l && find . -path \"*/target\" -prune -o -type f -print | sort | xargs shasum -a 256 | shasum -a 256", "exit": 0, "comment": "93 files; fe9e2e1f715ac372110a3fc675fb70db949c90c4ebfcfc0de8298d1aefaeefb4" },
+    { "cmd": "python3 scripts/verify.py --emit-receipt /tmp/l16c_v1.json", "exit": 0, "comment": "109 triples, 22 individuals, 13==13==13 three-way parity" },
+    { "cmd": "python3 scripts/verify.py --emit-receipt /tmp/l16c_v2.json", "exit": 0 },
+    { "cmd": "cmp -s /tmp/l16c_v1.json /tmp/l16c_v2.json", "exit": 0, "comment": "replay pair byte-identical" },
+    { "cmd": "shasum -a 256 /tmp/l16c_v1.json", "exit": 0, "comment": "cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef (identical to lane-18 witness)" },
+    { "cmd": "rm -f /tmp/l16c_v1.json /tmp/l16c_v2.json", "exit": 0, "comment": "scratch cleanup" },
+    { "cmd": "git status --short", "exit": 0, "comment": "read-only snapshot: untracked set unchanged in kind (authority/, stardf/, scripts/*, tickets/, lib_rs.tmpl, docs/jira/) plus scripts/extract_stardf_columnar.py new since the D14 listing" }
+  ],
+  "replay": {
+    "status": "WITNESSED",
+    "comment": "verify.py --emit-receipt pair byte-identical (cmp 0, sha cb57ce4e…), matching the lane-18 witness sha exactly across trees 58 → 93 files. Lane 15's extractor pair (sha 8a9df387…) additionally witnessed at 12:57 on the same final tree."
+  },
+  "standing": "PARTIAL_ALIVE",
+  "nonclaims": [
+    "avec gate NOT RUN — avec-ffi path-dep never wired; no avec test executed this wave or by this lane",
+    "SQL not dispatched — D12 PENDING-OPERATOR; no SQL-cycle work executed",
+    "duckdb not dispatched — D13 PENDING-OPERATOR; no duckdb artifact or gate witnessed",
+    "BLAKE3 UNSIGNED — no BLAKE3 attestation/signing witnessed anywhere in stardf/arrow this session; D10 PENDING-SIGN-OFF; blake3 1.8.5-declared/1.8.7-lock drift unresolved",
+    "freeze ticket UNRATIFIED — tickets/GL-STARDF-002-freeze-expansion.md is DRAFT-PENDING-OPERATOR-RATIFICATION (D9)",
+    "commit NOT EXECUTED — no c1-c6 commit from D14 has landed; parent HEAD still c9f8028 with the whole substrate untracked; no git mutations by this lane (contract)",
+    "S8-S16 per-lane receipts NOT on disk — only LANE-9/11/15/16 + wave-consolidated/columnar-wave/manufacturing artifacts resolve",
+    "CI not run in Actions — ci/stardf-arrow-reconstitution.yml never witnessed executing; all gates local runs only",
+    "R1 license-gate flip NOT witnessed — verify_stardf_licenses.py has no exit-1-on-removed-receipt run receipted anywhere",
+    "F1 W1 ladder NOT run — verify FAIL-on-pre-fix-TTL → extract → PASS → --mutate drop-type refused: no on-disk receipt of the full ladder",
+    "no slice claimed ALIVE unqualified — every ALIVE claim is a local gate witness",
+    "anti_vacuity 1/3 (fixture-drift class) is the latest consistent witness — NOT claimed repaired by this lane"
+  ]
+}

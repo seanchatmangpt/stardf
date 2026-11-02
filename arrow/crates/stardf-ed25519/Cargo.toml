@@ -1,0 +1,116 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+# Vendoring lane w2-l10 (2026-10-31): copy-and-rename of purrdf rev
+# 0da0578306983da851a9073337d57e2e2c41ab3a `crates/ed25519` ->
+# `stardf-ed25519`; lib name `purrdf_ed25519` stays VERBATIM per the vendoring
+# law (package-level rename only). Only [package] name, workspace-inherited
+# scalars (version/edition/license/repository/rust-version), first-party dep
+# keys (path deps) and the external pin RHS were touched; upstream
+# `homepage`/`documentation` fields dropped (disclosed): homepage does not
+# exist in the stardf workspace.package and the docs.rs path names the
+# upstream package. Same posture as stardf-iri.
+
+[package]
+name = "stardf-ed25519"
+description = "Native Ed25519 signatures (RFC 8032) for PurRDF: key expansion, deterministic signing over constant-time radix-2^51 field and Montgomery scalar arithmetic, and strict cofactorless verification that refuses non-canonical S, non-canonical point encodings and small-order keys and R"
+version = "26.9.29"
+# Upstream inherits edition 2024 from the purrdf workspace; the stardf/arrow
+# root carries edition 2021. Pinned 2024 here concretely (upstream-equal),
+# matching the stardf-iri/stardf-lex vendor posture; rust-toolchain.toml
+# supports 2024.
+edition = "2024"
+publish = false
+repository = "https://github.com/seanchatmangpt/ggen-legacy"
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+rust-version = "1.98"
+keywords = ["ed25519", "eddsa", "signature", "rfc8032", "cryptography"]
+categories = ["cryptography", "algorithms"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+# rlib-only. Portable Rust with `unsafe` forbidden: no threads, no filesystem,
+# no clock and no entropy (keys come from caller-supplied seeds), so it is
+# wasm32-clean on every target.
+crate-type = ["rlib"]
+path = "src/lib.rs"
+name = "purrdf_ed25519"
+
+[dependencies]
+# The base16 codec the `Debug` renderings of keys and signatures print with,
+# and the wipe_secret re-export. Upstream key `purrdf-hash` renamed per the
+# vendoring law; resolves to package stardf-hash (vendored this workspace;
+# lib name stays `purrdf_hash`), so the source's `use purrdf_hash::...`
+# resolves unedited.
+stardf-hash = { path = "../stardf-hash" }
+# Upstream pin inlined verbatim from the purrdf root [workspace.dependencies]
+# at rev 0da05783: `sha2 = { version = "0.11", default-features = false }`.
+# Already registered in authority/stardf/license-compat.json
+# (dependency_licenses, operator blanket sign-off 2026-10-31).
+sha2 = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+# The shared test support (paths::workspace_root, vectors::VectorFile, the
+# SplitMix64 stream). Upstream key `purrdf-testkit` renamed per the vendoring
+# law; resolves to package stardf-testkit (lib `purrdf_testkit` verbatim).
+stardf-testkit = { path = "../stardf-testkit" }
+# The one JSON string-escape decoder and RFC 6901 token escape, used by the
+# (parked) Wycheproof suite's corpus reader. Upstream key `purrdf-lex`
+# renamed per the vendoring law; resolves to package stardf-lex (lib
+# `purrdf_lex` verbatim).
+stardf-lex = { path = "../stardf-lex" }
+
+[[bench]]
+name = "ed25519"
+harness = false
+
+[[test]]
+name = "rfc8032"
+harness = false
+
+# Upstream `[lints] workspace = true` inlined VERBATIM from the purrdf root
+# [workspace.lints.rust] / [workspace.lints.clippy] at rev 0da05783 (same
+# posture as stardf-hash/stardf-lex/stardf-iri).
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+# Underscore spelling, not `rust-2018-idioms`: cargo deprecated the dashed form
+# and will stop honouring it in a future edition, at which point the whole lint
+# GROUP would silently stop applying. Nightly cargo already warns about it.
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Pedantic/nursery opt-outs, each with a reason. Keep this list short and
+# justified; prefer fixing code over widening it.
+module_name_repetitions = "allow"     # purrdf_core::RdfDataset-style names are deliberate
+missing_errors_doc = "allow"          # error semantics live on the error types themselves
+missing_panics_doc = "allow"          # panics are programming errors, documented at the assert
+must_use_candidate = "allow"          # blanket #[must_use] adds noise; applied by hand where it guards bugs
+option_if_let_else = "allow"          # nursery: frequently less readable than the match it replaces
+redundant_pub_crate = "allow"         # nursery: conflicts with unreachable_pub on binary/test targets
+doc_markdown = "allow"                # 500+ backtick nits on spec terms (RDF/XML, JSON-LD); revisit with doc-valid-idents
+missing_const_for_fn = "allow"        # nursery: noisy and often wrong about intentionally non-const APIs
+too_long_first_doc_paragraph = "allow" # cosmetic doc layout only
+cast_possible_truncation = "allow"    # u32 id/offset space is asserted at construction; casts are deliberate
+cast_possible_wrap = "allow"          # ditto
+cast_sign_loss = "allow"              # ditto
+cast_precision_loss = "allow"         # XSD numeric promotion is spec-defined; losses are intentional
+unnecessary_wraps = "allow"           # Result-shaped codec seams are kept uniform even where infallible today
+unused_self = "allow"                 # method-shaped APIs kept uniform across backends
+many_single_char_names = "allow"      # s/p/o/g is the canonical RDF idiom
+similar_names = "allow"               # subject/predicate/object families trip this constantly
+too_many_lines = "allow"              # refactors are planned work, not lint chores
+single_match_else = "allow"           # stylistic; match reads better at codec branch points
+match_same_arms = "allow"             # duplicate arms often document distinct spec cases
+if_not_else = "allow"                 # stylistic
+items_after_statements = "allow"      # test-local helpers read better in place
+zero_sized_map_values = "allow"       # HashMap<K, ()> is used deliberately for entry-API patterns
+unnecessary_debug_formatting = "allow" # {:?} in diagnostics is deliberate; message text is golden-locked
+float_cmp = "allow"                   # XSD value-space equality is spec-exact by design

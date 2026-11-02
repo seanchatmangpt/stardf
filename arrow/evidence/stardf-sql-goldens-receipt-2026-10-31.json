@@ -1,0 +1,211 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "kind": "lane-receipt",
+  "lane": "PUBLISH-LANE-3 (stardf-sql goldens: log-standing -> receipted)",
+  "date": "2026-10-31",
+  "branch": "fix/v26.9.29-ci-gates (named from session context; NO git commands run by this lane)",
+  "subject": {
+    "method": "per-file sha256 over the exact stardf-sql court surface + workspace manifests, computed immediately before and after the witnessed run; NO git commands run by this lane (coordinator owns git), so no head SHA is cited; receipts bind to SHAs only after the coordinator commits",
+    "digests_before_and_after_run_byte_identical": {
+      "Cargo.toml": "3fc0e4c5063c7049838d2aaf0b2d5f30caef5c92f4ac0d75c41a99f86ec782e3",
+      "Cargo.lock": "437987dc3be10d6cce4a2c46b3f688810e1a2597611fda8cdf60d3e24164f37b",
+      "crates/stardf-sql/Cargo.toml": "6c1763a2507a23731146a3b73f0e728e5b7302515b03713b1a2200d32128897f",
+      "crates/stardf-sql/src/ast.rs": "3ca22d7acc2dcc3128e15206fe9c01c69bf89ee73c95513ee48d1411b1ef17e8",
+      "crates/stardf-sql/src/compiler.rs": "0f309a25320905840909311af05abaf6e5c50bd6ccce66c9b4df61f3da8a0f64",
+      "crates/stardf-sql/src/error.rs": "d07ccdea5e2cfbeb641226907170f54634f4f0e7f0057198f36c721d379e1ac6",
+      "crates/stardf-sql/src/lib.rs": "756d44af185d487a19610f0584ecd1024a45068f2791fc13c6394284e7649004",
+      "crates/stardf-sql/src/serializer.rs": "49bc37a3a55ba55b5ca877fb40bf8b9dd50bad469f45e3da671ad6e724c7efdd",
+      "crates/stardf-sql/tests/sql_golden.rs": "10f0e6f972e4c228be2e6c81ab34eb634989b1acb59c0cd0074c481e4701c52e"
+    },
+    "workspace_freeze_disclosure": "Run 1 of this lane (22:50 PDT window) failed at manifest load, exit 101, 0 tests executed: crates/stardf-process/Cargo.toml inherited cgap-arrow.workspace = true while root [workspace.dependencies] carried no cgap-arrow row (lane 09 decouple residual; root mtime 21:48). Lane 09's decouple completion (cross-lane unblock by lane 8, disclosed in both manifests, landed 22:54) removed the dangling inheritance and the workspace resolved again; the transient root cgap rows were removed and root Cargo.toml returned to its pre-freeze bytes (digest above). Cargo.lock content DID change earlier in the session (6d96fbf6...af3846 at 22:12 -> 437987dc...4f37b at 22:54) from that same decouple landing; the run-time lock 437987dc... is byte-identical across this lane's run."
+  },
+  "purpose": "Convert the stardf-sql target courts from log-standing to receipted: schema v1 receipt over the sql_golden court suite (4 goldens + 1 doctest) with a three-witness chain -- H01's fresh post-fix witness (on-disk log), G11's earlier independent green (coordinator-dispatch testimony), and this lane's own same-session witnessed run (exit 0, digested subject). Closes the RECEIPTS.md §B row H01 landing condition ('a sql_golden run receipt in evidence/') and GAPS DONE row 16 / GAPS REMAINING row 2.",
+  "witnesses": [
+    {
+      "n": 1,
+      "who": "H01 (fresh post-fix witness; log-standing superseded by this file)",
+      "artifact": "/tmp/lane15_doc_sql.log (mtime 2026-10-31 22:07 PDT, sha256 7fd516cd7a8bfd3f2272f4b53462c4be3a42e41ccdce080472c08ebb027c9568)",
+      "content": "cargo test -p stardf-sql -> exit 0: 4 goldens + 1 doctest, same four golden names as this receipt's checks; recorded RUN-WITNESSED in docs/RECEIPTS.md §B row H01; command form per coordinator dispatch: cargo test -p stardf-sql --locked -- --test-threads 1",
+      "standing_of_this_leg": "LOG-STANDING (on-disk log, opened and re-read by this lane before citation)"
+    },
+    {
+      "n": 2,
+      "who": "G11 (earlier independent green)",
+      "artifact": "NONE FOUND ON DISK by this lane",
+      "content": "coordinator-dispatch testimony (this session): G11's earlier independent green of the sql goldens",
+      "standing_of_this_leg": "TESTIMONY STANDING — recorded AS testimony, never read as a receipt. Tension disclosed, not resolved by this lane: docs/V26-11-1-VERDICT.md records G11 pass 1 (~21:35) reading the sql courts as 'landed, never run', and tests/sql_golden.rs landed 21:54 (after G11 pass 1); owner: coordinator/G11."
+    },
+    {
+      "n": 3,
+      "who": "PUBLISH-LANE-3 (this lane, same session)",
+      "artifact": "/tmp/l3-sql-goldens.log (sha256 eeb0b8726a7a82c25a4bf6754a8f1a866f499afc8f4ed112a0714a4166e07ec7)",
+      "content": "cargo test -p stardf-sql --locked -> exit 0 (commands[] row 2); the only receipted leg",
+      "standing_of_this_leg": "RECEIPTED HERE (real gate output this session on the digested subject)"
+    }
+  ],
+  "checks": [
+    {
+      "id": "sql-goldens-full-run-locked",
+      "passed": true,
+      "count": 4,
+      "comment": "cargo test -p stardf-sql --locked -> exit 0 (exit observed 23:05:40 PDT; cold dep-chain rebuild 9m 51s post lock-regen, then tests). tests/sql_golden.rs: 4 passed / 0 failed / 0 ignored. Lock honored (--locked, no lock update). All subject digests byte-identical before/after the run."
+    },
+    {
+      "id": "golden-test-compile-turtle-select",
+      "passed": true,
+      "count": 1,
+      "comment": "test_compile_turtle_select ok — Turtle SELECT compilation golden (tests/sql_golden.rs)."
+    },
+    {
+      "id": "golden-test-injection-attempt-rejected",
+      "passed": true,
+      "count": 1,
+      "comment": "test_injection_attempt_rejected ok — injection-attempt rejection golden (tests/sql_golden.rs)."
+    },
+    {
+      "id": "golden-test-mandatory-candidate-envelope-pushdown",
+      "passed": true,
+      "count": 1,
+      "comment": "test_mandatory_candidate_envelope_pushdown ok — mandatory candidate envelope pushdown golden (tests/sql_golden.rs); witnessed by name + pass status only, no deeper behavioral claim."
+    },
+    {
+      "id": "golden-test-valid-identifier-compilation",
+      "passed": true,
+      "count": 1,
+      "comment": "test_valid_identifier_compilation ok — valid-identifier compilation golden (tests/sql_golden.rs)."
+    },
+    {
+      "id": "sql-doctest-compile-turtle",
+      "passed": true,
+      "count": 1,
+      "comment": "Doc-tests purrdf_sql: 1 passed / 0 failed — crates/stardf-sql/src/compiler.rs - compiler::compile_turtle (line 1950)."
+    },
+    {
+      "id": "sql-lib-unit-target",
+      "passed": true,
+      "count": 0,
+      "comment": "Lib unittests purrdf_sql: 0 passed / 0 failed (observed 'running 0 tests / test result: ok. 0 passed'). The sql lib target carries 0 in-crate unit tests; the courts live in tests/sql_golden.rs. Honest zero, disclosed — 0 is the observed count, not a skip."
+    },
+    {
+      "id": "h01-fresh-witness-log-on-disk",
+      "passed": true,
+      "count": 1,
+      "comment": "/tmp/lane15_doc_sql.log opened and re-read by this lane: same 4 golden names + 1 doctest, 'test result: ok', all green post-H01-fix (compiler.rs landed 21:59, sql_golden.rs landed 21:54). Log-standing leg, superseded by this file."
+    },
+    {
+      "id": "g11-earlier-green",
+      "passed": false,
+      "count": 0,
+      "comment": "NOT VERIFIABLE ON DISK by this lane: coordinator-dispatch testimony only; G11 pass-1 doc row (~21:35) reads the sql courts as never-run and predates sql_golden.rs (21:54). Recorded as testimony in witnesses[1]; kept here as an honest false row so the receipt does not read clean."
+    },
+    {
+      "id": "d15-shapes-edge-intact-one-package",
+      "passed": true,
+      "count": 1,
+      "comment": "D15 one-package note: the sql -> shapes edge is an ordinary workspace edge — crates/stardf-sql/Cargo.toml:34 `stardf-shapes = { workspace = true }`; stardf-shapes is a straight-copied full workspace member (no carve, no feature-gating by dependency). The witnessed run compiled stardf-sql against stardf-shapes through that intact edge (stardf-shapes v26.9.29 in the run log's compile list). The same edge is also the G8 nonclosure publish row 'stardf-sql -> stardf-shapes' (final ladder receipt 051252Z, 24 rows) — publish closure is operator scope (D17) and ORTHOGONAL to D15 edge integrity; this receipt makes no publish claim."
+    },
+    {
+      "id": "settle-probes-after-freeze",
+      "passed": true,
+      "count": 2,
+      "comment": "Bounded polls on real observables across the freeze window (no fixed sleeps-as-methodology; 20s-interval deadline-checked probes): cargo metadata --no-deps --locked -> exit 0 (probe 3, 22:52:27 PDT, manifest load restored); cargo metadata --locked -> exit 0 (probe 3, 22:54:27 PDT, full resolve under --locked). Run 2 dispatched only after resolve went green; it then exited 0."
+    }
+  ],
+  "errors": [
+    {
+      "code": "SQL_WITNESS_RUN_1_WORKSPACE_FREEZE",
+      "message": "run 1 exit 101 at manifest load, 0 tests executed (22:50 PDT window): stardf-process dangling cgap-arrow inheritance (lane 09 decouple residual; whole-workspace resolve failure from root mtime 21:48 until decouple completion landed 22:54, cross-lane unblock by lane 8 disclosed in both manifests). Recorded honest; no test executed, so no test-level claim rests on run 1."
+    },
+    {
+      "code": "G11_GREEN_NOT_ARTIFACTED",
+      "witness_leg": 2,
+      "message": "G11's earlier independent green is coordinator-dispatch testimony with no on-disk artifact found by this lane; the pass-1 verdict row reads the sql courts as never-run at ~21:35 (predating sql_golden.rs 21:54). Kept as honest false row + witnesses[1] testimony row; owner: coordinator/G11."
+    }
+  ],
+  "commands": [
+    {
+      "cmd": "cargo test -p stardf-sql --locked",
+      "exit": 101,
+      "comment": "run 1, ~22:50 PDT window — workspace freeze at manifest load, 0 tests executed (see subject.workspace_freeze_disclosure); honest failure retained"
+    },
+    {
+      "cmd": "cargo test -p stardf-sql --locked",
+      "exit": 0,
+      "comment": "run 2 (THE WITNESS), ~22:55:10-23:05:40 PDT; cold dep-chain rebuild 9m 51s, then: lib unittests purrdf_sql 0 passed; tests/sql_golden.rs 4 passed / 0 failed; Doc-tests purrdf_sql 1 passed / 0 failed. Log /tmp/l3-sql-goldens.log sha256 eeb0b8726a7a82c25a4bf6754a8f1a866f499afc8f4ed112a0714a4166e07ec7"
+    },
+    {
+      "cmd": "cargo metadata --no-deps --locked",
+      "exit": 0,
+      "comment": "settle probe 1 (manifest load), probe 3 of a bounded 20s-interval poll, 22:52:27 PDT"
+    },
+    {
+      "cmd": "cargo metadata --locked",
+      "exit": 0,
+      "comment": "settle probe 2 (full resolve), probe 3 of a bounded 20s-interval poll, 22:54:27 PDT"
+    }
+  ],
+  "replay": {
+    "status": "NOT_RUN",
+    "comment": "the verify.py byte-identical replay pair is not part of this receipt's gate; the court suite itself is witnessed once by this lane (witness 3), once by doc lane 15 (witness 1, log), once by G11 (witness 2, testimony)"
+  },
+  "standing": "ALIVE",
+  "standing_scope": "ALIVE (local): the stardf-sql sql_golden court suite (4 goldens + 1 doctest) is receipt-green on the digested subject; per GAPS row 16's landing condition this converts sql from UNKNOWN-as-receipt to receipted. Parity claims stay scoped per D17 to the four first-class targets.",
+  "vendor_closures": {
+    "register": "crates/PROVENANCE-entries.md (campaign-wide entry register) + per-crate VENDOR-PROVENANCE.md / PROVENANCE.md files",
+    "upstream_rev": "0da0578306983da851a9073337d57e2e2c41ab3a",
+    "closure_rows": [
+      {
+        "crate": "stardf-sql",
+        "status": "FIRST-PARTY",
+        "basis": "in-crate crates/stardf-sql/PROVENANCE.md: first-party StarDF work, no upstream source in-package; tri-license carriage MIT OR Apache-2.0 OR MulanPSL-2.0 with per-text sha256s (LICENSE-APACHE cfc7749b...d30, LICENSE-MIT 958c0e61...f3, LICENSE-MULAN eb7a1d71...f1c), byte-identical to the workspace canonical copies in crates/stardf-hash/licenses/"
+      },
+      {
+        "crate": "stardf-shapes",
+        "status": "VENDORED (purrdf crates/shapes @ 0da05783)",
+        "basis": "crates/stardf-shapes/VENDOR-PROVENANCE.md: pre-rename archive sha256 21bd268a39633529b8602d5dcbf47bbb5ca7add8a4d216f674167dcd4cfb07ec; rename-only manifest delta (497/497 byte parity, licenses/ and spec/ byte-identical, lib purrdf_shapes verbatim); register note standing PARKED-at-write-time (pre-membership), superseded by D15 membership — the witnessed run compiled stardf-shapes as a workspace member"
+      },
+      {
+        "crate": "stardf-core",
+        "status": "VENDORED (purrdf crates/rdf-core @ 0da05783)",
+        "basis": "crates/stardf-rdf-core/VENDOR-PROVENANCE.md: full straight copy of the purrdf_core kernel (190K src LOC); no attestation verdict claimed here beyond the crate's own receipt"
+      },
+      {
+        "crate": "stardf-hash",
+        "status": "VENDORED (purrdf crates/hash @ 0da05783)",
+        "basis": "crates/PROVENANCE-entries.md: archive sha256 fb263089...72d8, RENAME-ONLY attested 15:12:49 (src deltas 0; licenses/ diff -r exit 0; lib purrdf_hash verbatim)"
+      },
+      {
+        "crate": "stardf-lex",
+        "status": "VENDORED (purrdf crates/lex @ 0da05783)",
+        "basis": "crates/PROVENANCE-entries.md: archive sha256 f31e9f6b...4d9, RENAMES + DECLARED upstream-tests cfg-gating (11 single-line substitutions across 10 files, zero non-gate edits), lib purrdf_lex verbatim, 15:13:32"
+      },
+      {
+        "crate": "stardf-iri",
+        "status": "VENDORED (purrdf crates/iri @ 0da05783)",
+        "basis": "crates/PROVENANCE-entries.md: archive sha256 dea25f96...d58; attestation standing IN-FLIGHT at that register's 15:12:33 snapshot (disclosed, not re-attested by this lane)"
+      },
+      {
+        "crate": "stardf-rdf",
+        "status": "VENDOR ROW ABSENT — UNVERIFIED, DISCLOSED",
+        "basis": "no in-crate provenance file in crates/stardf-rdf/ and no crates/rdf -> stardf-rdf row in the crates/PROVENANCE-entries.md archive table; upstream purrdf crates/rdf exists (this lane's ls of /Users/sac/purrdf/crates). Recorded ABSENT, not guessed."
+      },
+      {
+        "crate": "stardf-testkit",
+        "status": "VENDORED (purrdf crates/testkit @ 0da05783; dev-dep via [dev-dependencies])",
+        "basis": "crates/PROVENANCE-entries.md: archive sha256 1f720713...1bdf; attestation standing IN-FLIGHT at the register's 15:12:33 snapshot (disclosed, not re-attested by this lane)"
+      }
+    ],
+    "scope_note": "no vendor closure claimed for anything outside the stardf-sql dependency closure"
+  },
+  "nonclaims": [
+    "witness leg 2 (G11) is TESTIMONY standing — no artifact; leg 1 (H01) is log-standing superseded by this file; only leg 3 (this lane's run) is receipted here",
+    "no git commands run by this lane; branch named from session context; no head SHA cited; receipts bind to SHAs only after the coordinator commits",
+    "all standing LOCAL: no CI Actions run ever witnessed; no registry touch; no live publish; no external production standing",
+    "G8 nonclosure publish row 'stardf-sql -> stardf-shapes' remains OPEN (operator scope, D17); this receipt makes no publish, closure-membership, or registry claim",
+    "D17 honest scope: parity vs purrdf crates/sql NOT claimed — this receipt covers ONLY the sql_golden court suite (4 goldens + 1 doctest) on the digested subject",
+    "the lib unittests zero (0 passed / 0 failed) is the observed count, not a skip",
+    "replay pair (verify.py byte-identical pair) NOT_RUN — not this receipt's gate",
+    "the compile window crossed the lane-09/08 decouple landing (lock content changed earlier in session 6d96fbf6... -> 437987dc...); the run-time lock is byte-identical across this lane's run only",
+    "subject digest table lists only the sql surface + root manifests; dep-chain crate sources outside the table are covered by the green compile, not by per-file digests"
+  ]
+}

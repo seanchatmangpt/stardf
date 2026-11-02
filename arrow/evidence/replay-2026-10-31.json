@@ -1,0 +1,53 @@
+{
+  "lane": "completion-lane-15",
+  "date": "2026-10-31",
+  "repo": "/Users/sac/ggen-legacy",
+  "branch": "fix/v26.9.29-ci-gates",
+  "subject": "replay determinism witness on final tree",
+  "pairs": [
+    {
+      "pair": "verify-receipt",
+      "command_a": "python3 stardf/arrow/scripts/verify.py --emit-receipt /tmp/r1.json",
+      "command_b": "python3 stardf/arrow/scripts/verify.py --emit-receipt /tmp/r1b.json",
+      "method": "byte-compare receipts via cmp; sha256 both; scratch deleted after",
+      "result": "PASS — both exit 0; cmp exit 0; sha256_a=sha256_b=b0ad32811cac3f1eb93ea496efa099838110a550fefb9efc738cab1a4800e154; [PASS] ontology parse 94 triples, header/impl parity 13==13",
+      "standing": "ALIVE"
+    },
+    {
+      "pair": "purrdf-contract-extract",
+      "command_a": "python3 scripts/extract_purrdf_ontology.py",
+      "command_b": "python3 scripts/extract_purrdf_ontology.py",
+      "method": "sha256 authority/stardf/stardf_contract.ttl captured before, between, and after the two in-place rewrites; compare",
+      "result": "PASS — both exit 0; sha256 pre/post identical: 8a9df3875d81c6cfa17f1381309d3de18b2635c9e31da5e25eae14f5a45c1ffb (5264 lines; 11 structs, 16 enums, 126 functions extracted); extractor stable against its own prior output on the final tree. Followed by scripts/verify_stardf_ontology.py exit 0: RDF syntax valid (4951 triples), 128 stardf:AbiFunction instances, 100% census match of 126 purrdf.h functions, SHACL conforms 0 violations",
+      "standing": "ALIVE"
+    },
+    {
+      "pair": "bench-determinism",
+      "command_a": "./target/release/stardf-arrow-bench (release build, run 1)",
+      "command_b": "./target/release/stardf-arrow-bench (release build, run 2)",
+      "method": "two full min-of-5 runs; diff raw output; compare per-kernel MIN receipts (matches_per_pass, alloc gates, throughput)",
+      "result": "PARTIAL — variance class disclosed, NOT byte-identical (as anticipated for a timing workload). DETERMINISTIC ACROSS RUNS: matches_per_pass exact-checked identical for all 4 patterns (1000000/20/2000/20); alloc gates identical (0 allocs during all scans; 1 slab-clone alloc during stream drain, both runs); intern/dedup term counts identical (200000). THROUGHPUT VARIES: intern mint 22340 vs 18379 terms/s (-17.7%); intern dedup 6061578 vs 5990094 lookups/s (-1.2%); pattern_scan min GiB/s-quad 49.824/54.026/53.100/54.458 vs 29.935/29.686/29.469/29.657 (-40% to -46%); stream_get_next 47.701 vs 18.689 GiB/s-quad (-60.8%). Run 2 ran while concurrent agent lanes loaded the shared machine (witnessed: intern mint rounds degraded 8953ms -> 10882-16834ms across rounds within run 2 itself), consistent with machine-load variance, not code nondeterminism. Numbers carry the binary's own UNVERIFIED-local-min-of-5 standing class.",
+      "standing": "PARTIAL_ALIVE",
+      "baseline_run_a": {
+        "intern": {"terms": 200000, "mint_terms_per_s": 22340, "dedup_lookups_per_s": 6061578},
+        "pattern_scan": {"rows": 1000000, "chunk": 8, "patterns": [
+          {"pattern": "s=? p=? o=?", "min_gib_s": 49.824, "matches_per_pass": 1000000},
+          {"pattern": "s=0 p=? o=?", "min_gib_s": 54.026, "matches_per_pass": 20},
+          {"pattern": "s=? p=42 o=?", "min_gib_s": 53.100, "matches_per_pass": 2000},
+          {"pattern": "s=42 p=42 o=307", "min_gib_s": 54.458, "matches_per_pass": 20}]},
+        "stream_get_next": {"rows": 1000000, "batch_quads": 64, "gib_s": 47.701}
+      },
+      "baseline_run_b": {
+        "intern": {"terms": 200000, "mint_terms_per_s": 18379, "dedup_lookups_per_s": 5990094},
+        "pattern_scan": {"rows": 1000000, "chunk": 8, "patterns": [
+          {"pattern": "s=? p=? o=?", "min_gib_s": 29.935, "matches_per_pass": 1000000},
+          {"pattern": "s=0 p=? o=?", "min_gib_s": 29.686, "matches_per_pass": 20},
+          {"pattern": "s=? p=42 o=?", "min_gib_s": 29.469, "matches_per_pass": 2000},
+          {"pattern": "s=42 p=42 o=307", "min_gib_s": 29.657, "matches_per_pass": 20}]},
+        "stream_get_next": {"rows": 1000000, "batch_quads": 64, "gib_s": 18.689}
+      }
+    }
+  ],
+  "scratch_cleanup": "/tmp/r1.json, /tmp/r1b.json, /tmp/bench_a.txt, /tmp/bench_b.txt deleted after receipt capture",
+  "no_git_operations": true
+}

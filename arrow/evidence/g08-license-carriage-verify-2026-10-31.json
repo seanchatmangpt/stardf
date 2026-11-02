@@ -1,0 +1,726 @@
+{
+ "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+ "lane": "G08 finish: license-carriage verification over the lane-11 r2 tree (post finish-wave, post lane-09 decouple)",
+ "date": "2026-10-31",
+ "subject": {
+  "head_at_session_start": "724d542540b497f2928a63b5aece9b37aef4019b (session gitStatus snapshot, as-of-session-start; zero git commands run this lane per directive)",
+  "branch": "fix/v26.9.29-ci-gates (from session snapshot)",
+  "tree_digest": "a6c85f5a3d0bde093f1842456515b753ac775e6f22ec727ddf467a3930cac5fd",
+  "tree_digest_files": 14466,
+  "tree_digest_method": "find . -type f ! -path './target/*' ! -path './target-lane13/*' -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256, prefix-relative inside stardf/arrow",
+  "git_state": "WORKING TREE UNCOMMITTED (concurrent lanes; coordinator owns commits; zero git commands this lane)"
+ },
+ "scope": "Verify lane-11 license carriage on the current tree: 22 first-class-closure crate roots carry LICENSE-MIT/LICENSE-APACHE/LICENSE-MULAN byte-verbatim from crates/stardf-hash/licenses/ canon + NOTICE.txt; Unicode-3.0/BSD-3-Clause conjunct crates (stardf-lex, stardf-iri, stardf-rdf-core) carry third-party notice dirs; fix gaps by canon copy. Zero git, zero publish, registry untouched.",
+ "canonical_texts": {
+  "source": "crates/stardf-hash/licenses/",
+  "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+  "LICENSE-MIT_len": 1084,
+  "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+  "LICENSE-APACHE_len": 11358,
+  "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c",
+  "LICENSE-MULAN_len": 9233,
+  "NOTICE.txt": "77430cb214e12d4a98902eb8875b795212a4a2cadc80a2f0e97bbf13b74ea30f",
+  "NOTICE.txt_len": 670,
+  "CC-BY-4.0.txt": "d557539df68e771cc1eedcc91d13f70fca930e508d11eedcafa4b15db49e3744",
+  "unicode_3_0_text_sha256": "8fa201617d2c10c64205a88903dfac046417e6b95748e36b492026fbc38c5b94",
+  "unicode_3_0_copies_checked": [
+   "crates/stardf-lex/licenses/third-party/unicode/0-Unicode-3.0.txt",
+   "crates/stardf-iri/licenses/third-party/unicode/0-Unicode-3.0.txt",
+   "crates/stardf-rdf-core/licenses/third-party/unicode/0-Unicode-3.0.txt",
+   "crates/stardf-iri/unicode/LICENSES/Unicode-3.0.txt"
+  ],
+  "conjunct_NOTICEs": {
+   "stardf-lex": "883b0447fc6b06449e875b04819ae776f3b8b046b782ddc6729b384c0376b85d (1789 B)",
+   "stardf-iri": "ec2747c083a69048c6a9aa64d498cc0285bb18f9c04790a2e10cf46a18555203 (948 B)",
+   "stardf-toml": "a03a4b1fac72c4ab48be163ee126c0925b5aac4df38b8bf82a6177d2f4b6c5b7 (957 B)",
+   "stardf-rdf-core": "ec2747c083a69048c6a9aa64d498cc0285bb18f9c04790a2e10cf46a18555203 (948 B, byte-identical to stardf-iri)"
+  }
+ },
+ "checks": [
+  {
+   "id": "r1-gate-exit-0",
+   "passed": true,
+   "count": 0,
+   "comment": "python3 scripts/verify_stardf_licenses.py -> PASS, exit 0 re-witnessed; lane-11 register edit intact (frozen-duckdb-sys at authority/stardf/license-compat.json:264, frozen-duckdb-builder :273, compatibility receipt :818)."
+  },
+  {
+   "id": "canonical-census-66-texts",
+   "passed": true,
+   "count": 66,
+   "comment": "sha256 census over LICENSE-{MIT,APACHE,MULAN} at all 22 closure crate roots: 66/66 byte-identical to crates/stardf-hash/licenses/ canon; 0 mismatches. Fix-by-canonical-copy is vacuously satisfied (zero gaps, nothing copied, no license file touched)."
+  },
+  {
+   "id": "notice-census-22-roots",
+   "passed": true,
+   "count": 22,
+   "comment": "NOTICE.txt present 22/22: 18 canon-670B byte-identical; 4 conjunct-crate-specific (lex 1789 B, iri 948 B, rdf-core 948 B byte-identical to iri, toml 957 B) carrying the third-party rows the conjunct licenses require."
+  },
+  {
+   "id": "conjunct-third-party-dirs",
+   "passed": true,
+   "count": 3,
+   "crates": [
+    "stardf-lex",
+    "stardf-iri",
+    "stardf-rdf-core"
+   ],
+   "comment": "third-party dirs on disk AND in package lists, packaged==on-disk exactly: lex 4 files (unicode/0-Unicode-3.0.txt, libyaml-emitter MIT x2, whatwg-html-references/0-LICENSE-WHATWG); iri 1; rdf-core 1. Unicode-3.0 text sha256 8fa2016... identical across all 4 copies (incl. iri unicode/LICENSES). iri also packages unicode/{LICENSES/Unicode-3.0.txt, REUSE.toml, PROVENANCE.md}; UCD 16.0.0/17.0.0 bulk dirs excluded per manifest [exclude]."
+  },
+  {
+   "id": "provenance-rows-22-roots",
+   "passed": true,
+   "count": 22,
+   "comment": "PROVENANCE.md and/or VENDOR-PROVENANCE.md at 22/22 closure roots (26 root rows total; stardf-scan-duckdb PROVENANCE.md present - the r2 gap-fix landed and held)."
+  },
+  {
+   "id": "package-list-gate-22-crates",
+   "passed": true,
+   "count": 22,
+   "comment": "cargo package --list --allow-dirty -p <22 specs>, two passes: 22/22 exit 0 both passes; per-crate lists byte-identical across passes (diff -r /tmp/g08_lists_p1 /tmp/g08_lists_p2 clean)."
+  },
+  {
+   "id": "real-tarball-gate-4-leaves",
+   "passed": true,
+   "count": 4,
+   "comment": "Full offline packaging exit 0 for 4 leaves: hash 145882 B / columnar 135460 B / alloc-probe 34641 B (sizes replay-identical to lane-11 r2) + arrow-core 40132 B NEW (lane-09 avec-arrow decouple, crates/stardf-arrow-core/Cargo.toml:21-36 removed the unversioned avec-arrow dep r2 blocked on). In-tarball census: lic=3 + NOTICE + provenance rows inside each; in-tarball LICENSE+NOTICE byte-identical to canon."
+  },
+  {
+   "id": "full-package-blockers-classified",
+   "passed": true,
+   "count": 18,
+   "comment": "18 non-leaf refusals re-witnessed with fresh exits, classified from real logs: 4 manifest-verify (sql: stardf-shapes; n3: stardf-rdf; stardf-rs/purrdf: stardf-datalog; stardf-core/rdf-core: stardf-branchless) + 14 offline-resolution (capi, bench, scan-duckdb, duckdb, branchless, lex, iri, xsd, cdt, events, deflate, stack, testkit, toml: =26.11.1 deps not on crates.io). Improved vs r2 (19 refusals): arrow-core left the blocker set via lane-09 decouple; blocker dep names shifted for sql (stardf-core->stardf-shapes) and rs (stardf-arrow-rs+stardf-rdf->stardf-datalog) after wave edits. Unchanged in kind; coordinator/CI phase (leaf-first crates.io bootstrap)."
+  },
+  {
+   "id": "census-non-vacuity-control",
+   "passed": true,
+   "count": 1,
+   "comment": "Mutation court on a temp copy (tree untouched): one byte-line appended to a copied LICENSE-MIT flips the census verdict - canon 958c0e61... vs probe 7350a3b7... -> DRIFT DETECTED. The 66/66 PASS is not vacuous. Probe copy deleted after the court."
+  },
+  {
+   "id": "conjunct-witnesses-outside-footprint",
+   "passed": true,
+   "count": 2,
+   "comment": "stardf-text and stardf-rdf-core-slice (Unicode-3.0 conjuncts OUTSIDE the closure 22) also carry licenses/{3 LICENSE + NOTICE + third-party/} on disk (text: snowball-english-corpus + unicode; rdf-core-slice: unicode). Observation, not actuated (outside declared footprint)."
+  }
+ ],
+ "errors": [
+  {
+   "code": "FULL_PACKAGE_OFFLINE_REFUSED_18_NONLEAF",
+   "message": "cargo package (full, offline) exit 101 for 18 non-leaf closure crates (r2: 19; arrow-core now packages after lane-09 decouple). 4 manifest-verify + 14 offline-resolution; per-crate rows in per_crate[].publish_blocker, parsed from real cargo logs. Real publish needs leaf-first crates.io bootstrap (coordinator/CI phase)."
+  }
+ ],
+ "commands": [
+  {
+   "cmd": "python3 scripts/verify_stardf_licenses.py",
+   "exit": 0,
+   "comment": "R1 PASS re-witnessed"
+  },
+  {
+   "cmd": "cargo package --list --allow-dirty -p <22 specs>, passes 1+2",
+   "exit": 0,
+   "comment": "22/22 x2; replay pair byte-identical (diff -r clean)"
+  },
+  {
+   "cmd": "cargo package --no-verify --allow-dirty --offline -p stardf-hash/columnar/alloc-probe/arrow-core",
+   "exit": 0,
+   "comment": "4 real tarballs (145882/135460/34641/40132 B); in-tarball byte-identity census all True"
+  },
+  {
+   "cmd": "cargo package --no-verify --allow-dirty --offline -p <18 non-leaf specs>",
+   "exit": 101,
+   "comment": "classified refusal, errors[0]"
+  },
+  {
+   "cmd": "sha256 census 22x3 LICENSE + 22 NOTICE + 4 unicode texts",
+   "exit": 0,
+   "comment": "66/66 canon-identical; NOTICE 18 canon + 4 conjunct-specific; unicode text identical x4"
+  },
+  {
+   "cmd": "house tree digest (find|sort|xargs shasum -a 256|shasum -a 256)",
+   "exit": 0,
+   "comment": "a6c85f5a... over 14466 files (target/target-lane13 excluded)"
+  }
+ ],
+ "per_crate": [
+  {
+   "crate": "stardf-arrow-core",
+   "dir": "crates/stardf-arrow-core",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "YES 40132 B, carriage rows inside, in-tarball LICENSE+NOTICE byte-identical to canon",
+   "publish_blocker": "packages clean (no blocker)"
+  },
+  {
+   "crate": "stardf-arrow-capi",
+   "dir": "crates/stardf-arrow-capi",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-arrow-bench",
+   "dir": "crates/stardf-arrow-bench",
+   "declared": "MIT",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-columnar",
+   "dir": "crates/stardf-columnar",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "YES 135460 B, carriage rows inside, in-tarball LICENSE+NOTICE byte-identical to canon",
+   "publish_blocker": "packages clean (no blocker)"
+  },
+  {
+   "crate": "stardf-sql",
+   "dir": "crates/stardf-sql",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep stardf-shapes"
+  },
+  {
+   "crate": "stardf-n3",
+   "dir": "crates/stardf-n3",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep stardf-rdf"
+  },
+  {
+   "crate": "stardf-scan-duckdb",
+   "dir": "crates/stardf-scan-duckdb",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-duckdb",
+   "dir": "crates/stardf-duckdb",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-hash",
+   "dir": "crates/stardf-hash",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 2
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "YES 145882 B, carriage rows inside, in-tarball LICENSE+NOTICE byte-identical to canon",
+   "publish_blocker": "packages clean (no blocker)"
+  },
+  {
+   "crate": "stardf-branchless",
+   "dir": "crates/stardf-branchless",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-lex",
+   "dir": "crates/stardf-lex",
+   "declared": "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND MIT AND Unicode-3.0 AND BSD-3-Clause",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "crate-specific 1789B sha256=883b0447fc6b06449e875b04819ae776f3b8b046b782ddc6729b384c0376b85d",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 4,
+    "tp_files": [
+     "licenses/third-party/libyaml-emitter/0-unsafe-libyaml-0.2.11-MIT.txt",
+     "licenses/third-party/libyaml-emitter/1-libyaml-COPYRIGHT-MIT.txt",
+     "licenses/third-party/unicode/0-Unicode-3.0.txt",
+     "licenses/third-party/whatwg-html-references/0-LICENSE-WHATWG"
+    ],
+    "prov_root": 2
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-iri",
+   "dir": "crates/stardf-iri",
+   "declared": "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "crate-specific 948B sha256=ec2747c083a69048c6a9aa64d498cc0285bb18f9c04790a2e10cf46a18555203",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 1,
+    "tp_files": [
+     "licenses/third-party/unicode/0-Unicode-3.0.txt"
+    ],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-xsd",
+   "dir": "crates/stardf-xsd",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-cdt",
+   "dir": "crates/stardf-cdt",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-events",
+   "dir": "crates/stardf-events",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-deflate",
+   "dir": "crates/stardf-deflate",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 2
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-stack",
+   "dir": "crates/stardf-stack",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-testkit",
+   "dir": "crates/stardf-testkit",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-alloc-probe",
+   "dir": "crates/stardf-alloc-probe",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "YES 34641 B, carriage rows inside, in-tarball LICENSE+NOTICE byte-identical to canon",
+   "publish_blocker": "packages clean (no blocker)"
+  },
+  {
+   "crate": "stardf-toml",
+   "dir": "crates/stardf-toml",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "crate-specific 957B sha256=a03a4b1fac72c4ab48be163ee126c0925b5aac4df38b8bf82a6177d2f4b6c5b7",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 1,
+    "tp_files": [
+     "licenses/third-party/toml-test/0-MIT.txt"
+    ],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "offline resolution: =26.11.1 workspace dep not on crates.io (bootstrap ordering)"
+  },
+  {
+   "crate": "stardf-rs",
+   "dir": "crates/stardf-purrdf",
+   "declared": "MIT OR Apache-2.0 OR MulanPSL-2.0 (license.workspace=true)",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "canon-670B",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 0,
+    "tp_files": [],
+    "prov_root": 1
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep stardf-datalog"
+  },
+  {
+   "crate": "stardf-core",
+   "dir": "crates/stardf-rdf-core",
+   "declared": "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0",
+   "lic_sha256": {
+    "LICENSE-MIT": "958c0e61f0ccde102a636644133533b4c76c939765acdbb790791f68546000f3",
+    "LICENSE-APACHE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "LICENSE-MULAN": "eb7a1d713eb919b146787629e22e4c975cb701f529a65d4d7e0fcd417558bf1c"
+   },
+   "lic_identical_to_canon": true,
+   "notice": "crate-specific 948B sha256=ec2747c083a69048c6a9aa64d498cc0285bb18f9c04790a2e10cf46a18555203",
+   "list_gate_exit": 0,
+   "list_replay_exit": 0,
+   "replay_lists_byte_identical": true,
+   "carriage_rows_packaged": {
+    "lic": 3,
+    "notice": 1,
+    "tp": 1,
+    "tp_files": [
+     "licenses/third-party/unicode/0-Unicode-3.0.txt"
+    ],
+    "prov_root": 2
+   },
+   "third_party_packaged_matches_disk": true,
+   "real_tarball": "not assembled (see publish_blocker)",
+   "publish_blocker": "manifest-verify refusal: unversioned dep stardf-branchless"
+  }
+ ],
+ "per_crate_note": "Rows built mechanically from witnessed gate outputs this session: package-list files parsed at build time; declared licenses read from manifests via tomllib (license.workspace resolved to workspace tri-license); blockers parsed from real cargo logs. All 22 rows: lic_identical_to_canon=true, list_gate_exit=0, replay_lists_byte_identical=true, third_party_packaged_matches_disk=true.",
+ "replay": {
+  "status": "WITNESSED",
+  "comment": "List-gate replay pair byte-identical over all 22 specs; 3 leaf tarball sizes replay-identical to lane-11 r2 (145882/135460/34641 B); arrow-core 40132 B tarball NEW after lane-09 decouple."
+ },
+ "standing": "ALIVE",
+ "nonclaims": [
+  "no publish (dry-run packaging only; registry untouched); zero git commands this lane (coordinator owns commits/tags)",
+  "no license file was modified or copied: fix-by-canonical-copy is vacuously satisfied (66/66 census found zero gaps)",
+  "tarball-level carriage witnessed for 4 leaves only; the other 18 closure crates carry list-level carriage witnesses (packaged rows == on-disk rows exactly) - tarball self-containment for those 18 is an inference, not a built-tarball witness",
+  "full offline packaging remains refused for 18 non-leaf crates (4 manifest-verify + 14 offline-resolution): pre-existing classified classes, coordinator/CI phase (leaf-first crates.io bootstrap); not fixed by this lane, outside its lease",
+  "stardf-arrow-bench declared license remains MIT-only while 3 license files present (files precede arbitration; lane 07 lease) - carried from r2",
+  "crates/stardf-arrow (stardf-arrow-rs) remains an internal path-only member with NO license carriage on disk - out of declared footprint, observation only (carried from r2)",
+  "crates/PROVENANCE-one-package.md referenced by the root manifest comment still does not exist on disk (pre-existing drift, carried from r1/r2)",
+  "vendored NOTICE.txt/inventory.json reference upstream-layout paths that do not resolve in this tree (upstream-verbatim content) - carried from r2",
+  "tree digest excludes target/target-lane13 and is prefix-relative inside stardf/arrow; comparable only against receipts using the identical find expression",
+  "head SHA cited from the session gitStatus snapshot, marked as-of-session-start (zero git commands this lane); the fresh identity witness is the tree digest",
+  "stardf-text and stardf-rdf-core-slice (Unicode conjuncts outside the closure 22) carry full carriage on disk - observation, not actuated"
+ ]
+}

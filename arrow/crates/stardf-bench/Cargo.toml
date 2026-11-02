@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-bench"
+description = "Benchmark tooling: deterministic scale and native university corpus generation and verification"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords = ["rdf", "benchmark", "corpus"]
+categories = ["development-tools::testing"]
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "bench-corpus"
+path = "src/main.rs"
+
+[[bin]]
+name = "lubm-corpus"
+path = "src/lubm_main.rs"
+
+[[bin]]
+name = "lubm-check"
+path = "src/lubm_check_main.rs"
+
+[dependencies]
+# The generator's SplitMix64 stream is `purrdf_hash::mix`, the zero-dependency
+# root every crate may reach. W3C terms come from their shared vocabulary home.
+# Actual graph and query-result acceptance uses the existing RDF/model and
+# SPARQL Results homes rather than a private scanner or result parser.
+stardf-hash = { workspace = true }
+stardf-iri = { workspace = true }
+stardf-xsd = { workspace = true }
+stardf-lex = { workspace = true }
+stardf-rdf = { workspace = true }
+stardf-sparql-results = { workspace = true }
+
+[dev-dependencies]
+# Test-only: parse the --manifest JSON contract in the CLI integration tests.
+stardf-lex = { workspace = true }
+# Test-only: the base16 reader and writer the percent-escape checks spell octets with.
+stardf-hash = { workspace = true }
+# Test-only: the workspace root the make-driven tests run `make` from.
+stardf-testkit = { workspace = true }

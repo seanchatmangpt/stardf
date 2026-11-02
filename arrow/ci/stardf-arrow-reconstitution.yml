@@ -1,0 +1,276 @@
+# ============================================================================
+# DRAFT - Lane 15 finish (GL-STARDF-001). STAGED DRAFT ONLY. Not wired.
+# Do not merge as-is; see PLACEMENT DECISION below.
+#
+# WIRING TRUTH (re-verified on disk 2026-10-31):
+#   - NOT SPIRED into .github/workflows/ci.yml. ci.yml top-level jobs are
+#     exactly: verify, bounded-planning-replay, dsrust-reconstitution,
+#     docs-pack-reconstitution (4 jobs; no stardf job). This file remains in
+#     stardf/arrow/ci/ where GitHub does not read it.
+#   - .github/expected-workflows.txt = 3 entries
+#     (after-code-reading-crown.yml, ci.yml, v26-9-28-crown.yml); inventory
+#     delta zero, as the Option A plan requires.
+#   - ONE-COMMAND SPLICE (validated by dry-run into a /tmp copy of ci.yml +
+#     yaml.safe_load: parses clean, 5 jobs, stardf job = 10 steps,
+#     ubuntu-24.04, timeout 25):
+#
+#     sed -n '/^#   stardf-arrow-reconstitution:/,/^#           retention-days: 14/p' \
+#       stardf/arrow/ci/stardf-arrow-reconstitution.yml \
+#       | sed 's/^# //' >> .github/workflows/ci.yml
+#
+#     (pattern-anchored, not line-numbered: picks the job key through the
+#     final upload step from the fenced block below; dedents it to the 2-space
+#     indent ci.yml's `jobs:` key expects; appends after
+#     docs-pack-reconstitution. No trigger or expected-workflows.txt change.)
+#
+# PLACEMENT DECISION: OPTION A - extend .github/workflows/ci.yml by appending
+# the job block fenced at the bottom of this file as a new top-level job
+# (alongside dsrust-reconstitution / docs-pack-reconstitution). Rationale:
+# single-purpose job, no independent trigger surface, and
+# .github/expected-workflows.txt stays at its current 3 entries
+# (after-code-reading-crown.yml, ci.yml, v26-9-28-crown.yml) - no inventory
+# delta. Option B (new workflow file under .github/workflows/) requires a 4th
+# expected-workflows.txt entry and is rejected.
+#
+# The YAML below the header is a standalone-parseable STAGING COPY of the job
+# (kept here only for yaml.safe_load validation). The fenced block at the
+# bottom is the authoritative Option A artifact for the operator. This file
+# must NOT be moved into .github/workflows/ - GitHub would read it there and
+# the workflow inventory gate would fail against the 3-entry list.
+#
+# DEPENDENCY STATUS (re-verified on disk 2026-10-31):
+#   - scripts/verify.py --emit-receipt <path> HAS LANDED (flag registered in
+#     scripts/verify.py; emit_receipt() in the same file). Local court runs
+#     green THIS session: two runs produce an identical receipt_sha256
+#     (ceaf5a25f0ddd1d9... prefix witnessed 2026-10-31; supersedes the older
+#     1b29abcdedfcb4a3... prefix cited by the receipt lane — substrate
+#     evolved under the file), standing "UNKNOWN", 3/3 checks passed,
+#     errors[] empty.
+#   - ANTI-VACUITY court re-run green this session: verify.py --mutate
+#     drop-export exits 1 with "[PASS] anti-vacuity: drop-export mutation
+#     correctly FAILed the checks" (exit 1 is the expected mutated-run
+#     refusal; the CI step's if/exit-1 turns it into a step pass).
+#   - The receipt's `standing` field is "UNKNOWN" BY CONTRACT (verify.py
+#     nonclaims row: standing is witnessed externally, never self-asserted by
+#     the script). The court therefore asserts receipt_sha256 equality, all
+#     checks[] rows passed, and errors[] empty - NOT standing == "ALIVE".
+#     Job-level ALIVE is the whole job going green in CI, witnessed by the
+#     uploaded receipt artifact, not a receipt self-claim.
+#
+# AS-BUILT NONCLAIMS (current tree, 2026-10-31):
+#   - cargo test --workspace --locked is STILL RED in this checkout, but the
+#     failing target MOVED. The previously-cited
+#     crates/stardf-arrow-capi/tests/alloc_identity.rs E0425 `bucket` error is
+#     GONE (that target now compiles: `cargo test -p stardf-arrow-capi
+#     --locked --no-run` exits 0, all 5 test targets built). Current blocker
+#     is crates/stardf-shapes: test targets `ontology_schema_surface` and
+#     `emitter_projections` fail E0433 (unresolved crate `purrdf_jsonschema`;
+#     tests reference purrdf_jsonschema:: but stardf-shapes Cargo.toml
+#     declares no such dev-dependency — rename residue, owned by the shapes
+#     lane). The "Execute stardf-arrow workspace baseline" step stays red
+#     until the shapes lane lands its fix.
+#   - Nothing in this lane ran in GitHub Actions; all receipts here are local
+#     (macOS, python3 + locally installed rdflib).
+#   - The anti-vacuity step drops `set -e` deliberately: the mutation run is
+#     EXPECTED to exit non-zero; the explicit if/exit-1 is the assertion.
+#
+# ============================================================================
+name: stardf-arrow-reconstitution
+
+on:
+  pull_request:
+    paths:
+      - "stardf/arrow/**"
+      - "authority/stardf/**"
+  push:
+    branches: [main]
+    paths:
+      - "stardf/arrow/**"
+      - "authority/stardf/**"
+  workflow_dispatch:
+
+jobs:
+  stardf-arrow-reconstitution:
+    name: GL-STARDF-001 stardf-arrow reconstitution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact ggen-legacy subject
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact ggen-legacy checkout
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Assert stardf/arrow subtree present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f stardf/arrow/Cargo.toml
+          test -f stardf/arrow/scripts/verify.py
+      - name: Install stardf-arrow toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+          targets: wasm32-unknown-unknown,aarch64-unknown-linux-gnu
+      - name: Verify selected Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          rustc --version --verbose
+          cargo --version --verbose
+      - name: Install python verification deps
+        run: pip install rdflib
+      - name: Execute stardf-arrow workspace baseline
+        working-directory: stardf/arrow
+        run: cargo test --workspace --locked
+      - name: Manufacture deterministic receipt evidence twice
+        shell: bash
+        working-directory: stardf/arrow
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/receipts/run1 evidence/receipts/run2
+          python3 scripts/verify.py --emit-receipt evidence/receipts/run1/receipt.json
+          python3 scripts/verify.py --emit-receipt evidence/receipts/run2/receipt.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          a = json.loads(Path('evidence/receipts/run1/receipt.json').read_text())
+          b = json.loads(Path('evidence/receipts/run2/receipt.json').read_text())
+          assert a['receipt_sha256'] == b['receipt_sha256'], (a['receipt_sha256'], b['receipt_sha256'])
+          assert a.get('standing') == 'UNKNOWN', a.get('standing')
+          assert a['errors'] == [], a['errors']
+          assert all(c['passed'] for c in a['checks']), a['checks']
+          print(json.dumps({
+              'receipt_sha256': a['receipt_sha256'],
+              'checks_passed': len(a['checks']),
+              'errors': len(a['errors']),
+          }, sort_keys=True))
+          PY
+      - name: Anti-vacuity court (drop-export mutation must FAIL)
+        shell: bash
+        working-directory: stardf/arrow
+        run: |
+          set -uo pipefail
+          if python3 scripts/verify.py --mutate drop-export; then
+            echo "VACUOUS GATE: mutated substrate passed" >&2
+            exit 1
+          fi
+          echo "[PASS] mutation correctly refused."
+      - name: Upload stardf-arrow reconstitution evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: gl-stardf-001-stardf-arrow-${{ github.run_id }}
+          path: stardf/arrow/evidence/receipts/
+          if-no-files-found: error
+          retention-days: 14
+
+# OPTION A DIFF - append the fenced job below to .github/workflows/ci.yml,
+# aligned one level under the existing top-level `jobs:` key (after
+# docs-pack-reconstitution). ci.yml triggers are unscoped, so the minimal
+# diff is this job block alone; no trigger or expected-workflows.txt change.
+#
+# ```yaml
+# name: stardf-arrow-reconstitution
+#
+# on:
+#   pull_request:
+#     paths:
+#       - "stardf/arrow/**"
+#       - "authority/stardf/**"
+#   push:
+#     branches: [main]
+#     paths:
+#       - "stardf/arrow/**"
+#       - "authority/stardf/**"
+#   workflow_dispatch:
+#
+# jobs:
+#   stardf-arrow-reconstitution:
+#     name: GL-STARDF-001 stardf-arrow reconstitution
+#     runs-on: ubuntu-24.04
+#     timeout-minutes: 25
+#     steps:
+#       - name: Checkout exact ggen-legacy subject
+#         uses: actions/checkout@v4
+#         with:
+#           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+#           persist-credentials: false
+#       - name: Assert exact ggen-legacy checkout
+#         shell: bash
+#         env:
+#           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+#         run: |
+#           set -euo pipefail
+#           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+#       - name: Assert stardf/arrow subtree present
+#         shell: bash
+#         run: |
+#           set -euo pipefail
+#           test -f stardf/arrow/Cargo.toml
+#           test -f stardf/arrow/scripts/verify.py
+#       - name: Install stardf-arrow toolchain
+#         uses: dtolnay/rust-toolchain@master
+#         with:
+#           toolchain: nightly
+#           targets: wasm32-unknown-unknown,aarch64-unknown-linux-gnu
+#       - name: Verify selected Rust toolchain
+#         shell: bash
+#         run: |
+#           set -euo pipefail
+#           rustup show active-toolchain
+#           rustc --version --verbose
+#           cargo --version --verbose
+#       - name: Install python verification deps
+#         run: pip install rdflib
+#       - name: Execute stardf-arrow workspace baseline
+#         working-directory: stardf/arrow
+#         run: cargo test --workspace --locked
+#       - name: Manufacture deterministic receipt evidence twice
+#         shell: bash
+#         working-directory: stardf/arrow
+#         run: |
+#           set -euo pipefail
+#           mkdir -p evidence/receipts/run1 evidence/receipts/run2
+#           python3 scripts/verify.py --emit-receipt evidence/receipts/run1/receipt.json
+#           python3 scripts/verify.py --emit-receipt evidence/receipts/run2/receipt.json
+#           python3 - <<'PY'
+#           import json
+#           from pathlib import Path
+#           a = json.loads(Path('evidence/receipts/run1/receipt.json').read_text())
+#           b = json.loads(Path('evidence/receipts/run2/receipt.json').read_text())
+#           assert a['receipt_sha256'] == b['receipt_sha256'], (a['receipt_sha256'], b['receipt_sha256'])
+#           assert a.get('standing') == 'UNKNOWN', a.get('standing')
+#           assert a['errors'] == [], a['errors']
+#           assert all(c['passed'] for c in a['checks']), a['checks']
+#           print(json.dumps({
+#               'receipt_sha256': a['receipt_sha256'],
+#               'checks_passed': len(a['checks']),
+#               'errors': len(a['errors']),
+#           }, sort_keys=True))
+#           PY
+#       - name: Anti-vacuity court (drop-export mutation must FAIL)
+#         shell: bash
+#         working-directory: stardf/arrow
+#         run: |
+#           set -uo pipefail
+#           if python3 scripts/verify.py --mutate drop-export; then
+#             echo "VACUOUS GATE: mutated substrate passed" >&2
+#             exit 1
+#           fi
+#           echo "[PASS] mutation correctly refused."
+#       - name: Upload stardf-arrow reconstitution evidence
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: gl-stardf-001-stardf-arrow-${{ github.run_id }}
+#           path: stardf/arrow/evidence/receipts/
+#           if-no-files-found: error
+#           retention-days: 14
+# ```
+# ============================================================================

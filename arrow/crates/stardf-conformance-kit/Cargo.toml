@@ -1,0 +1,95 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+# Vendoring lane w2-l07 (2026-10-31): copy-and-rename of purrdf rev
+# 0da0578306983da851a9073337d57e2e2c41ab3a `crates/conformance-kit` ->
+# `stardf-conformance-kit`; lib name `purrdf_conformance_kit` stays VERBATIM
+# per the vendoring law. Only the package name, workspace-inherited scalars
+# (version/edition/license/repository/rust-version) and first-party dep keys
+# were touched. Gates in VENDOR-PROVENANCE.md.
+
+[package]
+name = "stardf-conformance-kit"
+description = "Portable parsed-input conformance metadata and exact RDF/result grading"
+version = "26.9.29"
+edition = "2024"
+publish = false
+repository = "https://github.com/seanchatmangpt/ggen-legacy"
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+rust-version = "1.98"
+
+[lib]
+path = "src/lib.rs"
+name = "purrdf_conformance_kit"
+
+[dependencies]
+# Full upstream closure, declared complete: dropping a declared dep is a
+# silent non-rename edit, banned by the vendoring law. Three members of the
+# closure are NOT yet vendored (stardf-core, stardf-sparql-results,
+# stardf-rdf); their path keys dangle by design until those waves land.
+# Membership in the stardf/arrow workspace is the integration decision that
+# unblocks on this closure (see VENDOR-PROVENANCE.md).
+stardf-core = { path = "../stardf-rdf-core" }
+stardf-iri = { path = "../stardf-iri" }
+stardf-lex = { path = "../stardf-lex" }
+stardf-hash = { path = "../stardf-hash" }
+stardf-sparql-results = { path = "../stardf-sparql-results" }
+
+[dev-dependencies]
+stardf-cdt = { path = "../stardf-cdt" }
+stardf-testkit = { path = "../stardf-testkit" }
+stardf-rdf = { path = "../stardf-rdf" }
+
+# Upstream `[lints] workspace = true` inlined VERBATIM from purrdf root
+# [workspace.lints] at the vendored rev (hash-lane posture).
+[lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+# Underscore spelling, not `rust-2018-idioms`: cargo deprecated the dashed form
+# and will stop honouring it in a future edition, at which point the whole lint
+# GROUP would silently stop applying.
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Pedantic/nursery opt-outs, each with a reason. Upstream verbatim.
+module_name_repetitions = "allow"     # purrdf_core::RdfDataset-style names are deliberate
+missing_errors_doc = "allow"          # error semantics live on the error types themselves
+missing_panics_doc = "allow"          # panics are programming errors, documented at the assert
+must_use_candidate = "allow"          # blanket #[must_use] adds noise; applied by hand where it guards bugs
+option_if_let_else = "allow"          # nursery: frequently less readable than the match it replaces
+redundant_pub_crate = "allow"         # nursery: conflicts with unreachable_pub on binary/test targets
+doc_markdown = "allow"                # 500+ backtick nits on spec terms (RDF/XML, JSON-LD)
+missing_const_for_fn = "allow"        # nursery: noisy and often wrong about intentionally non-const APIs
+too_long_first_doc_paragraph = "allow" # cosmetic doc layout only
+cast_possible_truncation = "allow"    # u32 id/offset space is asserted at construction; casts are deliberate
+cast_possible_wrap = "allow"          # ditto
+cast_sign_loss = "allow"              # ditto
+cast_precision_loss = "allow"         # XSD numeric promotion is spec-defined; losses are intentional
+unnecessary_wraps = "allow"           # Result-shaped codec seams are kept uniform even where infallible today
+unused_self = "allow"                 # method-shaped APIs kept uniform across backends
+many_single_char_names = "allow"      # s/p/o/g is the canonical RDF idiom
+similar_names = "allow"               # subject/predicate/object families trip this constantly
+too_many_lines = "allow"              # refactors are planned work, not lint chores
+single_match_else = "allow"           # stylistic; match reads better at codec branch points
+match_same_arms = "allow"             # duplicate arms often document distinct spec cases
+if_not_else = "allow"                 # stylistic
+items_after_statements = "allow"      # test-local helpers read better in place
+zero_sized_map_values = "allow"       # HashMap<K, ()> is used deliberately for entry-API patterns
+unnecessary_debug_formatting = "allow" # {:?} in diagnostics is deliberate; message text is golden-locked
+float_cmp = "allow"                   # XSD value-space equality is spec-exact by design
+
+[[test]]
+name = "grading"
+harness = false
+
+# (repair lane 2026-10-31) Standalone-root table REMOVED: the registered
+# premise ("three first-party deps not yet vendored — stardf-core,
+# stardf-sparql-results, stardf-rdf") is closed by the 80/20 bulk copy, and
+# the coordinator-owned membership decision is executed by this repair lane's
+# green-loop lease (root members list carries the crate). The crate joins the
+# shared workspace; VENDOR-PROVENANCE.md receipt unchanged.

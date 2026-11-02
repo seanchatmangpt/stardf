@@ -1,0 +1,162 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "kind": "finish-wave-receipt",
+  "date": "2026-10-31",
+  "lane": "finish-wave-lane-15",
+  "branch": "fix/v26.9.29-ci-gates",
+  "subject": {
+    "parent_head": "c9f8028ced8c89feb7eb5d6e0fcb651bb3fd1781 (read-only `git rev-parse HEAD`; stardf/ untracked in parent; tree still uncommitted at receipt time)",
+    "tree_digest": "edd592b616bdd716433af563c5a8efd7113ca72dd8725127b7ab4816eed34e2a",
+    "digest_method": "whole-tree sha256 over all files under stardf/arrow/ excluding */target via `find . -path \"*/target\" -prune -o -type f -print | grep -v '/target/' | sort | xargs shasum -a 256 | shasum -a 256`, computed BEFORE this receipt file was written; this file postdates the digest; 117 files",
+    "file_count": 117
+  },
+  "poll": {
+    "target": "lane 6 (columnar)",
+    "method": "bounded filesystem poll for tree stability after lane 6's landings, plus read of lane-6-keyed on-disk artifacts; no lane-6 receipt file exists under evidence/",
+    "observed": "crates/stardf-columnar/Cargo.toml mtime 13:47 (crate made a workspace member in the root Cargo.toml under a lane-9 comment; src/ tree: lib, parquet(+dir), schema, column, writer, reader, projection, compact, error(+dir), files, plain_bench, smoke, vendor/; tests/: golden_bytes.rs, seam_courts.rs, disabled/; licenses/ + PROVENANCE.md present); scripts/check-columnar-oracle.sh, scripts/verify_blake3_identity.sh, scripts/verify_duckdb_rehome.sh, scripts/columnar_manifest.sha256, examples/columnar_oracle_fixture.rs, docs/DECISION-BRIEFS/R1-blake3-receipt-admission.md all landed; tree stable (no files newer than w1-closure receipt) at poll exit 13:51",
+    "lane6_standing_as_observable": "PARTIAL_ALIVE-as-observable — the landing is witnessed on disk and by this lane's own gate runs below; NO lane-6 receipt artifact exists on disk, so per-command attribution inside the landing is not quotable"
+  },
+  "per_lane_standing": {
+    "note": "Finish-wave per-lane standing recorded ONLY where an on-disk artifact or this lane's own run resolves it. Dispatch designators (S8-S16, W1 lanes 1-14, finish-wave lanes) do not all resolve to disk; unknowns stay UNKNOWN, not guessed (three concurrent naming schemes: S-wave, W1-wave, finish-wave — see conflict log).",
+    "lane1": "UNKNOWN — no on-disk artifact keyed to finish-wave lane 1 resolves; construction-wave receipts exist only in parent-session wave reports. source:none-on-disk",
+    "lane2": "UNKNOWN as receipt — observable: tickets/GL-STARDF-002-freeze-expansion.md (D9 evidence, DRAFT-PENDING-OPERATOR-RATIFICATION); no receipt artifact. source:artifact-no-receipt",
+    "lane3": "UNKNOWN — no on-disk artifact resolves. source:none-on-disk",
+    "lane4": "UNKNOWN as receipt — observable: stardf/docs/jira/v26.10.31/11-blake3-arbitration.md + docs/DECISION-BRIEFS/R1-blake3-receipt-admission.md + scripts/verify_blake3_identity.sh (landed); no receipt artifact; BLAKE3 UNSIGNED. source:artifact-no-receipt",
+    "lane5": "UNKNOWN — no on-disk artifact resolves. source:none-on-disk",
+    "lane6": "PARTIAL_ALIVE-as-observable — columnar landing witnessed on disk and by this lane's runs (golden_bytes 5/1i pass, columnar_integration 1/1 pass, both exit 0, this receipt); no receipt artifact keyed lane 6. source:on-disk+lane-run",
+    "lane7": "UNKNOWN as receipt — observable: root Cargo.toml comment credits lane 7 with the bench member promotion (and the same comment block now carries the lane-9 columnar member line); no receipt artifact. source:artifact-no-receipt",
+    "lane8": "UNKNOWN — no on-disk artifact resolves. source:none-on-disk",
+    "lane9": "On-disk: docs/RECEIPTS.md LANE-9 row — verify.py gate PARTIAL_ALIVE (local gate only); verify.py → 0, --mutate drop-export → 1 (flip witnessed); replay WITNESSED, receipt sha 1b29abcd…. source:on-disk-row",
+    "lane10": "UNKNOWN — no on-disk artifact resolves. source:none-on-disk",
+    "lane11": "On-disk: docs/RECEIPTS.md LANE-11 row — completion truth pass #2, PARTIAL_ALIVE; core 33, capi all targets green, workspace → 1 (anti_vacuity 1/3 only red), clippy/fmt 0 at its receipt time. source:on-disk-row",
+    "lane12": "UNKNOWN — no on-disk artifact resolves. source:none-on-disk",
+    "lane13": "UNKNOWN as receipt — no artifact keyed to W1-wave lane 13 resolves; its only trace is the co-authorship conflict entry (S14/W1-13, see conflict_log G4). source:none-on-disk",
+    "lane14": "UNKNOWN as receipt — observable: ggen.toml [ontology]/[packs] route on disk; no receipt artifact. source:artifact-no-receipt",
+    "lane15_prior": "On-disk: evidence/replay-2026-10-31.json — an EARLIER lane also numbered 15 (completion-lane-15, S-wave). PARTIAL_ALIVE: verify-receipt pair PASS (sha b0ad3281…), purrdf-contract-extract pair PASS (extractor sha-stable 8a9df387…; verify_stardf_ontology.py exit 0: 4951 triples, 128 AbiFunction, 100% census of 126 purrdf.h functions, SHACL 0 violations), bench-determinism pair PARTIAL (throughput variance under concurrent load). Name collision recorded, not merged. source:on-disk-receipt",
+    "lane16_wave_finish": "On-disk: evidence/wave-finish-lane16-2026-10-31.json — PARTIAL_ALIVE at its receipt-time tree (332392fa…, 45 files); several rows superseded later. Name collision: a SECOND lane-16 (w1-closure) also used number 16. source:on-disk-receipt",
+    "lane16_w1_closure": "On-disk: evidence/w1-closure-2026-10-31.json — PARTIAL_ALIVE at tree fe9e2e1f… (93 files); verify.py pair sha cb57ce4e… identical to lane-18's. source:on-disk-receipt",
+    "lane18": "On-disk: evidence/columnar-wave-2026-10-31.json + evidence/manufacturing-receipt-2026-10-31.json — PARTIAL_ALIVE; S8-S16 recorded UNKNOWN-on-disk; manufacturing receipt carries the full session command ladder. source:on-disk-receipt",
+    "s9_s10_s12": "UNKNOWN — dispatch named S9/S10/S12 as stragglers; no artifact keyed S9, S10, or S12 resolves anywhere under stardf/ (searched filenames and file contents). Recorded as observable-absent, not guessed. source:none-on-disk",
+    "overall": "PARTIAL_ALIVE"
+  },
+  "checks": [
+    {
+      "id": "columnar-golden-bytes",
+      "passed": true,
+      "count": 5,
+      "comment": "THIS LANE'S RUN on the final tree: cargo test -p stardf-columnar --test golden_bytes → exit 0, 5 passed / 0 failed / 1 ignored (manifest_mirrors_the_pinned_digests, flipping_a_byte_moves_the_digest, writing_twice_is_byte_identical, seeded_files_are_the_pinned_bytes, read_back_rewrites_the_same_bytes)."
+    },
+    {
+      "id": "capi-columnar-integration",
+      "passed": true,
+      "count": 1,
+      "comment": "THIS LANE'S RUN on the final tree: cargo test -p stardf-arrow-capi --test columnar_integration → exit 0, 1 passed / 0 failed (w_columnar_arena_roundtrip_is_lossless_and_row_counts_cross_check). 4 lib warnings on stardf-columnar during build (unused_variables class) — disclosed, not gating."
+  },
+    {
+      "id": "verify-py-replay-pair",
+      "passed": true,
+      "count": 2,
+      "comment": "THIS LANE'S RUN on the final tree: python3 scripts/verify.py --emit-receipt x2 → both exit 0 ('[ALL PASS] stardf-arrow substrate verified.'; 109 triples, 22 individuals, 13==13==13 three-way parity); cmp -s → exit 0; both receipts sha256 cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef — same sha as the lane-18 and w1-closure witnesses across trees 58 → 93 → 117 files."
+    },
+    {
+      "id": "tree-digest-at-receipt-time",
+      "passed": true,
+      "count": 117,
+      "comment": "Whole-tree digest edd592b6… over 117 files (excluding */target) computed pre-receipt-write; tree grew 50 → 58 → 93 → 117 across consolidated → columnar-wave → w1-closure → this receipt."
+    },
+    {
+      "id": "no-git-mutations",
+      "passed": true,
+      "count": 1,
+      "comment": "Only read-only git (rev-parse HEAD, status --porcelain) executed by this lane. Working tree uncommitted; parent untracked set grew mid-session (docs/DECISION-BRIEFS/, scripts/extract_stardf_arrow.py, scripts/extract_stardf_columnar.py appeared vs the manufacturing receipt's listing)."
+    },
+    {
+      "id": "workspace-ladder-post-columnar",
+      "passed": false,
+      "count": 0,
+      "comment": "NOT RUN by this lane — the post-columnar full workspace ladder (cargo test --workspace --no-fail-fast) was not in this lane's contract command set and was not executed; the pre-columnar 69/0 arbiter witness is therefore the LAST witnessed workspace count and is superseded in kind (member set changed), not by a fresh count. See nonclaims."
+    }
+  ],
+  "conflict_log": [
+    {
+      "id": "G1",
+      "observation": "S-wave dispatch named per-lane receipts S8-S16 (stragglers S9/S10/S12 named explicitly in this lane's contract); no artifact under any S-designator exists on disk (also recorded by lane-18 and w1-closure receipts)",
+      "superseding": "on-disk receipts are keyed LANE-9/11/15/16 + wave-consolidated + columnar-wave + manufacturing + w1-closure + this finish-wave receipt; per-lane standing recorded only where it resolves",
+      "resolution": "S-designators never survived to disk; recorded, not guessed; S9/S10/S12 = UNKNOWN-as-observable",
+      "source": "lane-run"
+    },
+    {
+      "w1": true,
+      "observation": "W1-wave vs finish-wave numbering collision: TWO distinct lanes used number 16 (wave-finish-lane16 and w1-closure-lane-16) and TWO used number 15 (S-wave completion-lane-15 and this finish-wave lane 15)",
+      "superseding": "each keyed receipt remains on disk unmerged; this receipt keys them by artifact filename, not by lane number",
+      "resolution": "lane numbers are not unique keys across waves; artifact filenames are the register of truth",
+      "source": "on-disk-receipts"
+    },
+    {
+      "id": "G3",
+      "observation": "Three pre-columnar arbiter witnesses recorded cargo test --workspace 69/0 (docs/jira/v26.10.31/06-phase0-columnar-sql-duckdb.md:134, 'final arbiter ladders (F7 + C2) witnessed cargo test --workspace 69/0 with stream_courts 6/6') — a workspace WITHOUT stardf-columnar as a member",
+      "superseded_by": "lane 6's columnar landing: crates/stardf-columnar is now a workspace member (root Cargo.toml landed 13:47), so the 69/0 witness describes a member set that no longer exists",
+      "resolution": "the three 69/0 arbiter receipts are superseded by lane 6's landing; the post-columnar workspace count is UNWITNESSED by this lane (ladder not run — not in contract command set) and stays UNKNOWN, never read as 69/0",
+      "source": "on-disk-docs+lane-run"
+    },
+    {
+      "id": "G4",
+      "observation": "Mid-wave supersession: S14 and W1-13 concurrently authored the same gate file (scripts/verify.py). Observable chain: F16's receipt-time grep found NO --emit-receipt flag; the flag is now at scripts/verify.py:136 (emit_receipt() at :296) and every later lane (consolidated, lane-18, w1-closure, this lane) ran the replay pair THROUGH it, all emitting sha cb57ce4e…",
+      "superseding": "concurrent authorship of a shared gate file is real and produced a stable artifact: verify.py output is byte-stable across trees 50 → 58 → 93 → 117 files",
+      "resolution": "co-authorship recorded; the gate's emitted output stayed sha-identical across all witnesses, so no divergence between the two authors' expectations is observable",
+      "source": "on-disk-receipts+lane-run"
+    },
+    {
+      "id": "G5",
+      "observation": "w1-closure K4 recorded stardf-columnar as 'ONE un-compilable test file, NOT a crate; NOT a workspace member' at ~13:25",
+      "superseding": "at this receipt's time the crate carries Cargo.toml (member of the root workspace, landed 13:47), full src/ tree, tests (golden_bytes 5/1i, seam_courts), licenses/ + PROVENANCE.md — and compiles + passes this lane's two columnar gates",
+      "resolution": "later disk truth outranks earlier; K4's 'still not a member' clause is itself superseded as of 13:47",
+      "source": "lane-run"
+    },
+    {
+      "id": "G6",
+      "observation": "consolidated receipt (12:58) witnessed anti_vacuity 1/3 (exit 101) and capi lib-test compile-abort E0308 x2; LANE-11 row and manufacturing receipt (later) record all-green capi targets, anti_vacuity 1/3 (fixture drift), clippy/fmt exit 0",
+      "superseding": "the latest consistent witnesses (LANE-11 + manufacturing + lane-18 C4) hold: anti_vacuity 1/3 fixture-drift class stands; the E0308 compile-abort was mid-wave and repaired by its owning lane; this lane did NOT re-run either court",
+      "resolution": "standing follows the latest consistent witness, not the most favorable single run; the two rows are carried forward UNWITNESSED by this lane",
+      "source": "on-disk-receipts"
+    },
+    {
+      "id": "G7",
+      "observation": "manufacturing receipt fmt witness: exit 1 at first witness (~20:00 note) then exit 0 on mid-wave recheck; consolidated (12:58) witnessed fmt exit 1 again (bench main.rs:285 + capi lib.rs:431)",
+      "superseding": "no fmt run by this lane; the latest on-disk witnesses disagree in time, direction alternating with concurrent repairs",
+      "resolution": "fmt standing at THIS receipt's time is UNWITNESSED — recorded UNKNOWN, not inferred from either side",
+      "source": "on-disk-receipts"
+    }
+  ],
+  "commands": [
+    { "cmd": "cargo test -p stardf-columnar --test golden_bytes", "exit": 0, "comment": "5 passed / 0 failed / 1 ignored" },
+    { "cmd": "cargo test -p stardf-arrow-capi --test columnar_integration", "exit": 0, "comment": "1 passed / 0 failed; 4 lib warnings (unused_variables class) on stardf-columnar during build" },
+    { "cmd": "python3 scripts/verify.py --emit-receipt /tmp/l15f_r1.json", "exit": 0, "comment": "109 triples, 22 individuals, 13==13==13 three-way parity" },
+    { "cmd": "python3 scripts/verify.py --emit-receipt /tmp/l15f_r2.json", "exit": 0 },
+    { "cmd": "cmp -s /tmp/l15f_r1.json /tmp/l15f_r2.json", "exit": 0, "comment": "replay pair byte-identical; sha256 cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef (both runs, matching lane-18 and w1-closure witnesses)" },
+    { "cmd": "shasum -a 256 /tmp/l15f_r1.json /tmp/l15f_r2.json", "exit": 0 },
+    { "cmd": "find . -path \"*/target\" -prune -o -type f -print | grep -v '/target/' | wc -l && find . -path \"*/target\" -prune -o -type f -print | grep -v '/target/' | sort | xargs shasum -a 256 | shasum -a 256", "exit": 0, "comment": "117 files; edd592b616bdd716433af563c5a8efd7113ca72dd8725127b7ab4816eed34e2a, computed pre-receipt-write" },
+    { "cmd": "git rev-parse HEAD && git status --porcelain (read-only)", "exit": 0, "comment": "parent HEAD c9f8028…; untracked set grew mid-session (docs/DECISION-BRIEFS/, extract_stardf_arrow.py, extract_stardf_columnar.py new vs manufacturing-receipt listing)" }
+  ],
+  "replay": {
+    "status": "WITNESSED",
+    "comment": "verify.py --emit-receipt pair on the FINAL tree: both exit 0, cmp exit 0, sha cb57ce4e… identical across all four witnessing lanes and trees 50 → 117 files."
+  },
+  "standing": "PARTIAL_ALIVE",
+  "nonclaims": [
+    "avec gate NOT RUN in avec — avec-ffi path-dep never wired (rev 67c0ec1b paper-pinned); no avec test executed by any lane this session",
+    "SQL not dispatched — D12 PENDING-OPERATOR; no SQL-cycle work executed",
+    "duckdb not dispatched — D13 PENDING-OPERATOR; scripts/verify_duckdb_rehome.sh landed on disk but no duckdb artifact or gate run witnessed",
+    "BLAKE3 UNSIGNED — no BLAKE3 attestation/signing witnessed; D10 PENDING-SIGN-OFF; blake3 1.8.5-declared/1.8.7-lock drift unresolved",
+    "freeze UNRATIFIED — tickets/GL-STARDF-002-freeze-expansion.md is DRAFT-PENDING-OPERATOR-RATIFICATION (D9)",
+    "commit NOT EXECUTED — no c1-c6 commit from D14 landed; parent HEAD still c9f8028 with the whole substrate untracked; no git mutations by this lane",
+    "cache-absent duckdb compile UNWITNESSED — no run with $HOME/.frozen-duckdb and /Users/sac/frozen-duckdb renamed away; the rehome falsifier has never been executed",
+    "post-columnar workspace ladder NOT RUN by this lane — the pre-columnar 69/0 count is the last witnessed workspace number and is superseded in kind (member set changed); post-columnar workspace count is UNKNOWN, never read as 69/0",
+    "anti_vacuity and capi unit courts NOT re-run by this lane — standing carried from LANE-11/manufacturing witnesses (anti_vacuity 1/3 fixture-drift class; capi unit last witnessed 22/22 under nightly 1.98, compile-aborted under 1.101 mid-wave, later repaired per LANE-11); fmt standing at receipt time UNWITNESSED",
+    "S8-S16 per-lane receipts NOT on disk; S9/S10/S12 = UNKNOWN-as-observable; finish-wave lanes 1/3/5/8/10/12 unresolved",
+    "lane-6 per-command attribution NOT quotable — the columnar landing is witnessed on disk and by this lane's runs, but no lane-6 receipt artifact exists",
+    "CI not run in Actions — ci/stardf-arrow-reconstitution.yml never witnessed executing; all gates local runs only",
+    "no slice claimed ALIVE unqualified — every ALIVE-class witness here is local",
+    "no git operations performed by this lane (read-only git only)"
+  ]
+}

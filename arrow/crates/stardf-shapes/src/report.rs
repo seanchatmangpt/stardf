@@ -1,0 +1,3607 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! SHACL validation report types and serialization.
+//!
+//! [`ValidationReport`] is the in-memory representation of a SHACL report
+//! graph. `to_dataset()` materializes that graph as a frozen PurRDF
+//! [`RdfDataset`] — the report's PRIMAL RDF form — and `to_ntriples()` is a
+//! serialization of exactly that dataset. A caller who wants any other syntax
+//! takes `to_dataset()` straight to `serialize_dataset`, with no N-Triples
+//! parse round-trip in between.
+//! `tuples_from_ntriples()` round-trips back to the same tuple set for testing.
+
+use std::collections::BTreeSet;
+use std::convert::Infallible;
+use std::ops::ControlFlow;
+use std::sync::Arc;
+
+use ::purrdf_rdf::RdfDatasetBuilder;
+use ::purrdf_rdf::provenance::Attribution;
+use ::purrdf_rdf::{FastMap, FastSet};
+use ::purrdf_rdf::{RdfQuad, RdfTerm, SerializeGraph, serialize_dataset};
+
+use ::purrdf_rdf::RdfDataset;
+
+use crate::data::{GraphFilter, native_quads};
+use crate::error::ShapesError;
+use crate::model::{rdf, sh, xsd};
+use crate::term::{Literal, NamedNode, Term};
+
+/// Evidence attached by the evaluator to one result, including its recursive
+/// details. It travels with the value throughout sorting and serialization.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ResultEvidence {
+    pub(crate) source_constraint: Option<Term>,
+    pub(crate) details: Vec<Self>,
+}
+
+/// A result captured at its actual constraint occurrence.
+#[derive(Debug)]
+pub(crate) struct ResultRecord {
+    pub(crate) value: ValidationResult,
+    pub(crate) evidence: ResultEvidence,
+}
+
+impl ResultRecord {
+    /// Capture a result without a SPARQL source constraint. Details produced
+    /// directly by Core share this default evidence; evaluated details supply
+    /// their own occurrence evidence.
+    pub(crate) fn plain(value: ValidationResult) -> Self {
+        Self {
+            value,
+            evidence: ResultEvidence::default(),
+        }
+    }
+}
+
+/// A refusal to attach a source identity to a changed or unrecorded constraint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceConstraintRefusal {
+    shape: Term,
+    property: bool,
+    index: usize,
+}
+
+impl SourceConstraintRefusal {
+    /// The source shape containing the refused occurrence.
+    #[must_use]
+    pub const fn shape(&self) -> &Term {
+        &self.shape
+    }
+
+    /// Whether the occurrence belongs to a property shape.
+    #[must_use]
+    pub const fn is_property(&self) -> bool {
+        self.property
+    }
+
+    /// The constraint's position in that shape's parsed constraint list.
+    #[must_use]
+    pub const fn index(&self) -> usize {
+        self.index
+    }
+}
+
+impl std::fmt::Display for SourceConstraintRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "constraint {} on {} has no matching original source occurrence",
+            self.index, self.shape
+        )
+    }
+}
+
+impl std::error::Error for SourceConstraintRefusal {}
+
+/// A dated query execution lacks the declaration evidence required by its
+/// actual source role. Query text or supplied values cannot establish that role.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuerySourceRefusal {
+    profile: crate::profile::ShaclProfile,
+    purpose: Option<crate::profile::QueryPurpose>,
+    source: Term,
+    index: Option<usize>,
+}
+
+impl QuerySourceRefusal {
+    pub(crate) const fn new(
+        profile: crate::profile::ShaclProfile, purpose: Option<crate::profile::QueryPurpose>,
+        source: Term, index: Option<usize>,
+    ) -> Self {
+        Self {
+            profile,
+            purpose,
+            source,
+            index,
+        }
+    }
+
+    /// The law requiring original declaration evidence.
+    #[must_use]
+    pub const fn profile(&self) -> crate::profile::ShaclProfile {
+        self.profile
+    }
+
+    /// The known execution role. `None` means the missing declaration is the
+    /// only authority distinguishing roles of the closed public model variant.
+    #[must_use]
+    pub const fn purpose(&self) -> Option<crate::profile::QueryPurpose> {
+        self.purpose
+    }
+
+    /// The authored declaration when known, or the shape, rule or expression
+    /// containing an occurrence whose declaration evidence is absent.
+    #[must_use]
+    pub const fn source(&self) -> &Term {
+        &self.source
+    }
+
+    /// Its parser-slot ordinal when the source role has one.
+    #[must_use]
+    pub const fn index(&self) -> Option<usize> {
+        self.index
+    }
+}
+
+impl std::fmt::Display for QuerySourceRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{:?} on {} has no matching declaration evidence under {}",
+            self.purpose, self.source, self.profile
+        )
+    }
+}
+
+impl std::error::Error for QuerySourceRefusal {}
+
+/// A query solution explicitly declared validation failure, rather than a
+/// constraint violation. The producing constraint and focus remain available.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SemanticFailure {
+    focus: Term,
+    source_constraint: Option<Term>,
+}
+
+impl SemanticFailure {
+    /// The focus node being evaluated when the failure was declared.
+    #[must_use]
+    pub const fn focus(&self) -> &Term {
+        &self.focus
+    }
+
+    /// The actual `sh:sparql` source node when this was a SPARQL constraint.
+    #[must_use]
+    pub const fn source_constraint(&self) -> Option<&Term> {
+        self.source_constraint.as_ref()
+    }
+}
+
+impl std::fmt::Display for SemanticFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "SPARQL solution declared validation failure at {}",
+            self.focus
+        )
+    }
+}
+
+impl std::error::Error for SemanticFailure {}
+
+/// A validation stopped by its actual execution governor. No partial report is
+/// carried because it cannot establish conformance.
+#[derive(Debug, Clone)]
+pub struct ResourceRefusal {
+    tripped: purrdf_sparql_eval::TrippedGovernor,
+    evidence: purrdf_sparql_eval::GovernorEvidence,
+}
+
+impl ResourceRefusal {
+    /// The governor that stopped this operation.
+    #[must_use]
+    pub const fn tripped(&self) -> purrdf_sparql_eval::TrippedGovernor {
+        self.tripped
+    }
+
+    /// Actual consumption and ceilings at the refusal.
+    #[must_use]
+    pub const fn evidence(&self) -> &purrdf_sparql_eval::GovernorEvidence {
+        &self.evidence
+    }
+}
+
+impl std::fmt::Display for ResourceRefusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "validation execution governor tripped: {}",
+            self.tripped
+        )
+    }
+}
+
+impl std::error::Error for ResourceRefusal {}
+
+/// Identity of one retained source acquisition. Equal graph bytes do not imply
+/// equal source identity; clones of this handle deliberately share identity.
+#[derive(Clone)]
+pub struct ReportSource {
+    dataset: Arc<RdfDataset>,
+}
+
+impl std::fmt::Debug for ReportSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ReportSource")
+            .field("terms", &self.dataset.term_count())
+            .field("quads", &self.dataset.quad_count())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for ReportSource {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.dataset, &other.dataset)
+    }
+}
+
+impl Eq for ReportSource {}
+
+impl ReportSource {
+    /// The exact immutable source, kept alive by this handle.
+    #[must_use]
+    pub const fn dataset(&self) -> &Arc<RdfDataset> {
+        &self.dataset
+    }
+}
+
+/// Original scoped identity of a carried blank node.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceBlank {
+    source: ReportSource,
+    scope: purrdf_core::BlankScope,
+    label: String,
+}
+
+impl SourceBlank {
+    /// The retained source acquisition of this blank.
+    #[must_use]
+    pub const fn source(&self) -> &ReportSource {
+        &self.source
+    }
+
+    /// Its original source-local blank scope.
+    #[must_use]
+    pub const fn scope(&self) -> purrdf_core::BlankScope {
+        self.scope
+    }
+
+    /// Its unqualified original label.
+    #[must_use]
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+/// Exact immutable sources and the kernel's source-to-validation blank mapping.
+/// Shared acquisitions retain shared blank identity; independent acquisitions
+/// remain distinct even when their bytes and supplied labels agree.
+pub struct ReportSourceContext {
+    data: ReportSource,
+    shapes: ReportSource,
+    pub(crate) blanks: FastMap<String, SourceBlank>,
+}
+
+purrdf_hash::debug_non_exhaustive!(ReportSourceContext { data, shapes });
+
+impl ReportSourceContext {
+    pub(crate) fn new(data: Arc<RdfDataset>, shapes: Arc<RdfDataset>) -> Self {
+        Self {
+            data: ReportSource { dataset: data },
+            shapes: ReportSource { dataset: shapes },
+            blanks: FastMap::default(),
+        }
+    }
+
+    /// The exact data source.
+    #[must_use]
+    pub const fn data(&self) -> &ReportSource {
+        &self.data
+    }
+
+    /// The exact shapes source.
+    #[must_use]
+    pub const fn shapes(&self) -> &ReportSource {
+        &self.shapes
+    }
+
+    /// Whether the caller deliberately supplied one acquisition for both roles.
+    #[must_use]
+    pub fn sources_share_identity(&self) -> bool {
+        self.data == self.shapes
+    }
+
+    /// The original identity of a canonical validation blank label.
+    #[must_use]
+    pub fn source_blank(&self, validation_label: &str) -> Option<&SourceBlank> {
+        self.blanks.get(validation_label)
+    }
+
+    pub(crate) fn record_blank(
+        &mut self, validation_label: String, shapes: bool, label: &str,
+        scope: purrdf_core::BlankScope,
+    ) {
+        let source = if shapes { &self.shapes } else { &self.data };
+        self.blanks.insert(
+            validation_label,
+            SourceBlank {
+                source: source.clone(),
+                label: label.to_owned(),
+                scope,
+            },
+        );
+    }
+
+    /// A source-shape blank must name the retained shapes acquisition. Public
+    /// AST edits cannot turn an unrecorded blank into an apparently minted one.
+    pub(crate) fn admit_result_sources(
+        &self, records: &[ResultRecord],
+    ) -> Result<(), CompleteValidationError> {
+        let mut pending = purrdf_lex::walk::WorkList::<_, 8>::new();
+        pending.extend(records.iter().map(|record| &record.value));
+        while let Some(result) = pending.pop() {
+            if let ControlFlow::Break(label) = result.source_shape.visit_nested(|term| {
+                if let Term::BlankNode(label) = term
+                    && !self
+                        .source_blank(label)
+                        .is_some_and(|blank| blank.source == self.shapes)
+                {
+                    return ControlFlow::Break(label);
+                }
+                ControlFlow::Continue(())
+            }) {
+                return Err(CompleteValidationError::SourceContext(format!(
+                    "source shape blank _:{label} does not name the retained shapes acquisition"
+                )));
+            }
+            pending.extend(result.details.iter());
+        }
+        Ok(())
+    }
+}
+
+/// Structured failure of an evidence-bearing validation operation.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum CompleteValidationError {
+    /// Original typed refusal with the rule contexts captured before failure.
+    RuleExecution {
+        /// The authoritative dated, native or governor refusal.
+        cause: Box<Self>,
+        /// Supplied inputs and observed effective contexts.
+        coordinates: Box<crate::RuleCoordinates>,
+    },
+    /// Parsing or admitting the underlying shape graph failed.
+    Shapes(ShapesError),
+    /// The existing authenticated prepared-product boundary refused restoration.
+    Preparation(crate::product::ShapesProductError),
+    /// An evaluated constraint no longer matches its original source occurrence.
+    SourceConstraint(SourceConstraintRefusal),
+    /// A dated execution cannot establish its original query role or parameters.
+    QuerySource(Box<QuerySourceRefusal>),
+    /// The source context could not be admitted for this operation.
+    SourceContext(String),
+    /// A SPARQL solution explicitly declared failure.
+    Semantic(Box<SemanticFailure>),
+    /// An execution governor stopped the operation before a complete verdict.
+    Resource(Box<ResourceRefusal>),
+    /// A dated query law refused the actual declaration or invocation.
+    Admission(Box<crate::profile::AdmissionRefusal>),
+    /// A caller supplied a regex law incompatible with the dated SHACL bundle.
+    XPathProfile(crate::profile::XPathProfileConflict),
+    /// The selected native XPath executor refused the actual operation.
+    XPath(Box<crate::xpath::XPathValidationError>),
+    /// Execution failed independently of a semantic result.
+    Execution(String),
+}
+
+purrdf_lex::variant_from!(CompleteValidationError {
+    Shapes(ShapesError),
+    Preparation(crate::product::ShapesProductError), Execution(String)
+});
+
+impl std::fmt::Display for CompleteValidationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RuleExecution { cause, .. } => cause.fmt(formatter),
+            Self::Shapes(error) => error.fmt(formatter),
+            Self::Preparation(error) => error.fmt(formatter),
+            Self::SourceConstraint(error) => error.fmt(formatter),
+            Self::QuerySource(error) => error.fmt(formatter),
+            Self::Semantic(error) => error.fmt(formatter),
+            Self::Resource(error) => error.fmt(formatter),
+            Self::Admission(error) => error.fmt(formatter),
+            Self::XPathProfile(error) => error.fmt(formatter),
+            Self::XPath(error) => error.fmt(formatter),
+            Self::SourceContext(message) | Self::Execution(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for CompleteValidationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::RuleExecution { cause, .. } => Some(cause.as_ref()),
+            Self::Shapes(error) => Some(error),
+            Self::Preparation(error) => Some(error),
+            Self::SourceConstraint(error) => Some(error),
+            Self::QuerySource(error) => Some(error.as_ref()),
+            Self::Semantic(error) => Some(error.as_ref()),
+            Self::Resource(error) => Some(error.as_ref()),
+            Self::Admission(error) => Some(error.as_ref()),
+            Self::XPathProfile(error) => Some(error),
+            Self::XPath(error) => Some(error.as_ref()),
+            Self::SourceContext(_) | Self::Execution(_) => None,
+        }
+    }
+}
+
+impl CompleteValidationError {
+    /// Whether a selected-law capsule may refine this generic execution failure.
+    pub(crate) fn is_generic_execution(&self) -> bool {
+        match self {
+            Self::Execution(_)
+            | Self::Shapes(ShapesError::Invalid(_) | ShapesError::Processor(_)) => true,
+            Self::Shapes(ShapesError::RuleExecution(execution)) => {
+                let mut cause = execution.cause.as_ref();
+                while let crate::rules::RulesError::Execution(nested) = cause {
+                    cause = nested.cause.as_ref();
+                }
+                matches!(
+                    cause,
+                    crate::rules::RulesError::Failed(_)
+                        | crate::rules::RulesError::Shapes(
+                            ShapesError::Invalid(_) | ShapesError::Processor(_)
+                        )
+                )
+            }
+            _ => false,
+        }
+    }
+
+    /// Keep an observed rule receipt when a more authoritative refusal wins.
+    pub(crate) fn with_rule_coordinates(self, original: Self) -> Self {
+        let coordinates = match original {
+            Self::RuleExecution { coordinates, .. } => coordinates,
+            Self::Shapes(ShapesError::RuleExecution(execution)) => Box::new(execution.coordinates),
+            _ => return self,
+        };
+        Self::RuleExecution {
+            cause: Box::new(self),
+            coordinates,
+        }
+    }
+
+    /// Preserve the execution category of ordinary evaluator diagnostics while
+    /// carrying operational causes without rendering them into that category.
+    pub(crate) fn execution(error: ShapesError) -> Self {
+        match error {
+            ShapesError::Invalid(message) => Self::Execution(message),
+            ShapesError::Processor(failure) => Self::Execution(failure.to_string()),
+            error => Self::Shapes(error),
+        }
+    }
+
+    /// Resolve the caller's exact error and its canonically selected native cause.
+    /// Typed report/source/governor evidence remains authoritative; only the
+    /// generic execution lane projects an attached native diagnostic.
+    pub(crate) fn from_native_run(error: crate::xpath::RunError<Self>) -> Self {
+        match error.into_parts() {
+            (Some(cause), Some(error)) if error.is_generic_execution() => {
+                Self::XPath(Box::new(cause.into_public())).with_rule_coordinates(error)
+            }
+            (Some(cause), None) => Self::XPath(Box::new(cause.into_public())),
+            (_, Some(error)) => error,
+            (None, None) => unreachable!("a refused run retains an actual error"),
+        }
+    }
+
+    /// Reuse the native public error vocabulary while retaining richer dated causes.
+    pub(crate) fn into_xpath(self) -> crate::xpath::XPathValidationError {
+        match self {
+            Self::RuleExecution { cause, coordinates } => {
+                crate::xpath::XPathValidationError::RuleExecution {
+                    cause: Box::new(cause.into_xpath()),
+                    coordinates,
+                }
+            }
+            Self::XPath(error) => *error,
+            Self::Shapes(error) => crate::xpath::XPathValidationError::Shapes(error),
+            Self::Execution(error) => crate::xpath::XPathValidationError::Execution(error),
+            error => crate::xpath::XPathValidationError::Complete(Box::new(error)),
+        }
+    }
+
+    /// Preserve existing product dimensions on the closed compatibility door.
+    pub(crate) fn into_product(self) -> crate::product::ShapesProductError {
+        match self {
+            Self::Preparation(error) => error,
+            error => crate::product::ShapesProductError::new(
+                crate::product::ProductDimension::Malformed,
+                error.to_string(),
+            ),
+        }
+    }
+
+    /// Project through an existing closed compatibility error without changing it.
+    pub(crate) fn into_shapes(self) -> ShapesError {
+        match self {
+            Self::RuleExecution { cause, coordinates } => {
+                ShapesError::RuleExecution(Box::new(crate::rules::RuleExecutionError {
+                    cause: Box::new(crate::rules::RulesError::Shapes(cause.into_shapes())),
+                    coordinates: *coordinates,
+                }))
+            }
+            Self::Shapes(error) => error,
+            error => ShapesError::Invalid(error.to_string()),
+        }
+    }
+
+    /// Read the actual operation ledger before any semantic/execution failure.
+    /// The governor's typed state is authoritative; diagnostics are not parsed.
+    pub(crate) fn resource(state: &purrdf_sparql_eval::GovernorState) -> Option<Self> {
+        state.tripped().map(|tripped| {
+            Self::Resource(Box::new(ResourceRefusal {
+                tripped,
+                evidence: state.evidence(),
+            }))
+        })
+    }
+}
+
+impl ReportFailure {
+    pub(crate) fn into_public(self) -> CompleteValidationError {
+        match self {
+            Self::SourceConstraint(error) => CompleteValidationError::SourceConstraint(error),
+            Self::QuerySource(error) => CompleteValidationError::QuerySource(Box::new(error)),
+            Self::Semantic(error) => CompleteValidationError::Semantic(Box::new(error)),
+            Self::Admission(error) => CompleteValidationError::Admission(Box::new(error)),
+        }
+    }
+}
+
+/// Read-only complete view of one result and its recursive occurrence evidence.
+#[derive(Debug, Clone, Copy)]
+pub struct CompleteValidationResult<'a> {
+    value: &'a ValidationResult,
+    evidence: Option<&'a ResultEvidence>,
+}
+
+impl<'a> CompleteValidationResult<'a> {
+    /// The existing closed result value.
+    #[must_use]
+    pub const fn legacy(&self) -> &'a ValidationResult {
+        self.value
+    }
+
+    /// The actual `sh:sparql` node that produced this result, when applicable.
+    #[must_use]
+    pub fn source_constraint(&self) -> Option<&'a Term> {
+        self.evidence
+            .and_then(|evidence| evidence.source_constraint.as_ref())
+    }
+
+    /// Recursive details in their declared order, with their own source evidence.
+    pub fn details(&self) -> impl ExactSizeIterator<Item = Self> + 'a + use<'a> {
+        let evidence = self.evidence;
+        self.value
+            .details
+            .iter()
+            .enumerate()
+            .map(move |(index, value)| Self {
+                value,
+                evidence: evidence.and_then(|evidence| evidence.details.get(index)),
+            })
+    }
+}
+
+/// An additive report retaining source context and exact occurrence evidence.
+#[derive(Debug, Clone)]
+pub struct CompleteValidationReport {
+    legacy: ValidationReport,
+    evidence: Box<[ResultEvidence]>,
+    context: Arc<ReportSourceContext>,
+    profile: crate::profile::ShaclProfile,
+    cycles: Vec<crate::recursion::RecursionCycle>,
+}
+
+impl CompleteValidationReport {
+    pub(crate) fn from_records(
+        mut records: Vec<ResultRecord>, shapes: &crate::shapes::Shapes,
+        context: Arc<ReportSourceContext>, profile: crate::profile::ShaclProfile,
+    ) -> Self {
+        records.sort_by_cached_key(complete_record_sort_key);
+        let (results, evidence): (Vec<_>, Vec<_>) = records
+            .into_iter()
+            .map(|record| (record.value, record.evidence))
+            .unzip();
+        let legacy = ValidationReport::from_results(
+            results,
+            shapes.validation_options().conformance_disallows.clone(),
+        )
+        .with_shapes_graph_well_formed(true)
+        .with_diagnostics(shapes.mandatory_diagnostics().to_vec());
+        Self {
+            legacy,
+            evidence: evidence.into_boxed_slice(),
+            cycles: Vec::new(),
+            context,
+            profile,
+        }
+    }
+
+    /// The selected report law; a dated law is installed only by its full admitted
+    /// validation bundle, rather than inferred from this report's fields.
+    #[must_use]
+    pub const fn profile(&self) -> crate::profile::ShaclProfile {
+        self.profile
+    }
+
+    /// Projection to the existing closed report API.
+    #[must_use]
+    pub const fn legacy(&self) -> &ValidationReport {
+        &self.legacy
+    }
+
+    /// Finite native cycle certificates under the explicitly selected recursive
+    /// law. These are separate from standard SHACL results and their severities;
+    /// the legacy RDF projection retains the same conformance verdict.
+    #[must_use]
+    pub fn cycles(&self) -> &[crate::recursion::RecursionCycle] {
+        &self.cycles
+    }
+
+    pub(crate) fn with_recursion(
+        mut self, outcome: &crate::recursion::evidence::ReportOutcome,
+    ) -> Result<Self, ShapesError> {
+        self.legacy.conforms &= outcome.conforms();
+        self.cycles = outcome.take_cycles()?;
+        Ok(self)
+    }
+
+    /// Consume the complete report and retain its legacy projection.
+    #[must_use]
+    pub fn into_legacy(self) -> ValidationReport {
+        self.legacy
+    }
+
+    /// Exact source acquisitions retained for interpreting every carried blank.
+    #[must_use]
+    pub const fn source_context(&self) -> &Arc<ReportSourceContext> {
+        &self.context
+    }
+
+    /// Every result, preserving multiplicity and paired occurrence evidence.
+    pub fn results(&self) -> impl ExactSizeIterator<Item = CompleteValidationResult<'_>> {
+        self.legacy
+            .results
+            .iter()
+            .zip(self.evidence.iter())
+            .map(|(value, evidence)| CompleteValidationResult {
+                value,
+                evidence: Some(evidence),
+            })
+    }
+
+    /// Emit the complete RDF graph and its exact source-blank correspondence.
+    ///
+    /// # Errors
+    /// Returns the original storage or native graph construction refusal.
+    pub fn to_graph(&self) -> Result<CompleteReportGraph, ShapesError> {
+        let mut labels = CompleteBlankLabels::default();
+        let mut report = self.legacy.clone();
+        report.results = self
+            .legacy
+            .results
+            .iter()
+            .map(|result| map_result_terms(result, &mut |_, term| labels.term(&self.context, term)))
+            .collect();
+        let evidence: Vec<_> = self
+            .evidence
+            .iter()
+            .map(|evidence| labels.evidence(&self.context, evidence))
+            .collect();
+        let mint = mint_prefix(&report, Some(&evidence));
+        let dataset = report.dataset_as_carried_with_evidence(Some(&evidence))?;
+        Ok(CompleteReportGraph {
+            dataset,
+            cycles: self.cycles.clone(),
+            root: Term::BlankNode(format!("{mint}report")),
+            labels,
+            context: Arc::clone(&self.context),
+        })
+    }
+
+    /// Materialize the complete graph. [`Self::to_graph`] additionally retains the
+    /// correspondence needed to interpret its blank nodes outside this report.
+    ///
+    /// # Errors
+    /// Returns the original storage or native graph construction refusal.
+    pub fn to_dataset(&self) -> Result<Arc<RdfDataset>, ShapesError> {
+        Ok(self.to_graph()?.dataset)
+    }
+}
+
+/// Blank correspondence produced by complete graph emission. Missing source
+/// correspondence identifies a node minted by validation/report construction.
+#[derive(Debug, Clone, Default)]
+pub struct CompleteBlankLabels {
+    forward: FastMap<String, String>,
+    back: FastMap<String, SourceBlank>,
+}
+
+impl CompleteBlankLabels {
+    /// Original source identity of this emitted blank, or `None` for a minted
+    /// report, path or computed value node.
+    #[must_use]
+    pub fn source_of(&self, report_label: &str) -> Option<&SourceBlank> {
+        self.back.get(report_label)
+    }
+
+    /// Every emitted source blank and its exact acquisition-local identity.
+    /// Iteration order is unspecified; serializers sort the emitted labels.
+    pub fn sources(&self) -> impl ExactSizeIterator<Item = (&str, &SourceBlank)> {
+        self.back
+            .iter()
+            .map(|(label, source)| (label.as_str(), source))
+    }
+
+    fn label(&mut self, context: &ReportSourceContext, original: &str) -> String {
+        if let Some(assigned) = self.forward.get(original) {
+            return assigned.clone();
+        }
+        let assigned = format!("cb{}", self.forward.len());
+        if let Some(source) = context.source_blank(original) {
+            self.back.insert(assigned.clone(), source.clone());
+        }
+        self.forward.insert(original.to_owned(), assigned.clone());
+        assigned
+    }
+
+    fn term(&mut self, context: &ReportSourceContext, term: &Term) -> Term {
+        map_term_blanks(term, &mut |label| self.label(context, label))
+    }
+
+    fn evidence(
+        &mut self, context: &ReportSourceContext, evidence: &ResultEvidence,
+    ) -> ResultEvidence {
+        ResultEvidence {
+            source_constraint: evidence
+                .source_constraint
+                .as_ref()
+                .map(|term| self.term(context, term)),
+            details: evidence
+                .details
+                .iter()
+                .map(|detail| self.evidence(context, detail))
+                .collect(),
+        }
+    }
+}
+
+/// Complete graph egress, with a named root and source correspondence kept
+/// beside its immutable dataset. Structural minted nodes carry no source blank.
+#[derive(Debug, Clone)]
+pub struct CompleteReportGraph {
+    dataset: Arc<RdfDataset>,
+    root: Term,
+    labels: CompleteBlankLabels,
+    context: Arc<ReportSourceContext>,
+    cycles: Vec<crate::recursion::RecursionCycle>,
+}
+
+impl CompleteReportGraph {
+    /// Native cycle certificates retained beside the standard RDF projection.
+    /// SHACL leaf results and source blanks keep their existing RDF vocabulary.
+    #[must_use]
+    pub fn cycles(&self) -> &[crate::recursion::RecursionCycle] {
+        &self.cycles
+    }
+
+    /// The emitted complete RDF graph.
+    #[must_use]
+    pub const fn dataset(&self) -> &Arc<RdfDataset> {
+        &self.dataset
+    }
+
+    /// Its validation-report root, independent of any source label.
+    #[must_use]
+    pub const fn root(&self) -> &Term {
+        &self.root
+    }
+
+    /// Correspondence from emitted blanks to original source acquisitions.
+    #[must_use]
+    pub const fn blank_labels(&self) -> &CompleteBlankLabels {
+        &self.labels
+    }
+
+    /// Exact source context retained beyond the caller's input lifetimes.
+    #[must_use]
+    pub const fn source_context(&self) -> &Arc<ReportSourceContext> {
+        &self.context
+    }
+}
+
+/// The compatibility ordering shared by both report collectors.
+type ResultSortKey = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    Severity,
+    String,
+);
+
+/// Exact compatibility key; complete reports append their evidence separately.
+pub(crate) fn result_sort_key(result: &ValidationResult) -> ResultSortKey {
+    (
+        result.focus_node.to_string(),
+        result.source_constraint_component.to_string(),
+        result.source_shape.to_string(),
+        result
+            .result_path
+            .as_ref()
+            .map_or_default(ToString::to_string),
+        result.value.as_ref().map_or_default(ToString::to_string),
+        messages_sort_key(&result.messages),
+        result.severity.clone(),
+        annotations_sort_key(&result.annotations),
+    )
+}
+
+/// Complete rows add source evidence and recursive detail topology to the
+/// compatibility key. Equal legacy values may serialize different evidence.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct CompleteNodeSortKey {
+    value: ResultSortKey,
+    source_constraint: Option<String>,
+    path_structure: Option<String>,
+    details: usize,
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct CompleteRecordSortKey {
+    root: CompleteNodeSortKey,
+    details: Vec<CompleteNodeSortKey>,
+}
+
+fn complete_node_sort_key(
+    value: &ValidationResult, evidence: Option<&ResultEvidence>,
+) -> CompleteNodeSortKey {
+    CompleteNodeSortKey {
+        value: result_sort_key(value),
+        source_constraint: evidence
+            .and_then(|evidence| evidence.source_constraint.as_ref())
+            .map(ToString::to_string),
+        path_structure: value
+            .path_structure
+            .as_ref()
+            .map(crate::path::path_to_sparql),
+        details: value.details.len(),
+    }
+}
+
+fn complete_record_sort_key(record: &ResultRecord) -> CompleteRecordSortKey {
+    let mut pending = purrdf_lex::walk::WorkList::<_, 8>::new();
+    pending.extend(
+        record
+            .value
+            .details
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(index, value)| (value, record.evidence.details.get(index))),
+    );
+    let mut details = Vec::new();
+    while let Some((value, evidence)) = pending.pop() {
+        details.push(complete_node_sort_key(value, evidence));
+        pending.extend(
+            value
+                .details
+                .iter()
+                .enumerate()
+                .rev()
+                .map(|(index, value)| {
+                    (
+                        value,
+                        evidence.and_then(|evidence| evidence.details.get(index)),
+                    )
+                }),
+        );
+    }
+    CompleteRecordSortKey {
+        root: complete_node_sort_key(&record.value, Some(&record.evidence)),
+        details,
+    }
+}
+
+/// Typed evidence failures retained beside the legacy evaluator's diagnostic.
+#[derive(Debug, Clone)]
+pub(crate) enum ReportFailure {
+    SourceConstraint(SourceConstraintRefusal),
+    QuerySource(QuerySourceRefusal),
+    Semantic(SemanticFailure),
+    Admission(crate::profile::AdmissionRefusal),
+}
+
+/// Failure of one root focus traversal. A missing typed payload records an
+/// ordinary execution failure, so a later typed failure cannot replace it.
+struct CapturedFailure {
+    focus: Option<crate::engine::FocusNode>,
+    failure: Option<ReportFailure>,
+}
+
+#[derive(Default)]
+struct CapturedFailures {
+    first: Option<CapturedFailure>,
+    // A semantic candidate failure may be suppressed by existential success;
+    // a source or admission refusal still makes that success inadmissible.
+    policy: Option<ReportFailure>,
+}
+
+/// One rich-report operation or serial focus traversal. Workers borrow the same
+/// immutable shapes source; root failures are merged in canonical focus order.
+pub(crate) struct ReportCapture<'a> {
+    pub(crate) shapes: &'a crate::shapes::Shapes,
+    pub(crate) profile: crate::profile::ShaclProfile,
+    /// The occurrence context admitted for this request, which may differ from
+    /// an older law already occupying the shape's compatibility cache.
+    pub(crate) sources: Option<&'a Arc<crate::shapes::ConstraintSources>>,
+    pub(crate) recursion: Option<&'a crate::recursion::evidence::ReportOutcome>,
+    failure: std::sync::Mutex<CapturedFailures>,
+}
+
+/// Location of an emitted parser constraint in its source shape.
+#[derive(Clone, Copy)]
+pub(crate) struct ConstraintSite<'a> {
+    pub(crate) shape: &'a Term,
+    pub(crate) property: bool,
+    pub(crate) index: Option<usize>,
+}
+
+/// Validate a component declaration against its exact parser slot. Reporting
+/// and execution admission share this one correspondence check.
+pub(crate) fn admit_component_occurrence<'a>(
+    sources: Option<&'a crate::shapes::ConstraintSources>, site: ConstraintSite<'_>,
+    constraint: &crate::plan::PlannedConstraint<'_>,
+) -> Option<&'a crate::shapes::ComponentOccurrence> {
+    use crate::plan::PlannedConstraint;
+    use crate::shapes::{ComponentValidator, Constraint, ConstraintOccurrence};
+    let PlannedConstraint::Component {
+        component,
+        source_shape,
+        bindings,
+        validator,
+        messages,
+        severity,
+        annotations,
+    } = constraint
+    else {
+        unreachable!("component messages requested for a component");
+    };
+    site.index
+        .and_then(|index| {
+            let source = sources?
+                .constraints
+                .get(site.shape)?
+                .get(&(site.property, index))?;
+            let ConstraintOccurrence::Component(source) = source else {
+                return None;
+            };
+            Some(source)
+        })
+        .filter(|source| {
+            let Constraint::Component {
+                component: recorded_component,
+                source_shape: recorded_shape,
+                bindings: recorded_bindings,
+                validator: recorded_validator,
+                messages: recorded_messages,
+                severity: recorded_severity,
+                annotations: recorded_annotations,
+            } = &source.definition
+            else {
+                return false;
+            };
+            let same_query = match (recorded_validator, *validator) {
+                (ComponentValidator::Ask { ask: left }, ComponentValidator::Ask { ask: right }) => {
+                    left == right
+                }
+                (
+                    ComponentValidator::Select { select: left },
+                    ComponentValidator::Select { select: right },
+                ) => left == right,
+                _ => false,
+            };
+            recorded_component == *component
+                && recorded_shape == *source_shape
+                && recorded_bindings == *bindings
+                && same_query
+                && recorded_messages == *messages
+                && recorded_severity == *severity
+                && recorded_annotations == *annotations
+        })
+}
+
+impl<'a> ReportCapture<'a> {
+    #[cfg(test)]
+    pub(crate) fn new(
+        shapes: &'a crate::shapes::Shapes, profile: crate::profile::ShaclProfile,
+    ) -> Self {
+        Self::with_sources(shapes, profile, shapes.sparql_sources.get())
+    }
+
+    pub(crate) const fn with_sources(
+        shapes: &'a crate::shapes::Shapes, profile: crate::profile::ShaclProfile,
+        sources: Option<&'a Arc<crate::shapes::ConstraintSources>>,
+    ) -> Self {
+        Self {
+            shapes,
+            profile,
+            sources,
+            recursion: None,
+            failure: std::sync::Mutex::new(CapturedFailures {
+                first: None,
+                policy: None,
+            }),
+        }
+    }
+
+    pub(crate) fn take_failure(&self) -> Option<ReportFailure> {
+        let mut failures = self.failure.lock().expect("report failure lock");
+        failures.policy = None;
+        failures.first.take().and_then(|captured| captured.failure)
+    }
+
+    pub(crate) const fn with_recursion(
+        mut self, outcome: Option<&'a crate::recursion::evidence::ReportOutcome>,
+    ) -> Self {
+        self.recursion = outcome;
+        self
+    }
+
+    /// A hard policy refusal retained independently of suppressible semantics.
+    pub(crate) fn take_policy_failure(&self) -> Option<ReportFailure> {
+        self.failure
+            .lock()
+            .expect("report failure lock")
+            .policy
+            .take()
+    }
+
+    /// Preserve the same earliest focus as the ordered chunk runner, including
+    /// its interned-id tie-break for equal renderings. Keys are cloned only on
+    /// failure; healthy Core traversal allocates no focus-key storage.
+    pub(crate) fn record_focus_failure(
+        &self, dataset: &impl crate::data_view::ShaclRead, focus: &crate::engine::FocusNode,
+        failure: Option<ReportFailure>,
+    ) {
+        let mut failures = self.failure.lock().expect("report failure lock");
+        let recorded = &mut failures.first;
+        if recorded.as_ref().is_none_or(|recorded| {
+            recorded
+                .focus
+                .as_ref()
+                .is_some_and(|previous| crate::engine::focus_cmp(dataset, focus, previous).is_lt())
+        }) {
+            *recorded = Some(CapturedFailure {
+                focus: Some(focus.clone()),
+                failure,
+            });
+        }
+        drop(failures);
+    }
+
+    pub(crate) fn refuse(&self, failure: ReportFailure) -> String {
+        let message = match &failure {
+            ReportFailure::SourceConstraint(failure) => failure.to_string(),
+            ReportFailure::QuerySource(failure) => failure.to_string(),
+            ReportFailure::Semantic(failure) => failure.to_string(),
+            ReportFailure::Admission(failure) => failure.to_string(),
+        };
+        let mut failures = self.failure.lock().expect("report failure lock");
+        if !matches!(failure, ReportFailure::Semantic(_)) {
+            failures.policy.get_or_insert_with(|| failure.clone());
+        }
+        failures.first.get_or_insert(CapturedFailure {
+            focus: None,
+            failure: Some(failure),
+        });
+        message
+    }
+
+    /// Admit the source recorded for this exact parser slot against the actual
+    /// constraint being evaluated. This is correspondence validation, never a
+    /// search for a constraint whose query happens to have equal text.
+    pub(crate) fn source_constraint(
+        &self, site: ConstraintSite<'_>, constraint: &crate::plan::PlannedConstraint<'_>,
+    ) -> Result<&Term, String> {
+        let crate::plan::PlannedConstraint::Sparql {
+            select,
+            messages,
+            severity,
+            annotations,
+        } = constraint
+        else {
+            unreachable!("SPARQL source requested for a SPARQL constraint");
+        };
+        let occurrence = site
+            .index
+            .and_then(|index| {
+                let source = self
+                    .sources?
+                    .constraints
+                    .get(site.shape)?
+                    .get(&(site.property, index))?;
+                let crate::shapes::ConstraintOccurrence::Sparql(source) = source else {
+                    return None;
+                };
+                Some(source)
+            })
+            .filter(|source| {
+                source.select == *select
+                    && source.messages == *messages
+                    && source.severity.as_ref() == severity.as_ref()
+                    && source.annotations == *annotations
+            });
+        occurrence
+            .map(|source| &source.source_constraint)
+            .ok_or_else(|| self.refuse_source(site))
+    }
+
+    fn refuse_source(&self, site: ConstraintSite<'_>) -> String {
+        self.refuse(ReportFailure::SourceConstraint(SourceConstraintRefusal {
+            shape: site.shape.clone(),
+            property: site.property,
+            index: site.index.unwrap_or_default(),
+        }))
+    }
+
+    /// Admit the complete declaration at this actual component parser slot.
+    pub(crate) fn component_occurrence(
+        &self, site: ConstraintSite<'_>, constraint: &crate::plan::PlannedConstraint<'_>,
+    ) -> Result<&'a crate::shapes::ComponentOccurrence, String> {
+        admit_component_occurrence(self.sources.map(Arc::as_ref), site, constraint)
+            .ok_or_else(|| self.refuse_source(site))
+    }
+
+    /// Ordered declaration messages of this actual custom-component occurrence.
+    pub(crate) fn component_messages<'b>(
+        &'b self, occurrence: &'b crate::shapes::ComponentOccurrence, fallback: &'b [Literal],
+    ) -> &'b [Literal] {
+        let declared = [
+            &occurrence.validator_messages,
+            &occurrence.component_messages,
+        ]
+        .into_iter()
+        .find(|messages| !messages.is_empty());
+        declared.map_or_else(
+            || {
+                if self.profile.is_shacl12() {
+                    fallback
+                } else {
+                    &[]
+                }
+            },
+            Vec::as_slice,
+        )
+    }
+
+    pub(crate) fn semantic_failure(
+        &self, focus: &Term, source_constraint: Option<&Term>,
+    ) -> String {
+        self.refuse(ReportFailure::Semantic(SemanticFailure {
+            focus: focus.clone(),
+            source_constraint: source_constraint.cloned(),
+        }))
+    }
+}
+
+// ── Severity ──────────────────────────────────────────────────────────────────
+
+/// SHACL result severity levels, ordered from most to least severe.
+///
+/// SHACL 1.2 Core, "Declaring the Severity of a Shape or Constraint", names five built-in levels — "SHACL includes the IRIs listed in the table
+/// below to represent severities": `sh:Trace` ("A trace message that is not a
+/// constraint violation"), `sh:Debug` ("A debug message that is not a constraint
+/// violation"), `sh:Info` ("A non-critical constraint violation indicating an
+/// informative message"), `sh:Warning` ("A non-critical constraint violation
+/// indicating a warning") and `sh:Violation` ("A constraint violation"). "Any IRI
+/// can be used as a severity", so a custom severity IRI is carried verbatim in
+/// [`Severity::Other`] and reports preserve it (W3C `core/misc/severity-002`)
+/// instead of coercing it to `sh:Violation`.
+///
+/// Whether a level blocks conformance is NOT a property of the level: it is
+/// decided by the validation request's [`ConformanceDisallows`] set.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Severity {
+    /// `sh:Violation` — the most severe level.
+    Violation,
+    /// `sh:Warning`.
+    Warning,
+    /// `sh:Info`.
+    Info,
+    /// `sh:Debug` — "a debug message that is not a constraint violation".
+    Debug,
+    /// `sh:Trace` — the least severe built-in level, "a trace message that is not
+    /// a constraint violation".
+    Trace,
+    /// Any other severity IRI, preserved verbatim.
+    Other(NamedNode),
+}
+
+impl Severity {
+    /// The IRI string for this severity level.
+    pub fn iri(&self) -> &str {
+        match self {
+            Self::Violation => sh::VIOLATION,
+            Self::Warning => sh::WARNING,
+            Self::Info => sh::INFO,
+            Self::Debug => sh::DEBUG,
+            Self::Trace => sh::TRACE,
+            Self::Other(iri) => iri.as_str(),
+        }
+    }
+
+    /// Parse one of the five built-in `sh:` severities from its IRI string,
+    /// returning `None` if unrecognised (use [`Severity::from_iri_open`] to carry
+    /// a custom severity IRI).
+    pub fn from_iri(s: &str) -> Option<Self> {
+        match s {
+            sh::VIOLATION => Some(Self::Violation),
+            sh::WARNING => Some(Self::Warning),
+            sh::INFO => Some(Self::Info),
+            sh::DEBUG => Some(Self::Debug),
+            sh::TRACE => Some(Self::Trace),
+            _ => None,
+        }
+    }
+
+    /// The severity an IRI names: a built-in level for one of the five `sh:`
+    /// severity IRIs, and [`Severity::Other`] carrying the IRI verbatim for any
+    /// other ("Any IRI can be used as a severity").
+    #[must_use]
+    pub fn from_iri_open(s: &str) -> Self {
+        Self::from_iri(s).unwrap_or_else(|| Self::Other(NamedNode::from(s)))
+    }
+
+    /// This level's bit in a [`ConformanceDisallows`] built-in mask, `None` for a
+    /// custom IRI.
+    const fn builtin_bit(&self) -> Option<u8> {
+        match self {
+            Self::Violation => Some(1),
+            Self::Warning => Some(1 << 1),
+            Self::Info => Some(1 << 2),
+            Self::Debug => Some(1 << 3),
+            Self::Trace => Some(1 << 4),
+            Self::Other(_) => None,
+        }
+    }
+}
+
+// ── The conformance-disallow set ─────────────────────────────────────────────
+
+/// The five built-in levels, in [`Severity`] order.
+const BUILTIN_SEVERITIES: [Severity; 5] = [
+    Severity::Violation,
+    Severity::Warning,
+    Severity::Info,
+    Severity::Debug,
+    Severity::Trace,
+];
+
+/// The built-in mask of the default set: `sh:Violation`, `sh:Warning`, `sh:Info`.
+const DEFAULT_DISALLOW_MASK: u8 = 0b111;
+
+/// The set of disallowed severity levels a validation checks conformance against.
+///
+/// SHACL 1.2 Core, "Conformance Checking": "A focus node conforms to a shape
+/// if and only if the set of result of the validation of the focus node against
+/// the shape does not contain any validation results with a severity level of the
+/// set of disallowed levels and no failure has been reported by it. The set of
+/// disallowed severity levels is defined as the objects of triples with predicate
+/// sh:conformanceDisallows and the validation report as subject. If the
+/// validation report contains no such triples, sh:Violation, sh:Warning, and
+/// sh:Info are set as defaults."
+///
+/// The "Conformance-Disallow Set" section makes it the engine's to choose: "The conformance-disallow set is
+/// defined by the validation engine. A validation engine MAY provide mechanisms
+/// to customize this set." This type is that mechanism. It is a parameter of the
+/// validation REQUEST ([`crate::engine::ValidationOptions`]), never read from the
+/// shapes graph, and the same set decides both the report's `sh:conforms` and
+/// every nested conformance check (`sh:node`, `sh:not`, `sh:and`, `sh:or`,
+/// `sh:xone`, `sh:qualifiedValueShape`, …) the run performs — "all
+/// shape-expecting constraint parameters of SHACL Core rely on conformance
+/// checking" with that one definition.
+///
+/// # The empty set is refused
+///
+/// The report ECHOES the set ([`ValidationReport::to_dataset`]), and a report
+/// with no `sh:conformanceDisallows` triple means the DEFAULT set. So an empty set
+/// has no report that states it: the report it produced would be read back as
+/// the default set, contradicting the `sh:conforms` it carries. It is refused at
+/// construction rather than emitted as a report that means something else.
+///
+/// The representation is a bit mask over the five built-in levels plus the sorted
+/// custom IRIs, so the default set — and every set without a custom level —
+/// costs no allocation to build, clone or consult.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConformanceDisallows {
+    /// One bit per built-in level ([`Severity::builtin_bit`]).
+    builtin: u8,
+    /// The custom severity IRIs, sorted and de-duplicated.
+    others: Box<[NamedNode]>,
+}
+
+impl Default for ConformanceDisallows {
+    /// `sh:Violation`, `sh:Warning` and `sh:Info` — the set SHACL 1.2 Core names
+    /// for a report that declares none.
+    fn default() -> Self {
+        Self {
+            builtin: DEFAULT_DISALLOW_MASK,
+            others: Box::new([]),
+        }
+    }
+}
+
+impl ConformanceDisallows {
+    /// A set holding exactly `levels`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `levels` is empty: see the type docs for why an empty
+    /// set cannot be echoed truthfully.
+    pub fn new(levels: impl IntoIterator<Item = Severity>) -> Result<Self, String> {
+        let mut builtin = 0u8;
+        let mut others: Vec<NamedNode> = Vec::new();
+        for level in levels {
+            match level.builtin_bit() {
+                Some(bit) => builtin |= bit,
+                None => {
+                    if let Severity::Other(iri) = level {
+                        others.push(iri);
+                    }
+                }
+            }
+        }
+        if builtin == 0 && others.is_empty() {
+            return Err(
+                "the conformance-disallow set is empty; a validation report with no \
+                 sh:conformanceDisallows triple means the DEFAULT set (sh:Violation, sh:Warning, \
+                 sh:Info), so an empty set has no report that states it — name at least one \
+                 severity"
+                    .to_owned(),
+            );
+        }
+        others.sort_unstable();
+        others.dedup();
+        Ok(Self {
+            builtin,
+            others: others.into_boxed_slice(),
+        })
+    }
+
+    /// A set holding the severity levels the IRIs name (a built-in level for an
+    /// `sh:` severity IRI, [`Severity::Other`] for any other).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `iris` is empty, or when an entry is not an absolute
+    /// IRI ("All values of sh:conformanceDisallows MUST be IRIs", SHACL 1.2 Core,
+    /// "Conformance-Disallow Set").
+    pub fn from_iris<I, S>(iris: I) -> Result<Self, String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut levels = Vec::new();
+        for iri in iris {
+            let iri = iri.as_ref();
+            let absolute = purrdf_iri::parse(iri).is_ok_and(|parsed| parsed.has_scheme());
+            if !absolute {
+                return Err(format!(
+                    "sh:conformanceDisallows value {iri:?} is not an absolute IRI; all values of \
+                     sh:conformanceDisallows must be IRIs"
+                ));
+            }
+            levels.push(Severity::from_iri_open(iri));
+        }
+        Self::new(levels)
+    }
+
+    /// Whether a result of `severity` blocks conformance.
+    #[inline]
+    #[must_use]
+    pub fn contains(&self, severity: &Severity) -> bool {
+        match severity.builtin_bit() {
+            Some(bit) => self.builtin & bit != 0,
+            None => match severity {
+                Severity::Other(iri) => self.others.binary_search(iri).is_ok(),
+                _ => false,
+            },
+        }
+    }
+
+    /// Whether this is the default set (`sh:Violation`, `sh:Warning`, `sh:Info`).
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        self.builtin == DEFAULT_DISALLOW_MASK && self.others.is_empty()
+    }
+
+    /// The levels in the set, in [`Severity`] order: the built-in levels most
+    /// severe first, then the custom IRIs in IRI order.
+    #[must_use]
+    pub fn levels(&self) -> Vec<Severity> {
+        BUILTIN_SEVERITIES
+            .iter()
+            .filter(|level| self.contains(level))
+            .cloned()
+            .chain(self.others.iter().cloned().map(Severity::Other))
+            .collect()
+    }
+
+    /// The set as IRI strings, in [`Self::levels`] order.
+    #[must_use]
+    pub fn iris(&self) -> Vec<String> {
+        self.levels()
+            .iter()
+            .map(|level| level.iri().to_owned())
+            .collect()
+    }
+}
+
+// ── ValidationResult ─────────────────────────────────────────────────────────
+
+/// A single SHACL validation result (`sh:ValidationResult`).
+#[derive(Debug, Clone)]
+pub struct ValidationResult {
+    /// The focus node that violated the constraint.
+    pub focus_node: Term,
+    /// The result path, if the violation is path-scoped.
+    ///
+    /// A plain predicate path is its IRI term; a COMPLEX path (inverse,
+    /// sequence, alternative, closure) is a deterministic blank node whose
+    /// structure is carried in [`ValidationResult::path_structure`] and emitted
+    /// into the report graph by [`ValidationReport::to_ntriples`].
+    pub result_path: Option<Term>,
+    /// The full SHACL path behind a complex `result_path` blank node, so the
+    /// report serialization can emit the spec-mandated path structure
+    /// (`[ sh:inversePath … ]`, sequence lists, …). `None` when the result path
+    /// is absent or a plain predicate IRI.
+    pub path_structure: Option<crate::shapes::Path>,
+    /// The offending value at the focus node, if applicable.
+    pub value: Option<Term>,
+    /// The constraint component that produced this result.
+    pub source_constraint_component: NamedNode,
+    /// The shape that sourced this result.
+    pub source_shape: Term,
+    /// The severity of this result.
+    pub severity: Severity,
+    /// The result's messages (`sh:resultMessage`), each an RDF 1.2 literal that
+    /// keeps its datatype, language tag and base direction, in the canonical order
+    /// [`canonical_messages`] gives. Empty when the result has no message.
+    ///
+    /// SHACL 1.2 Core, "Declaring Messages for a Shape or Constraint": "If a shape
+    /// has at least one value for sh:message in the shapes graph, then all
+    /// validation results produced as a result of the shape will have exactly
+    /// these messages as their value of sh:resultMessage, i.e. the values will be
+    /// copied from the shapes graph into the results graph." So every message is
+    /// carried — `"Too many characters"@en` beside `"Zu viele Zeichen"@de` — never
+    /// one chosen from several.
+    pub messages: Vec<Literal>,
+    /// PurRDF graph-box roles attached to the source shape, if any.
+    pub source_box_roles: Vec<NamedNode>,
+    /// PurRDF graph-box roles attached to the result path/predicate, if any.
+    pub path_box_roles: Vec<NamedNode>,
+    /// Deterministic union of source/path/component roles relevant to this result.
+    pub result_box_roles: Vec<NamedNode>,
+    /// Structured slice attributions for this result.
+    ///
+    /// Records which compilation units (identified by their runtime `UnitId`,
+    /// resolved to public slice IRIs at the serialization boundary) played which
+    /// roles in producing this result. An empty vec means no attribution context
+    /// is available (e.g. in legacy or unit-test scenarios).
+    pub attributions: Vec<Attribution>,
+    /// The nested results that detail this one (`sh:detail`, SHACL 1.2 Core
+    /// §3.6.2.7), in a deterministic order: for `sh:memberShape`, the results of
+    /// each list member that does not conform to the member shape; for
+    /// `sh:uniqueMembers`, one result per duplicated member. Empty for every
+    /// other component.
+    pub details: Vec<Self>,
+    /// The result's SHACL-SPARQL result annotations: `(annotation property,
+    /// value)` pairs the SPARQL-based constraint or validator that produced it
+    /// declares with `sh:resultAnnotation`, copied from the solution's binding of
+    /// the annotation's variable or, when it is unbound, from its
+    /// `sh:annotationValue` defaults (SHACL 1.2 SPARQL Extensions, "Annotation
+    /// Properties"). Sorted by property IRI, then by the value's N-Triples
+    /// rendering, without duplicates; empty for every other result.
+    pub annotations: Vec<(NamedNode, Term)>,
+}
+
+impl ValidationResult {
+    /// The focus node's value as a plain string: the IRI for a named node, the label
+    /// for a blank node, the lexical form for a literal, and the canonical rendering for
+    /// a triple term.
+    ///
+    /// This lets a consumer render the focus without naming the [`Term`] type
+    /// in its own surface — it is the exact value-extraction the PurRDF
+    /// scoreboard's `shacl_term_to_str` performed.
+    #[must_use]
+    pub fn focus_value(&self) -> String {
+        match &self.focus_node {
+            Term::NamedNode(n) => n.as_str().to_owned(),
+            Term::BlankNode(b) => b.clone(),
+            Term::Literal(l) => l.value().to_owned(),
+            Term::Triple(_) => self.focus_node.to_string(),
+        }
+    }
+
+    /// Apply optional PurRDF graph-box role metadata to this result.
+    ///
+    /// The box-role feature is caller-configured and inactive when no vocabulary
+    /// supplies one, so the overwhelmingly common call has two empty inputs and
+    /// three empty outputs; that case clears in place and touches the allocator
+    /// not at all.
+    pub fn apply_box_roles(&mut self, source_roles: &[NamedNode], path_roles: &[NamedNode]) {
+        if source_roles.is_empty() && path_roles.is_empty() {
+            self.source_box_roles.clear();
+            self.path_box_roles.clear();
+            self.result_box_roles.clear();
+            return;
+        }
+        self.source_box_roles = dedup_roles(source_roles);
+        self.path_box_roles = dedup_roles(path_roles);
+        // The union is built straight from the two deduped halves — a separate
+        // `merged` copy would only be sorted and deduped again.
+        let mut result_roles =
+            Vec::with_capacity(self.source_box_roles.len() + self.path_box_roles.len());
+        result_roles.extend_from_slice(&self.source_box_roles);
+        result_roles.extend_from_slice(&self.path_box_roles);
+        result_roles.sort_unstable();
+        result_roles.dedup();
+        self.result_box_roles = result_roles;
+    }
+}
+
+/// The canonical order of a result's messages: by lexical form, then language
+/// tag, then base direction, then datatype — so two literals that differ only in
+/// their tag (or in being `rdf:HTML` rather than `xsd:string`) are ordered and
+/// kept apart, and equal ones collapse.
+#[must_use]
+pub fn canonical_messages(mut messages: Vec<Literal>) -> Vec<Literal> {
+    messages.sort_by(|a, b| message_key(a).cmp(&message_key(b)));
+    messages.dedup();
+    messages
+}
+
+/// The sort key of one message literal — see [`canonical_messages`].
+fn message_key(message: &Literal) -> (&str, Option<&str>, Option<u8>, &str) {
+    (
+        message.value(),
+        message.language(),
+        message.direction().map(|direction| match direction {
+            ::purrdf_rdf::RdfTextDirection::Ltr => 0,
+            ::purrdf_rdf::RdfTextDirection::Rtl => 1,
+        }),
+        message.datatype_str(),
+    )
+}
+
+/// A deterministic textual key for a result's messages, for total sort orders.
+pub(crate) fn messages_sort_key(messages: &[Literal]) -> String {
+    messages
+        .iter()
+        .map(|m| Term::Literal(m.clone()).to_string())
+        .collect::<Vec<_>>()
+        .join("\u{1f}")
+}
+
+/// A deterministic textual key for a result's annotations, for total sort orders.
+/// Allocates nothing for the common result, which has none.
+pub(crate) fn annotations_sort_key(annotations: &[(NamedNode, Term)]) -> String {
+    annotations
+        .iter()
+        .map(|(property, value)| format!("{property}\u{1e}{value}"))
+        .collect::<Vec<_>>()
+        .join("\u{1f}")
+}
+
+fn dedup_roles(roles: &[NamedNode]) -> Vec<NamedNode> {
+    if roles.is_empty() {
+        return Vec::new();
+    }
+    let mut out = roles.to_vec();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+// ── ValidationReport ─────────────────────────────────────────────────────────
+
+/// A SHACL validation report (`sh:ValidationReport`).
+#[derive(Debug, Clone)]
+pub struct ValidationReport {
+    /// Whether the data graph conforms to the shapes graph: no result's severity
+    /// is in [`Self::conformance_disallows`] (and no failure was reported, which
+    /// is an `Err` rather than a report). Under an explicitly selected recursive
+    /// law the settled pair relation also determines conformance. A false LFP
+    /// cycle can have no finite leaf result; complete reports retain its separate
+    /// native cycle certificate in [`CompleteValidationReport::cycles`].
+    pub conforms: bool,
+    /// Individual violation/warning/info/debug/trace results.
+    pub results: Vec<ValidationResult>,
+    /// The conformance-disallow set `conforms` was judged against, which the
+    /// report graph echoes as `sh:conformanceDisallows` (see
+    /// [`Self::to_dataset`]).
+    pub conformance_disallows: ConformanceDisallows,
+    /// What the processor determined about the shapes graph's well-formedness, which
+    /// the report graph states as `sh:shapesGraphWellFormed` (see [`Self::to_dataset`]).
+    ///
+    /// SHACL 1.2 Core §6.7.1.4: "Implementations that do perform such checks (e.g., when
+    /// the shapes graph is installed in the system, or before or during the validation)
+    /// SHOULD use the property sh:shapesGraphWellFormed to inform the consumer of the
+    /// validation report about this fact. If a SHACL instance of sh:ValidationReport in
+    /// the results graph has true as the value for sh:shapesGraphWellFormed then the
+    /// processor was certain that the shapes graph that was used for the validation
+    /// process is well-formed." PurRDF checks every shapes graph before validating it and
+    /// refuses an ill-formed one, so every report the engine produces states
+    /// `Some(true)`. Appendix A's `in-minListLength` and `xone-minListLength` ("Each such
+    /// list SHOULD have at least one member") constrain the document's author: PurRDF
+    /// applies them as a mandatory diagnostic that [`crate::lint`] always reports, and the
+    /// approved W3C tests `core/node/in-002`, `in-003`, `xone-002` and `xone-003` validate
+    /// such a graph, so an empty `sh:in` or `sh:xone` list leaves the graph well-formed.
+    /// `None` — a report assembled by [`Self::from_results`] rather than by a
+    /// validation — states nothing.
+    pub shapes_graph_well_formed: Option<bool>,
+    /// The shapes graph's mandatory diagnostics — every shape with an empty `sh:in` or
+    /// `sh:xone` list ([`crate::lint::MandatoryDiagnostic`]) — which every run reports.
+    ///
+    /// Beside the results, never among them: an empty list leaves the shapes graph
+    /// well-formed and every verdict unchanged, so a diagnostic is not a
+    /// `sh:ValidationResult`, does not affect [`Self::conforms`], and is not written into
+    /// the report graph ([`Self::to_dataset`]) — SHACL defines no report term for a
+    /// diagnostic about the shapes graph, and PurRDF mints no vocabulary. Hosts carry it in
+    /// their own slot: SARIF `invocations[].toolExecutionNotifications`, a `diagnostics`
+    /// list on the Python, WebAssembly and C report objects, and a `shacl diagnostic` line
+    /// on the command line. Empty for a report assembled by [`Self::from_results`].
+    pub diagnostics: Vec<crate::lint::MandatoryDiagnostic>,
+}
+
+/// The graph a blank node a validation report carries was read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BlankOrigin {
+    /// The data graph: a focus node, a value, an annotation value.
+    DataGraph,
+    /// The shapes graph: a source shape, a blank result path that is not a complex path.
+    ShapesGraph,
+}
+
+impl BlankOrigin {
+    /// The label stem of this graph's label space in a report.
+    const fn stem(self) -> &'static str {
+        match self {
+            Self::DataGraph => "dg",
+            Self::ShapesGraph => "sg",
+        }
+    }
+}
+
+/// The relabelling [`ValidationReport::with_report_blank_labels`] applied: which report
+/// label stands for which blank node of which source graph.
+#[derive(Debug, Clone, Default)]
+pub struct ReportBlankLabels {
+    /// `(origin, source label)` → report label.
+    forward: FastMap<(BlankOrigin, String), String>,
+    /// Report label → `(origin, source label)`.
+    back: FastMap<String, (BlankOrigin, String)>,
+    /// The next counter of each graph's label space.
+    next: [usize; 2],
+}
+
+impl ReportBlankLabels {
+    /// The graph and source label a report label stands for, or `None` for a label the
+    /// relabelling did not assign.
+    #[must_use]
+    pub fn source_of(&self, report_label: &str) -> Option<(BlankOrigin, &str)> {
+        self.back
+            .get(report_label)
+            .map(|(origin, label)| (*origin, label.as_str()))
+    }
+
+    /// The report label of the `origin` blank node `label`, assigning the next one of
+    /// its graph's space on first sight.
+    fn label(&mut self, origin: BlankOrigin, label: &str) -> String {
+        let key = (origin, label.to_owned());
+        if let Some(assigned) = self.forward.get(&key) {
+            return assigned.clone();
+        }
+        let slot = match origin {
+            BlankOrigin::DataGraph => 0,
+            BlankOrigin::ShapesGraph => 1,
+        };
+        let assigned = format!("{}{}", origin.stem(), self.next[slot]);
+        self.next[slot] += 1;
+        self.back.insert(assigned.clone(), key.clone());
+        self.forward.insert(key, assigned.clone());
+        assigned
+    }
+
+    /// `term` with its blank nodes, triple terms included, relabelled as `origin`'s.
+    fn term(&mut self, origin: BlankOrigin, term: &Term) -> Term {
+        map_term_blanks(term, &mut |label| self.label(origin, label))
+    }
+
+    /// `result` and its details with every carried blank node relabelled, visiting the
+    /// fields in the order [`ValidationReport::with_report_blank_labels`] documents.
+    fn relabel_result(&mut self, result: &ValidationResult) -> ValidationResult {
+        map_result_terms(result, &mut |origin, term| self.term(origin, term))
+    }
+}
+
+/// The one result-field relabelling traversal, shared by legacy role labels and
+/// complete source-context labels.
+fn map_result_terms(
+    result: &ValidationResult, term: &mut impl FnMut(BlankOrigin, &Term) -> Term,
+) -> ValidationResult {
+    let mut out = result.clone();
+    out.focus_node = term(BlankOrigin::DataGraph, &result.focus_node);
+    out.source_shape = term(BlankOrigin::ShapesGraph, &result.source_shape);
+    // A blank result path paired with a path structure is a complex path the
+    // report MINTS, not a carried node; any other blank result path is carried.
+    if let (Some(path), None) = (&result.result_path, &result.path_structure) {
+        out.result_path = Some(term(BlankOrigin::ShapesGraph, path));
+    }
+    out.value = result
+        .value
+        .as_ref()
+        .map(|value| term(BlankOrigin::DataGraph, value));
+    out.annotations = result
+        .annotations
+        .iter()
+        .map(|(property, value)| (property.clone(), term(BlankOrigin::DataGraph, value)))
+        .collect();
+    out.details = result
+        .details
+        .iter()
+        .map(|detail| map_result_terms(detail, term))
+        .collect();
+    out
+}
+
+/// Relabel blank leaves, including RDF 1.2 triple terms, on a heap work list.
+fn map_term_blanks(term: &Term, label: &mut impl FnMut(&str) -> String) -> Term {
+    let mapped = term.fold_nested(
+        label,
+        |label, term| {
+            Ok::<_, Infallible>(match term {
+                Term::BlankNode(blank) => Term::BlankNode(label(blank)),
+                Term::NamedNode(_) | Term::Literal(_) => term.clone(),
+                Term::Triple(_) => unreachable!("triple is assembled by the shared fold"),
+            })
+        },
+        |_, predicate| Ok(Term::NamedNode(predicate.clone())),
+        |_, subject, predicate, object| {
+            let Term::NamedNode(predicate) = predicate else {
+                unreachable!("triple predicate is an IRI")
+            };
+            Ok(Term::Triple(Box::new(crate::term::Triple {
+                subject,
+                predicate,
+                object,
+            })))
+        },
+    );
+    match mapped {
+        Ok(term) => term,
+    }
+}
+
+/// The tuple type used for deterministic comparison of result sets.
+///
+/// `(focus, path, value, component, source_shape, severity)`
+pub type ResultTuple = (
+    String,
+    Option<String>,
+    Option<String>,
+    String,
+    String,
+    Severity,
+);
+
+impl ValidationReport {
+    /// The report of `results` judged against `disallows`: it conforms iff no
+    /// result's severity is in the set (SHACL 1.2 Core, "Conformance-Disallow
+    /// Set": "Presence of any sh:ValidationResult with a severity level in the set
+    /// of disallowed severity levels MUST result in a sh:conforms value of false
+    /// on the associated sh:ValidationReport instance").
+    #[must_use]
+    pub fn from_results(results: Vec<ValidationResult>, disallows: ConformanceDisallows) -> Self {
+        let conforms = !results
+            .iter()
+            .any(|result| disallows.contains(&result.severity));
+        Self {
+            conforms,
+            results,
+            conformance_disallows: disallows,
+            shapes_graph_well_formed: None,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// This report stating `diagnostics` (see [`Self::diagnostics`]).
+    #[must_use]
+    pub fn with_diagnostics(mut self, diagnostics: Vec<crate::lint::MandatoryDiagnostic>) -> Self {
+        self.diagnostics = diagnostics;
+        self
+    }
+
+    /// This report stating `sh:shapesGraphWellFormed` as `well_formed` (see
+    /// [`Self::shapes_graph_well_formed`]).
+    #[must_use]
+    pub const fn with_shapes_graph_well_formed(mut self, well_formed: bool) -> Self {
+        self.shapes_graph_well_formed = Some(well_formed);
+        self
+    }
+
+    /// Materialize the report graph as a frozen PurRDF [`RdfDataset`].
+    ///
+    /// This is the report's primal RDF form: the quads are built straight from
+    /// the report's own [`Term`] values into an [`RdfDatasetBuilder`] and frozen.
+    /// [`ValidationReport::to_ntriples`] is a *serialization of this dataset*, so
+    /// rendering a report in any other syntax is
+    ///
+    /// ```no_run
+    /// # use purrdf_shapes::report::ValidationReport;
+    /// # use purrdf_rdf::{SerializeGraph, serialize_dataset};
+    /// # fn f(report: &ValidationReport) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    /// Ok(serialize_dataset(&report.to_dataset()?, "text/turtle", SerializeGraph::DefaultGraph)?)
+    /// # }
+    /// ```
+    ///
+    /// rather than a `to_ntriples()` → `parse_dataset()` round-trip. Avoiding
+    /// that round-trip is not merely a speed-up: the direct path carries every
+    /// RDF 1.2 term the report holds (a triple-term focus node or value included)
+    /// with the report's own blank-node labels, instead of whatever survives a
+    /// text grammar and gets relabelled by a parser.
+    ///
+    /// Everything the report can express lives in the default graph; the returned
+    /// dataset declares no named graphs and populates no reifier/annotation side
+    /// table.
+    ///
+    /// The blank nodes the report MINTS (the report node, one per result, and the
+    /// interior nodes of a complex `sh:path`) are guaranteed distinct from every
+    /// blank node the report CARRIES: a data graph is free to contain `_:r0`, and
+    /// the minted nodes step into a reserved label namespace when it does.
+    ///
+    /// # Blank nodes from two graphs
+    ///
+    /// A report carries blank nodes from TWO graphs: a focus node, a value and an
+    /// annotation value are data-graph nodes, a source shape (and a blank result path
+    /// that is not a complex path) a shapes-graph node. Each graph's labels are local
+    /// to that graph, so both routinely use the same one — and written into one report
+    /// graph as they were, a shapes-graph shape and a data-graph value would become one
+    /// node. The report is therefore written under [`Self::with_report_blank_labels`]:
+    /// every carried blank node relabelled into its OWN graph's label space, distinct
+    /// nodes distinct and the same node the same label everywhere it appears.
+    ///
+    /// # Errors
+    /// Returns the original storage or native graph construction refusal.
+    pub fn to_dataset(&self) -> Result<Arc<RdfDataset>, ShapesError> {
+        self.with_report_blank_labels().0.dataset_as_carried()
+    }
+
+    /// This report with every blank node it CARRIES relabelled into the label space of
+    /// the graph it came from, and the [`ReportBlankLabels`] mapping back.
+    ///
+    /// A data-graph blank node becomes `_:dg{n}` and a shapes-graph blank node `_:sg{n}`,
+    /// `n` counting each graph's distinct nodes in their order of first appearance in
+    /// the report — the results in order, and within a result its focus node, source
+    /// shape, carried result path, value, annotation values and then its `sh:detail`
+    /// results. Two occurrences of one node keep one label; a data-graph node and a
+    /// shapes-graph node that shared a label in their own graphs get two. Blank nodes
+    /// inside a triple term are relabelled in the space of the term that holds them.
+    ///
+    /// Every report serialization — the report graph ([`Self::to_dataset`], so every RDF
+    /// syntax), and the SARIF projection — is written from this form, so a node has one
+    /// label across all of them, and the labels do not depend on which parser labelled
+    /// the documents. The in-memory [`Self::results`] keep the labels of the graphs they
+    /// were read from, which is what a caller joining a result back to its data needs.
+    #[must_use]
+    pub fn with_report_blank_labels(&self) -> (Self, ReportBlankLabels) {
+        let mut labels = ReportBlankLabels::default();
+        let results = self
+            .results
+            .iter()
+            .map(|result| labels.relabel_result(result))
+            .collect();
+        // A diagnostic names a shapes-graph node, labelled AFTER every result so the
+        // results' labels do not depend on whether the shapes graph has a diagnostic.
+        let diagnostics = self
+            .diagnostics
+            .iter()
+            .map(|diagnostic| crate::lint::MandatoryDiagnostic {
+                rule: diagnostic.rule,
+                shape: labels.term(BlankOrigin::ShapesGraph, &diagnostic.shape),
+            })
+            .collect();
+        (
+            Self {
+                conforms: self.conforms,
+                results,
+                conformance_disallows: self.conformance_disallows.clone(),
+                shapes_graph_well_formed: self.shapes_graph_well_formed,
+                diagnostics,
+            },
+            labels,
+        )
+    }
+
+    /// The report graph with the carried blank-node labels exactly as the results hold
+    /// them: [`Self::to_dataset`] after relabelling.
+    fn dataset_as_carried(&self) -> Result<Arc<RdfDataset>, ShapesError> {
+        self.dataset_as_carried_with_evidence(None)
+    }
+
+    fn dataset_as_carried_with_evidence(
+        &self, evidence: Option<&[ResultEvidence]>,
+    ) -> Result<Arc<RdfDataset>, ShapesError> {
+        let mut builder = RdfDatasetBuilder::new();
+        // Complex-path structure roots already emitted (keyed by root label).
+        let mut emitted_paths: FastSet<String> = FastSet::default();
+
+        // Reserve a label namespace for the nodes this function invents, so a
+        // data graph that happens to use `_:report` or `_:r0` cannot be fused
+        // with the report's own structure. Empty (and so byte-identical to a
+        // report with no such data) unless the report really does carry a
+        // colliding label.
+        let mint = mint_prefix(self, evidence);
+        let report_subj = RdfTerm::blank_node(format!("{mint}report"));
+
+        // _:report rdf:type sh:ValidationReport
+        push_triple(
+            &mut builder,
+            report_subj.clone(),
+            rdf::TYPE,
+            RdfTerm::iri(sh::VALIDATION_REPORT),
+        )?;
+
+        // _:report sh:conforms "true"^^xsd:boolean (or false)
+        push_triple(
+            &mut builder,
+            report_subj.clone(),
+            sh::CONFORMS,
+            RdfTerm::Literal(::purrdf_rdf::RdfLiteral::typed(
+                if self.conforms { "true" } else { "false" },
+                xsd::BOOLEAN,
+            )),
+        )?;
+
+        // _:report sh:conformanceDisallows <level> — the set `sh:conforms` was
+        // judged against. "If no values are present in the results graph for the
+        // property sh:conformanceDisallows, then a default set MUST be used,
+        // comprised of sh:Violation, sh:Warning, and sh:Info", so the default set
+        // is echoed by stating nothing: that is exactly what a reader recovers from
+        // it, and every report under the default set keeps its bytes. Any other
+        // set is echoed level by level, in `ConformanceDisallows::levels` order.
+        if !self.conformance_disallows.is_default() {
+            for level in self.conformance_disallows.levels() {
+                push_triple(
+                    &mut builder,
+                    report_subj.clone(),
+                    sh::CONFORMANCE_DISALLOWS,
+                    RdfTerm::iri(level.iri()),
+                )?;
+            }
+        }
+
+        // _:report sh:shapesGraphWellFormed "true"^^xsd:boolean — SHACL 1.2 Core
+        // §6.7.1.4: a processor that checks the shapes graph "SHOULD use the property
+        // sh:shapesGraphWellFormed to inform the consumer of the validation report".
+        if let Some(well_formed) = self.shapes_graph_well_formed {
+            push_triple(
+                &mut builder,
+                report_subj.clone(),
+                sh::SHAPES_GRAPH_WELL_FORMED,
+                RdfTerm::Literal(::purrdf_rdf::RdfLiteral::typed(
+                    if well_formed { "true" } else { "false" },
+                    xsd::BOOLEAN,
+                )),
+            )?;
+        }
+
+        for (i, r) in self.results.iter().enumerate() {
+            let label = format!("{mint}r{i}");
+            // _:report sh:result _:r{i}
+            push_triple(
+                &mut builder,
+                report_subj.clone(),
+                sh::RESULT,
+                RdfTerm::blank_node(label.clone()),
+            )?;
+            emit_result(
+                &mut builder,
+                &label,
+                r,
+                evidence.and_then(|evidence| evidence.get(i)),
+                &mint,
+                &mut emitted_paths,
+            )?;
+        }
+
+        builder.freeze().map_err(ShapesError::from)
+    }
+
+    /// Emit the report as N-Triples text using the native purrdf codec.
+    ///
+    /// The report graph is materialized by [`ValidationReport::to_dataset`] and
+    /// serialized from there, so the text and the dataset are the same graph by
+    /// construction. This avoids hand-rolling literal escaping. The `DefaultGraph` selection on the
+    /// `application/n-quads` codec emits graphless rows (i.e. N-Triples) and is
+    /// byte-lenient on language tags.
+    ///
+    /// # Errors
+    /// Returns the original graph construction or native serialization refusal.
+    pub fn to_ntriples(&self) -> Result<String, ShapesError> {
+        let dataset = self.to_dataset()?;
+        let buf = serialize_dataset(
+            &dataset,
+            "application/n-quads",
+            SerializeGraph::DefaultGraph,
+        )?;
+        Ok(String::from_utf8(buf).expect("native N-Triples output is valid UTF-8"))
+    }
+
+    /// Return the result set as a [`BTreeSet`] of [`ResultTuple`]s for
+    /// deterministic equality comparison in tests and conformance checks.
+    pub fn result_tuples(&self) -> BTreeSet<ResultTuple> {
+        self.results
+            .iter()
+            .map(|r| {
+                (
+                    r.focus_node.to_string(),
+                    r.result_path.as_ref().map(ToString::to_string),
+                    r.value.as_ref().map(ToString::to_string),
+                    r.source_constraint_component.to_string(),
+                    r.source_shape.to_string(),
+                    r.severity.clone(),
+                )
+            })
+            .collect()
+    }
+}
+
+// ── Minted blank-node labels ──────────────────────────────────────────────────
+
+/// The prefix every blank node the report MINTS carries, so a minted node can
+/// never be the same node as one the report CARRIES.
+///
+/// # The bug this closes
+///
+/// The report invents `_:report`, `_:r0`, `_:r1`, … and the interior nodes of a
+/// complex `sh:path`. Blank-node labels reaching the report from the data or
+/// shapes graph are ordinary opaque strings — a data graph is entirely free to
+/// contain `_:r0` — and a blank label at [`::purrdf_rdf::BlankScope::DEFAULT`] passes
+/// through the IR verbatim. Validating such a graph used to emit
+///
+/// ```text
+/// _:r0 a sh:ValidationResult ; sh:focusNode _:r0 .
+/// ```
+///
+/// fusing the validation result with the node it is reporting on: the report
+/// asserted that a `sh:ValidationResult` was an instance of the data's class, and
+/// a consumer following `sh:focusNode` landed back on the result. Nothing was
+/// dropped and nothing failed — two distinct nodes silently became one.
+///
+/// # The rule
+///
+/// Return `""` when no carried label collides with a minted one, which is the
+/// overwhelmingly common case and keeps the emitted bytes byte-identical to
+/// before. Otherwise return the shortest `_`-run that NO carried label starts
+/// with; prefixing every minted label with it puts the minted nodes in a label
+/// namespace the carried labels provably do not reach. `_` is `PN_CHARS_U`, so
+/// the marked label is a legal `BLANK_NODE_LABEL` as written and the text codecs
+/// never have to escape it.
+///
+/// The search is bounded, not merely terminating: only a carried label at least
+/// `k` bytes long can start with a `k`-long run, so a run one byte longer than
+/// the longest carried label is always free.
+///
+/// Linear in the report: the complex-path roots are collected once, and each
+/// carried label is then checked with a constant number of hash lookups.
+fn mint_prefix<'a>(report: &'a ValidationReport, evidence: Option<&'a [ResultEvidence]>) -> String {
+    let mut carried = carried_blank_labels(report);
+    if let Some(evidence) = evidence {
+        let mut pending = purrdf_lex::walk::WorkList::<_, 8>::new();
+        pending.extend(evidence.iter());
+        while let Some(evidence) = pending.pop() {
+            if let Some(constraint) = &evidence.source_constraint {
+                collect_blank_labels(constraint, &mut carried);
+            }
+            pending.extend(evidence.details.iter());
+        }
+    }
+    let roots = minted_path_roots(report);
+    if !carried
+        .iter()
+        .any(|label| collides_with_minted(label, report.results.len(), &roots))
+    {
+        return String::new();
+    }
+    let ceiling = carried.iter().map(|label| label.len()).max().unwrap_or(0) + 1;
+    // `1..` starts past the empty prefix just rejected; `ceiling` is free by
+    // construction, so `find` always succeeds.
+    (1..=ceiling)
+        .map(|k| "_".repeat(k))
+        .find(|mark| !carried.iter().any(|label| label.starts_with(mark.as_str())))
+        .expect("a run longer than every carried label is always free")
+}
+
+/// Every blank-node label the report CARRIES — the ones that arrive from the data
+/// or shapes graph rather than being invented here.
+///
+/// A complex path's root label is excluded: it is minted by
+/// [`crate::path::path_to_term`], not carried, and it takes the mint prefix along
+/// with everything else minted (see [`minted_path_roots`]).
+fn carried_blank_labels(report: &ValidationReport) -> FastSet<&str> {
+    let mut labels = FastSet::default();
+    for r in &report.results {
+        collect_result_blank_labels(r, &mut labels);
+    }
+    labels
+}
+
+/// [`carried_blank_labels`] for one result and every result nested under it.
+fn collect_result_blank_labels<'a>(r: &'a ValidationResult, labels: &mut FastSet<&'a str>) {
+    collect_blank_labels(&r.focus_node, labels);
+    collect_blank_labels(&r.source_shape, labels);
+    if let Some(value) = &r.value {
+        collect_blank_labels(value, labels);
+    }
+    // A blank `result_path` with no `path_structure` is not a minted complex
+    // path root (see `ValidationResult::result_path`), so it is carried.
+    if let (Some(path), None) = (&r.result_path, &r.path_structure) {
+        collect_blank_labels(path, labels);
+    }
+    // An annotation value is a solution binding, so it may be a data blank node.
+    for (_, value) in &r.annotations {
+        collect_blank_labels(value, labels);
+    }
+    for detail in &r.details {
+        collect_result_blank_labels(detail, labels);
+    }
+}
+
+/// The root labels of the report's complex paths — blank nodes the report MINTS
+/// (a blank `result_path` paired with a `path_structure`), collected once so the
+/// collision check is a hash lookup per carried label rather than a rescan of
+/// every result.
+fn minted_path_roots(report: &ValidationReport) -> FastSet<&str> {
+    let mut roots = FastSet::default();
+    for r in &report.results {
+        collect_minted_path_roots(r, &mut roots);
+    }
+    roots
+}
+
+/// [`minted_path_roots`] for one result and every result nested under it.
+fn collect_minted_path_roots<'a>(r: &'a ValidationResult, roots: &mut FastSet<&'a str>) {
+    if let (Some(Term::BlankNode(root)), Some(_)) = (&r.result_path, &r.path_structure) {
+        roots.insert(root.as_str());
+    }
+    for detail in &r.details {
+        collect_minted_path_roots(detail, roots);
+    }
+}
+
+/// Add every blank-node label reachable from `term`, descending through RDF 1.2
+/// triple terms (a quoted triple's own subject/object are carried nodes too), over
+/// [`Term::visit_nested`]'s work list.
+fn collect_blank_labels<'a>(term: &'a Term, labels: &mut FastSet<&'a str>) {
+    let ControlFlow::Continue(()) = term.visit_nested(|term| -> ControlFlow<Infallible> {
+        if let Term::BlankNode(label) = term {
+            labels.insert(label.as_str());
+        }
+        ControlFlow::Continue(())
+    });
+}
+
+/// Whether `label` is one of the labels the report would mint under the EMPTY
+/// prefix: the report node, one of the `result_count` result nodes, a complex
+/// path's root, or an interior node of one of the report's complex paths
+/// (`{root}-{n}`, `n` a decimal counter — see [`next_path_label`]).
+fn collides_with_minted(label: &str, result_count: usize, roots: &FastSet<&str>) -> bool {
+    if label == "report" || roots.contains(label) {
+        return true;
+    }
+    // A result node is `r{i}`, and a detail node nested under it
+    // `r{i}d{j}d{k}…`: every such label is minted when `i` names a result.
+    if let Some(rest) = label.strip_prefix('r') {
+        let mut parts = rest.split('d');
+        if let Some(index) = parts.next()
+            && let Ok(index) = index.parse::<usize>()
+            && index < result_count
+            && parts.all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return true;
+        }
+    }
+    // An interior node is `{root}-{n}`; the counter carries no `-`, so the LAST
+    // `-` is the one that separates it from the root.
+    label
+        .rsplit_once('-')
+        .is_some_and(|(stem, counter)| counter.parse::<usize>().is_ok() && roots.contains(stem))
+}
+
+/// Emit one validation result rooted at the blank node `label`, and — through
+/// `sh:detail` — every result nested under it, each at `{label}d{j}`.
+fn emit_result(
+    builder: &mut RdfDatasetBuilder, label: &str, r: &ValidationResult,
+    evidence: Option<&ResultEvidence>, mint: &str, emitted_paths: &mut FastSet<String>,
+) -> Result<(), ShapesError> {
+    let result_subj = RdfTerm::blank_node(label.to_owned());
+
+    if let Some(source) = evidence.and_then(|evidence| evidence.source_constraint.as_ref()) {
+        push_triple(
+            builder,
+            result_subj.clone(),
+            sh::SOURCE_CONSTRAINT,
+            source.to_rdf_term(),
+        )?;
+    }
+
+    // _:r rdf:type sh:ValidationResult
+    push_triple(
+        builder,
+        result_subj.clone(),
+        rdf::TYPE,
+        RdfTerm::iri(sh::VALIDATION_RESULT),
+    )?;
+
+    // sh:focusNode
+    push_triple(
+        builder,
+        result_subj.clone(),
+        sh::FOCUS_NODE,
+        r.focus_node.to_rdf_term(),
+    )?;
+
+    // sh:resultSeverity
+    push_triple(
+        builder,
+        result_subj.clone(),
+        sh::RESULT_SEVERITY,
+        RdfTerm::iri(r.severity.iri()),
+    )?;
+
+    // sh:sourceConstraintComponent
+    push_triple(
+        builder,
+        result_subj.clone(),
+        sh::SOURCE_CONSTRAINT_COMPONENT,
+        RdfTerm::iri(r.source_constraint_component.as_str()),
+    )?;
+
+    // sh:sourceShape
+    push_triple(
+        builder,
+        result_subj.clone(),
+        sh::SOURCE_SHAPE,
+        r.source_shape.to_rdf_term(),
+    )?;
+
+    // sh:resultPath (optional). A complex path is a blank node the report MINTS
+    // (see `path::path_to_term`), so it carries the mint prefix like every other
+    // minted node; its full SHACL path structure is emitted once per distinct
+    // root label (two results sharing a path share the structure bnodes).
+    if let Some(path) = &r.result_path {
+        let root = match (path, &r.path_structure) {
+            (Term::BlankNode(root_label), Some(_)) => Some(format!("{mint}{root_label}")),
+            _ => None,
+        };
+        push_triple(
+            builder,
+            result_subj.clone(),
+            sh::RESULT_PATH,
+            root.clone()
+                .map_or_else(|| path.to_rdf_term(), RdfTerm::blank_node),
+        )?;
+        if let (Some(root), Some(structure)) = (root, &r.path_structure)
+            && emitted_paths.insert(root.clone())
+        {
+            emit_path_structure(builder, &root, structure)?;
+        }
+    }
+
+    // sh:value (optional)
+    if let Some(value) = &r.value {
+        push_triple(builder, result_subj.clone(), sh::VALUE, value.to_rdf_term())?;
+    }
+
+    // sh:resultMessage — one per message, each literal as it was declared
+    // (language tag, base direction and datatype preserved), in canonical order.
+    for msg in &r.messages {
+        push_triple(
+            builder,
+            result_subj.clone(),
+            sh::RESULT_MESSAGE,
+            Term::Literal(msg.clone()).to_rdf_term(),
+        )?;
+    }
+
+    // SHACL-SPARQL result annotations: each `(property, value)` the constraint's
+    // `sh:resultAnnotation`s produced for this result, in canonical order.
+    for (property, value) in &r.annotations {
+        push_triple(
+            builder,
+            result_subj.clone(),
+            property.as_str(),
+            value.to_rdf_term(),
+        )?;
+    }
+
+    // sh:detail (optional nested results), in the result's own detail order.
+    for (j, detail) in r.details.iter().enumerate() {
+        let detail_label = format!("{label}d{j}");
+        push_triple(
+            builder,
+            result_subj.clone(),
+            sh::DETAIL,
+            RdfTerm::blank_node(detail_label.clone()),
+        )?;
+        emit_result(
+            builder,
+            &detail_label,
+            detail,
+            evidence.and_then(|evidence| evidence.details.get(j)),
+            mint,
+            emitted_paths,
+        )?;
+    }
+    Ok(())
+}
+
+// ── Builder helpers ───────────────────────────────────────────────────────────
+
+/// Push a triple (default graph) into the report dataset builder.
+fn push_triple(
+    builder: &mut RdfDatasetBuilder, subject: RdfTerm, predicate: &str, object: RdfTerm,
+) -> Result<(), ShapesError> {
+    builder.push_owned_quad(&RdfQuad::new(subject, predicate, object))?;
+    Ok(())
+}
+
+// ── SHACL path-structure serialization ────────────────────────────────────────
+
+/// Emit the RDF structure of a COMPLEX SHACL path rooted at blank node `label`
+/// (SHACL §2.3.1 path syntax: `[ sh:inversePath … ]`, sequence lists,
+/// `[ sh:alternativePath ( … ) ]`, and the three closure forms). Interior blank
+/// nodes are labelled `{label}-{n}` with a per-root counter, so the emission is
+/// deterministic for a given path.
+fn emit_path_structure(
+    builder: &mut RdfDatasetBuilder, label: &str, path: &crate::shapes::Path,
+) -> Result<(), ShapesError> {
+    let mut counter = 0usize;
+    emit_path_node(builder, label, path, label, &mut counter)
+}
+
+/// Allocate the next interior blank-node label under `root`.
+fn next_path_label(root: &str, counter: &mut usize) -> String {
+    let label = format!("{root}-{counter}");
+    *counter += 1;
+    label
+}
+
+/// The RDF term standing for a sub-path: a plain predicate inlines as its IRI;
+/// a composite sub-path becomes a fresh blank node whose structure is emitted
+/// recursively.
+fn path_object(
+    builder: &mut RdfDatasetBuilder, path: &crate::shapes::Path, root: &str, counter: &mut usize,
+) -> Result<RdfTerm, ShapesError> {
+    if let crate::shapes::Path::Predicate(p) = path {
+        return Ok(RdfTerm::iri(p.as_str()));
+    }
+    let label = next_path_label(root, counter);
+    emit_path_node(builder, &label, path, root, counter)?;
+    Ok(RdfTerm::blank_node(label))
+}
+
+/// Emit the structure triples for the composite path node `label`.
+fn emit_path_node(
+    builder: &mut RdfDatasetBuilder, label: &str, path: &crate::shapes::Path, root: &str,
+    counter: &mut usize,
+) -> Result<(), ShapesError> {
+    use crate::shapes::Path;
+    match path {
+        // A plain predicate is always inlined by `path_object`; a predicate
+        // root never reaches here (`path_structure` is only set for complex paths).
+        Path::Predicate(_) => {}
+        Path::Inverse(inner) => {
+            let object = path_object(builder, inner, root, counter)?;
+            push_triple(
+                builder,
+                RdfTerm::blank_node(label),
+                sh::INVERSE_PATH,
+                object,
+            )?;
+        }
+        Path::ZeroOrMore(inner) => {
+            let object = path_object(builder, inner, root, counter)?;
+            push_triple(
+                builder,
+                RdfTerm::blank_node(label),
+                sh::ZERO_OR_MORE_PATH,
+                object,
+            )?;
+        }
+        Path::OneOrMore(inner) => {
+            let object = path_object(builder, inner, root, counter)?;
+            push_triple(
+                builder,
+                RdfTerm::blank_node(label),
+                sh::ONE_OR_MORE_PATH,
+                object,
+            )?;
+        }
+        Path::ZeroOrOne(inner) => {
+            let object = path_object(builder, inner, root, counter)?;
+            push_triple(
+                builder,
+                RdfTerm::blank_node(label),
+                sh::ZERO_OR_ONE_PATH,
+                object,
+            )?;
+        }
+        // A sequence path IS the RDF list (the list head sits in path position).
+        Path::Sequence(parts) => {
+            emit_path_list(builder, label, parts, root, counter)?;
+        }
+        // An alternative path wraps its list under sh:alternativePath.
+        Path::Alternative(parts) => {
+            let head = next_path_label(root, counter);
+            push_triple(
+                builder,
+                RdfTerm::blank_node(label),
+                sh::ALTERNATIVE_PATH,
+                RdfTerm::blank_node(head.clone()),
+            )?;
+            emit_path_list(builder, &head, parts, root, counter)?;
+        }
+    }
+    Ok(())
+}
+
+/// Emit an RDF collection of sub-paths with `head_label` as the first cell,
+/// through [`try_build_rdf_list`](purrdf_core::collections::try_build_rdf_list). Every sub-path's
+/// structure is emitted first, then the cells, labelled in that order.
+fn emit_path_list(
+    builder: &mut RdfDatasetBuilder, head_label: &str, parts: &[crate::shapes::Path], root: &str,
+    counter: &mut usize,
+) -> Result<(), ShapesError> {
+    let members = parts
+        .iter()
+        .map(|part| path_object(builder, part, root, counter))
+        .collect::<Result<Vec<_>, _>>()?;
+    let vocab = purrdf_core::ListVocab {
+        first: RdfTerm::iri(rdf::FIRST),
+        rest: RdfTerm::iri(rdf::REST),
+        nil: RdfTerm::iri(rdf::NIL),
+    };
+    purrdf_core::collections::try_build_rdf_list(
+        members,
+        &vocab,
+        |index| {
+            Ok(RdfTerm::blank_node(if index == 0 {
+                head_label.to_owned()
+            } else {
+                next_path_label(root, counter)
+            }))
+        },
+        |subject, predicate, object| {
+            let RdfTerm::Iri(predicate) = predicate else {
+                unreachable!("rdf:first and rdf:rest are IRIs")
+            };
+            push_triple(builder, subject, &predicate, object)
+        },
+    )?;
+    Ok(())
+}
+
+// ── Round-trip helpers ────────────────────────────────────────────────────────
+
+/// Extract the `sh:conforms` boolean from an N-Triples SHACL report string.
+///
+/// # Errors
+///
+/// Returns an error string if the N-Triples cannot be parsed.
+pub fn conforms_from_ntriples(nt: &str) -> Result<bool, String> {
+    let data = dataset_from_ntriples(nt)?;
+    Ok(conforms_from_dataset(&data)?.unwrap_or(true))
+}
+
+/// Extract a `BTreeSet<ResultTuple>` from an N-Triples SHACL report string.
+///
+/// # Errors
+///
+/// Returns an error string if the N-Triples cannot be parsed.
+pub fn tuples_from_ntriples(nt: &str) -> Result<BTreeSet<ResultTuple>, String> {
+    let data = dataset_from_ntriples(nt)?;
+    tuples_from_dataset(&data)
+}
+
+/// Parse a SHACL report N-Triples string into a query-able frozen [`RdfDataset`]
+/// via the native purrdf codec.
+fn dataset_from_ntriples(nt: &str) -> Result<Arc<RdfDataset>, String> {
+    ::purrdf_rdf::parse_dataset(nt.as_bytes(), "application/n-triples", None)
+        .map_err(|e| format!("N-Triples parse error: {e}"))
+}
+
+/// Walk a SHACL report dataset and extract result tuples.
+///
+/// Reads the report's TOP-LEVEL results — the objects of `sh:result` — and their
+/// mandatory and optional predicates, building the same tuple set as
+/// [`ValidationReport::result_tuples`], which is top-level too. A nested
+/// `sh:detail` result is typed `sh:ValidationResult` as well, but it is not a
+/// result of the report: reading every typed node would count each detail as a
+/// report result of its own, so a round trip of a report with details would not
+/// give back its own tuples.
+pub fn tuples_from_dataset(data: &RdfDataset) -> Result<BTreeSet<ResultTuple>, String> {
+    let result_nodes: Vec<Term> = native_quads(
+        data,
+        None,
+        Some(&Term::NamedNode(NamedNode::from(sh::RESULT))),
+        None,
+        GraphFilter::AnyGraph,
+    )
+    .into_iter()
+    .map(|(_, _, result)| result)
+    .collect();
+
+    let mut tuples = BTreeSet::new();
+
+    for result_node in result_nodes {
+        let focus = object_string(data, &result_node, sh::FOCUS_NODE).unwrap_or_default();
+        let path = object_string(data, &result_node, sh::RESULT_PATH);
+        let value = object_string(data, &result_node, sh::VALUE);
+        let component =
+            object_string(data, &result_node, sh::SOURCE_CONSTRAINT_COMPONENT).unwrap_or_default();
+        let source_shape = object_string(data, &result_node, sh::SOURCE_SHAPE).unwrap_or_default();
+        let severity_iri =
+            object_string(data, &result_node, sh::RESULT_SEVERITY).unwrap_or_default();
+
+        // Parse severity from the IRI string (strip angle brackets the term
+        // rendering adds for a NamedNode). A non-built-in severity IRI is
+        // preserved verbatim (Severity::Other); an ABSENT severity is an
+        // error — the writer always emits one, so the default-to-Violation
+        // fallback silently re-labelled malformed foreign results as the
+        // most severe level and flipped conformance through the disallow
+        // set.
+        let sev_str = severity_iri.trim_matches(|c| c == '<' || c == '>');
+        let severity = if sev_str.is_empty() {
+            return Err(format!(
+                "result {result_node} carries no sh:resultSeverity; a report \
+                 result must state its severity"
+            ));
+        } else {
+            Severity::from_iri(sev_str).unwrap_or_else(|| Severity::Other(NamedNode::from(sev_str)))
+        };
+
+        tuples.insert((focus, path, value, component, source_shape, severity));
+    }
+
+    Ok(tuples)
+}
+
+/// The dataset's single `sh:ValidationReport` node: `Ok(None)` when it has
+/// none, an error when it has more than one. Conformance and its disallow
+/// set must come from the SAME node — a dataset with two report nodes is not
+/// one validation report, and unioning per-node sets would judge it under a
+/// law no single report states.
+fn the_report_node(data: &RdfDataset) -> Result<Option<Term>, String> {
+    let nodes = subjects_typed(data, sh::VALIDATION_REPORT);
+    match nodes.as_slice() {
+        [] => Ok(None),
+        [node] => Ok(Some(node.clone())),
+        _ => Err(format!(
+            "exactly one sh:ValidationReport node is required, found {}",
+            nodes.len()
+        )),
+    }
+}
+
+/// The conformance-disallow set a report dataset declares: the objects of its
+/// `sh:conformanceDisallows` triples, or — when it has none — the default set
+/// (SHACL 1.2 Core: "If the validation report contains no such triples,
+/// sh:Violation, sh:Warning, and sh:Info are set as defaults").
+///
+/// # Errors
+///
+/// Returns an error when a value of `sh:conformanceDisallows` is not an IRI ("All
+/// values of sh:conformanceDisallows MUST be IRIs"), or when the dataset
+/// carries more than one `sh:ValidationReport` node.
+pub fn conformance_disallows_from_dataset(
+    data: &RdfDataset,
+) -> Result<ConformanceDisallows, String> {
+    let predicate = Term::NamedNode(NamedNode::from(sh::CONFORMANCE_DISALLOWS));
+    let mut levels = Vec::new();
+    for report_node in the_report_node(data)?.into_iter() {
+        for (_, _, object) in native_quads(
+            data,
+            Some(&report_node),
+            Some(&predicate),
+            None,
+            GraphFilter::AnyGraph,
+        ) {
+            let Term::NamedNode(level) = object else {
+                return Err(format!(
+                    "sh:conformanceDisallows value {object} is not an IRI; all values of \
+                     sh:conformanceDisallows must be IRIs"
+                ));
+            };
+            levels.push(Severity::from_iri_open(level.as_str()));
+        }
+    }
+    if levels.is_empty() {
+        return Ok(ConformanceDisallows::default());
+    }
+    ConformanceDisallows::new(levels)
+}
+
+/// Extract the `sh:conforms` boolean from a report dataset, if present.
+///
+/// # Errors
+///
+/// Returns an error when the dataset carries more than one
+/// `sh:ValidationReport` node.
+pub fn conforms_from_dataset(data: &RdfDataset) -> Result<Option<bool>, String> {
+    let report_node = match the_report_node(data)? {
+        Some(node) => node,
+        None => return Ok(None),
+    };
+    let Some(raw) = object_string(data, &report_node, sh::CONFORMS) else {
+        return Ok(None);
+    };
+    // The boolean literal renders as `"true"^^<xsd:boolean>` (typed).
+    match raw.as_str() {
+        s if s.starts_with("\"true\"") => Ok(Some(true)),
+        s if s.starts_with("\"false\"") => Ok(Some(false)),
+        _ => Ok(None),
+    }
+}
+
+// ── Internal query helpers ────────────────────────────────────────────────────
+
+/// All subjects of `(?, rdf:type, class_iri)` in the report dataset.
+fn subjects_typed(data: &RdfDataset, class_iri: &str) -> Vec<Term> {
+    let rdf_type = Term::NamedNode(NamedNode::from(rdf::TYPE));
+    let class = Term::NamedNode(NamedNode::from(class_iri));
+    native_quads(
+        data,
+        None,
+        Some(&rdf_type),
+        Some(&class),
+        GraphFilter::AnyGraph,
+    )
+    .into_iter()
+    .map(|(subject, _, _)| subject)
+    .collect()
+}
+
+/// Return the first object of `(subj, pred, ?)` as a `Term::to_string()` string.
+fn object_string(data: &RdfDataset, subj: &Term, pred: &str) -> Option<String> {
+    let predicate = Term::NamedNode(NamedNode::from(pred));
+    native_quads(
+        data,
+        Some(subj),
+        Some(&predicate),
+        None,
+        GraphFilter::AnyGraph,
+    )
+    .into_iter()
+    .next()
+    .map(|(_, _, object)| object.to_string())
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_result() -> ValidationResult {
+        ValidationResult {
+            focus_node: Term::NamedNode(NamedNode::new_unchecked("http://example.org/focusA")),
+            result_path: Some(Term::NamedNode(NamedNode::new_unchecked(
+                "http://example.org/predP",
+            ))),
+            path_structure: None,
+            value: Some(Term::Literal(Literal::new_simple_literal("bad value"))),
+            source_constraint_component: NamedNode::new_unchecked(
+                "http://www.w3.org/ns/shacl#MinCountConstraintComponent",
+            ),
+            source_shape: Term::NamedNode(NamedNode::new_unchecked("http://example.org/ShapeA")),
+            severity: Severity::Violation,
+            messages: vec![Literal::new_simple_literal("must have at least one value")],
+            source_box_roles: vec![],
+            path_box_roles: vec![],
+            result_box_roles: vec![],
+            attributions: vec![],
+            details: vec![],
+            annotations: vec![],
+        }
+    }
+
+    #[test]
+    fn report_round_trip_with_one_result() {
+        let report = ValidationReport {
+            conforms: false,
+            results: vec![make_result()],
+            conformance_disallows: ConformanceDisallows::default(),
+            shapes_graph_well_formed: Some(true),
+            diagnostics: Vec::new(),
+        };
+
+        let nt = report.to_ntriples().expect("authored report emits");
+        assert!(!nt.is_empty(), "N-Triples output must not be empty");
+
+        let parsed =
+            tuples_from_ntriples(&nt).expect("N-Triples from to_ntriples() must parse cleanly");
+        let expected = report.result_tuples();
+
+        assert_eq!(
+            parsed, expected,
+            "round-trip tuples must match original tuples"
+        );
+    }
+
+    /// A report whose result carries a `sh:detail` round-trips to its own
+    /// top-level tuples: the detail is emitted (typed `sh:ValidationResult`) but
+    /// is not read back as a result of the report. The control is the detail's
+    /// own tuple, which differs from the parent's in every compared field but the
+    /// component, so reading it as a report result would be visible.
+    #[test]
+    fn a_detail_result_is_not_read_back_as_a_report_result() {
+        let mut detail = make_result();
+        detail.focus_node = Term::NamedNode(NamedNode::new_unchecked("http://example.org/inner"));
+        detail.result_path = None;
+        detail.value = Some(Term::Literal(Literal::new_simple_literal("inner value")));
+        detail.source_shape =
+            Term::NamedNode(NamedNode::new_unchecked("http://example.org/InnerShape"));
+        let mut parent = make_result();
+        parent.details = vec![detail.clone()];
+        let report = ValidationReport {
+            conforms: false,
+            results: vec![parent],
+            conformance_disallows: ConformanceDisallows::default(),
+            shapes_graph_well_formed: None,
+            diagnostics: Vec::new(),
+        };
+
+        let nt = report.to_ntriples().expect("authored report emits");
+        assert!(
+            nt.contains("<http://www.w3.org/ns/shacl#detail>"),
+            "the detail is emitted: {nt}"
+        );
+        let parsed = tuples_from_ntriples(&nt).expect("the report parses");
+        assert_eq!(parsed, report.result_tuples(), "only the top-level result");
+        let as_report = ValidationReport {
+            conforms: false,
+            results: vec![detail],
+            conformance_disallows: ConformanceDisallows::default(),
+            shapes_graph_well_formed: None,
+            diagnostics: Vec::new(),
+        };
+        assert!(
+            parsed.is_disjoint(&as_report.result_tuples()),
+            "the detail's own tuple is not a report result"
+        );
+    }
+
+    /// Regression: a SHACL validation report whose focus nodes are blank nodes
+    /// with labels illegal in EVERY native text syntax — `a×b` (out-of-alphabet
+    /// `BLANK_NODE_LABEL` byte) and `bad\u{1f}label` (a C0 control) — must still
+    /// serialize to valid, re-parseable N-Triples. Before the blank-label escape-
+    /// at-egress fix, `to_ntriples()` panicked (`.expect`) on exactly this input:
+    /// the focus node came straight from data PurRDF itself had parsed, so the
+    /// SHACL engine could not have rejected it upstream.
+    ///
+    /// The data graph is built through the `RdfDatasetBuilder` API (never through
+    /// N-Triples/Turtle text) because a hostile label like `a×b` is not
+    /// expressible in the `BLANK_NODE_LABEL` text grammar in the first place —
+    /// exactly the class of value that only round-trips through the IR itself
+    /// (e.g. a GTS-backed store, or SHACL-SPARQL `BIND`/`CONSTRUCT` output).
+    #[test]
+    fn to_ntriples_survives_hostile_blank_labels_in_focus_nodes() {
+        use ::purrdf_rdf::{RdfQuad, RdfTerm};
+
+        let hostile_labels = ["a\u{d7}b", "bad\u{1f}label"];
+
+        let mut builder = RdfDatasetBuilder::new();
+        for label in hostile_labels {
+            builder
+                .push_owned_quad(&RdfQuad::new(
+                    RdfTerm::blank_node(label),
+                    rdf::TYPE,
+                    RdfTerm::iri("http://example.org/Thing"),
+                ))
+                .unwrap();
+        }
+        let data = builder
+            .freeze()
+            .expect("hostile blank labels are opaque IR content, not a structural violation");
+
+        let shapes_ttl = "\
+            @prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+            @prefix ex: <http://example.org/> .\n\
+            ex:ThingShape a sh:NodeShape ;\n\
+                sh:targetClass ex:Thing ;\n\
+                sh:property [ sh:path ex:required ; sh:minCount 1 ] .\n";
+        let shapes = crate::engine::parse_shapes(shapes_ttl, None).expect("shapes must parse");
+
+        let report = crate::engine::validate_dataset(data.as_ref(), &shapes)
+            .expect("validation over a well-formed dataset must not hard-fail");
+        assert!(
+            !report.conforms,
+            "both hostile-labelled focus nodes are missing ex:required"
+        );
+        assert_eq!(report.results.len(), hostile_labels.len());
+
+        // The actual regression: this must not panic, regardless of how hostile
+        // the blank labels embedded in the report are.
+        let nt = report.to_ntriples().expect("authored report emits");
+
+        // Prove the claim: re-parse the emitted text as N-Triples. A hostile
+        // label that leaked through unescaped would break the grammar here.
+        let reparsed = ::purrdf_rdf::parse_dataset(nt.as_bytes(), "application/n-triples", None)
+            .expect("to_ntriples() output must be valid, re-parseable N-Triples");
+        assert!(
+            reparsed.quad_count() > 0,
+            "re-parsed report must carry the emitted triples"
+        );
+
+        // The report writes its own labels, never the data's hostile ones, and each
+        // maps back to the data node it stands for.
+        let (labelled, labels) = report.with_report_blank_labels();
+        for label in hostile_labels {
+            assert!(!nt.contains(label), "{nt}");
+        }
+        let mut sources: Vec<&str> = ["dg0", "dg1"]
+            .iter()
+            .map(|label| {
+                let (origin, source) = labels.source_of(label).expect("assigned");
+                assert_eq!(origin, BlankOrigin::DataGraph);
+                source
+            })
+            .collect();
+        sources.sort_unstable();
+        let mut expected = hostile_labels.to_vec();
+        expected.sort_unstable();
+        assert_eq!(sources, expected);
+
+        // The result tuples must still round-trip identically through text.
+        let parsed =
+            tuples_from_ntriples(&nt).expect("N-Triples from to_ntriples() must parse cleanly");
+        assert_eq!(
+            parsed,
+            labelled.result_tuples(),
+            "round-trip tuples must match the report's tuples even with hostile blank labels"
+        );
+    }
+
+    /// The report graph as the emission layer writes it with the carried labels as the
+    /// results hold them — the layer [`ValidationReport::to_dataset`] writes through
+    /// after relabelling, whose own guarantees (escaping, minted-label separation) hold
+    /// for any label it is handed.
+    fn carried_ntriples(report: &ValidationReport) -> String {
+        let buf = serialize_dataset(
+            &report.dataset_as_carried().expect("authored report emits"),
+            "application/n-quads",
+            SerializeGraph::DefaultGraph,
+        )
+        .expect("N-Triples serialisation of report quads");
+        String::from_utf8(buf).expect("UTF-8")
+    }
+
+    /// Every [`::purrdf_rdf::TermId`] in `dataset`'s dense term table.
+    fn term_ids(dataset: &RdfDataset) -> impl Iterator<Item = ::purrdf_rdf::TermId> {
+        let count = u32::try_from(dataset.term_count()).expect("report term table fits in u32");
+        (0..count)
+            .map(|index| ::purrdf_rdf::TermId::from_index(index).expect("resident term index"))
+    }
+
+    /// A deliberately hostile report for the `to_dataset()` ≡ `to_ntriples()`
+    /// equivalence proof: five results spanning all four severity kinds
+    /// (including a caller-minted `Severity::Other` IRI), an IRI / a blank node /
+    /// an RDF 1.2 triple term in focus position, a plain-IRI path and a COMPLEX
+    /// path (whose structure blank nodes are emitted once and SHARED by two
+    /// results), typed / language-tagged / blank-node / triple-term values, and
+    /// results with and without messages.
+    fn hostile_report() -> ValidationReport {
+        let ex = |local: &str| NamedNode::new_unchecked(format!("http://example.org/{local}"));
+        let component =
+            NamedNode::new_unchecked("http://www.w3.org/ns/shacl#MinCountConstraintComponent");
+        // A complex path shared by two results: [ sh:alternativePath ( ex:a [ sh:inversePath ex:b ] ) ].
+        let complex = crate::shapes::Path::Alternative(vec![
+            crate::shapes::Path::Predicate(ex("a")),
+            crate::shapes::Path::Inverse(Box::new(crate::shapes::Path::Predicate(ex("b")))),
+        ]);
+        // The quoted triple that appears both as a focus node and as a value.
+        let quoted = Term::Triple(Box::new(crate::term::Triple::new(
+            Term::NamedNode(ex("s")),
+            ex("p"),
+            Term::Literal(Literal::new_simple_literal("quoted object")),
+        )));
+
+        let base = ValidationResult {
+            focus_node: Term::NamedNode(ex("focusA")),
+            result_path: Some(Term::NamedNode(ex("predP"))),
+            path_structure: None,
+            value: None,
+            source_constraint_component: component,
+            source_shape: Term::NamedNode(ex("ShapeA")),
+            severity: Severity::Violation,
+            messages: vec![],
+            source_box_roles: vec![],
+            path_box_roles: vec![],
+            result_box_roles: vec![],
+            attributions: vec![],
+            details: vec![],
+            annotations: vec![],
+        };
+
+        let mut results = Vec::new();
+
+        // 1. IRI focus, plain predicate path, typed literal value, message.
+        let mut r = base.clone();
+        r.value = Some(Term::Literal(Literal::new_typed_literal("-3", ex("Count"))));
+        r.messages = vec![Literal::new_simple_literal("must have at least one value")];
+        results.push(r);
+
+        // 2. Blank-node focus, complex path (structure emitted), warning,
+        //    language-tagged value.
+        let mut r = base.clone();
+        r.focus_node = Term::blank("focusB");
+        r.result_path = Some(Term::blank("path0"));
+        r.path_structure = Some(complex.clone());
+        r.severity = Severity::Warning;
+        r.value = Some(Term::Literal(
+            Literal::new_language_tagged_literal_unchecked("valeur", "fr"),
+        ));
+        r.messages = vec![Literal::new_simple_literal("langue")];
+        results.push(r);
+
+        // 3. The SAME complex path on a second result — the structure must be
+        //    emitted exactly once and shared, on both the direct and text paths.
+        let mut r = base.clone();
+        r.focus_node = Term::blank("focusC");
+        r.result_path = Some(Term::blank("path0"));
+        r.path_structure = Some(complex);
+        r.severity = Severity::Info;
+        r.value = Some(Term::blank("valueC"));
+        results.push(r);
+
+        // 4. RDF 1.2: a triple term in BOTH focus and value position.
+        let mut r = base.clone();
+        r.focus_node = quoted.clone();
+        r.result_path = None;
+        r.value = Some(quoted);
+        r.severity = Severity::Other(ex("Advisory"));
+        r.messages = vec![Literal::new_simple_literal("statement-level result")];
+        results.push(r);
+
+        // 5. No path, no value, no message — the minimal result.
+        let mut r = base;
+        r.focus_node = Term::NamedNode(ex("focusE"));
+        r.result_path = None;
+        results.push(r);
+
+        ValidationReport {
+            conforms: false,
+            results,
+            conformance_disallows: ConformanceDisallows::default(),
+            shapes_graph_well_formed: None,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// `to_dataset()` must be the report's primal RDF form — the graph a caller
+    /// gets from it is EXACTLY the graph they would have got by serializing to
+    /// N-Triples and parsing that text back, minus the round-trip.
+    ///
+    /// The comparison is RDFC-1.0 canonical, not naive triple-set equality:
+    /// blank-node labelling is precisely where a "direct" construction can
+    /// silently diverge from a parse (the direct path keeps the report's own
+    /// `_:r0` / `_:path0-1` labels; the parser mints its own), so only an
+    /// isomorphism-invariant comparison proves the two describe the same graph.
+    #[test]
+    fn to_dataset_matches_the_ntriples_round_trip_canonically() {
+        let report = hostile_report();
+
+        let direct = report.to_dataset().expect("authored report emits");
+        let round_tripped =
+            dataset_from_ntriples(&report.to_ntriples().expect("authored report emits"))
+                .expect("the report's own N-Triples must parse");
+
+        assert_eq!(
+            direct.quad_count(),
+            round_tripped.quad_count(),
+            "the direct dataset must carry exactly the quads the text does"
+        );
+        assert_eq!(
+            ::purrdf_rdf::try_canonicalize(&direct).unwrap().nquads,
+            ::purrdf_rdf::try_canonicalize(&round_tripped)
+                .unwrap()
+                .nquads,
+            "to_dataset() and parse(to_ntriples()) must be the same graph"
+        );
+    }
+
+    /// The equivalence assertion above is only worth anything if the fixture it
+    /// runs on actually exercises the hard cases. This pins that: the direct
+    /// dataset carries all five results, the shared complex path's structure
+    /// emitted ONCE, and a real RDF 1.2 triple term.
+    #[test]
+    fn to_dataset_carries_rdf12_triple_terms_and_shared_path_structure() {
+        let report = hostile_report();
+        let nt = report.to_ntriples().expect("authored report emits");
+
+        assert_eq!(
+            nt.matches("<http://www.w3.org/ns/shacl#result>").count(),
+            5,
+            "all five results must reach the graph"
+        );
+        // The shared complex path emits its `sh:alternativePath` root once, not
+        // once per referencing result.
+        assert_eq!(
+            nt.matches("<http://www.w3.org/ns/shacl#alternativePath>")
+                .count(),
+            1,
+            "a complex path shared by two results is emitted once"
+        );
+        // RDF 1.2 triple term, in the syntax's own quoted-triple form.
+        assert!(
+            nt.contains("<<("),
+            "the triple-term focus node/value must survive as a quoted triple, got:\n{nt}"
+        );
+
+        // And the direct dataset holds it as a real triple term, not as text.
+        let direct = report.to_dataset().expect("authored report emits");
+        assert!(
+            term_ids(&direct)
+                .any(|id| matches!(direct.resolve(id), ::purrdf_rdf::TermRef::Triple { .. })),
+            "to_dataset() must materialize the quoted triple as an IR triple term"
+        );
+    }
+
+    /// The `sh:conforms` boolean and the report node itself survive the direct
+    /// path for a CONFORMING report too — the empty-results case is the one a
+    /// naive "build from results" implementation drops on the floor.
+    #[test]
+    fn to_dataset_of_a_conforming_report_matches_the_round_trip() {
+        let report = ValidationReport {
+            conforms: true,
+            results: vec![],
+            conformance_disallows: ConformanceDisallows::default(),
+            shapes_graph_well_formed: None,
+            diagnostics: Vec::new(),
+        };
+
+        let direct = report.to_dataset().expect("authored report emits");
+        let round_tripped =
+            dataset_from_ntriples(&report.to_ntriples().expect("authored report emits"))
+                .expect("must parse");
+
+        assert_eq!(
+            ::purrdf_rdf::try_canonicalize(&direct).unwrap().nquads,
+            ::purrdf_rdf::try_canonicalize(&round_tripped)
+                .unwrap()
+                .nquads
+        );
+        assert_eq!(conforms_from_dataset(&direct), Ok(Some(true)));
+        assert!(tuples_from_dataset(&direct).expect("readable").is_empty());
+    }
+
+    /// Hostile blank labels (`a×b`, a C0 control) are escaped at codec egress but
+    /// are NOT escaped in the IR. The direct dataset therefore keeps the label
+    /// verbatim where the text round-trip cannot — the two graphs stay isomorphic
+    /// (same shape, same everything else), which is what `to_dataset()` promises,
+    /// while the direct path additionally preserves the caller's own label.
+    #[test]
+    fn to_dataset_keeps_hostile_blank_labels_the_text_path_must_escape() {
+        let mut report = hostile_report();
+        report.results[1].focus_node = Term::blank("a\u{d7}b");
+
+        let direct = report.dataset_as_carried().expect("authored report emits");
+        let round_tripped =
+            dataset_from_ntriples(&carried_ntriples(&report)).expect("escaped text must parse");
+
+        // Same graph up to blank labelling…
+        assert_eq!(
+            ::purrdf_rdf::try_canonicalize(&direct).unwrap().nquads,
+            ::purrdf_rdf::try_canonicalize(&round_tripped)
+                .unwrap()
+                .nquads,
+            "escaping a blank label must not change the graph"
+        );
+        // …and the direct path still holds the caller's label unescaped.
+        assert!(
+            term_ids(&direct).any(|id| matches!(
+                direct.resolve(id),
+                ::purrdf_rdf::TermRef::Blank { label, .. } if label == "a\u{d7}b"
+            )),
+            "the emission layer must carry the hostile blank label verbatim"
+        );
+        // …and the public report graph is the same graph under the report's labels.
+        assert_eq!(
+            ::purrdf_rdf::try_canonicalize(&direct).unwrap().nquads,
+            ::purrdf_rdf::try_canonicalize(&report.to_dataset().expect("authored report emits"))
+                .unwrap()
+                .nquads,
+            "relabelling must not change the graph"
+        );
+    }
+
+    /// Regression: a data graph is free to contain a blank node labelled `r0` or
+    /// `report`, and those labels pass through the IR verbatim. The report used
+    /// to mint the SAME labels for its own structure, emitting
+    /// `_:r0 a sh:ValidationResult ; sh:focusNode _:r0` — the result fused with
+    /// the node it reports on. Nothing was dropped and nothing failed; two
+    /// distinct nodes silently became one.
+    #[test]
+    fn minted_blank_nodes_never_fuse_with_carried_ones() {
+        for hostile in ["r0", "report"] {
+            let mut report = ValidationReport {
+                conforms: false,
+                results: vec![make_result()],
+                conformance_disallows: ConformanceDisallows::default(),
+                shapes_graph_well_formed: None,
+                diagnostics: Vec::new(),
+            };
+            report.results[0].focus_node = Term::blank(hostile);
+
+            let dataset = report.dataset_as_carried().expect("authored report emits");
+            let focus = object_string(&dataset, &Term::blank(hostile), sh::FOCUS_NODE);
+            assert!(
+                focus.is_none(),
+                "_:{hostile} is the DATA's node; it must not also be a result node"
+            );
+
+            // The focus node still denotes the caller's node, verbatim.
+            let results = subjects_typed(&dataset, sh::VALIDATION_RESULT);
+            assert_eq!(results.len(), 1, "exactly one result node");
+            assert_eq!(
+                object_string(&dataset, &results[0], sh::FOCUS_NODE).as_deref(),
+                Some(&*format!("_:{hostile}")),
+                "the result must still point at the caller's focus node"
+            );
+            assert_ne!(
+                results[0],
+                Term::blank(hostile),
+                "the result node must be a DIFFERENT node from the focus node"
+            );
+
+            // And the report node is likewise distinct from the data's.
+            let reports = subjects_typed(&dataset, sh::VALIDATION_REPORT);
+            assert_eq!(reports.len(), 1);
+            assert_ne!(reports[0], Term::blank(hostile));
+
+            // The mark is grammar-legal: the minted labels reach the text
+            // verbatim, never through the codec's escape envelope.
+            let nt = carried_ntriples(&report);
+            assert!(
+                nt.contains("_:_report ") && nt.contains("_:_r0 "),
+                "minted labels must be written as-is under a `_` mark:\n{nt}"
+            );
+            assert!(
+                !nt.contains("purrdfesc"),
+                "a `_`-marked label never needs escaping:\n{nt}"
+            );
+
+            // The public report never meets the collision: the carried focus node is
+            // written in the data graph's own label space.
+            let public = report.to_ntriples().expect("authored report emits");
+            assert!(
+                public.contains("_:report ") && public.contains("_:r0 "),
+                "{public}"
+            );
+            assert!(
+                public.contains("<http://www.w3.org/ns/shacl#focusNode> _:dg0 ."),
+                "{public}"
+            );
+        }
+    }
+
+    /// The mirror of the test above, per the over-refusal discipline: a report
+    /// whose carried labels do NOT collide must keep minting the plain
+    /// `_:report` / `_:r0` labels, so the emitted bytes — and the 70 byte-frozen
+    /// corpus reports — are unchanged.
+    #[test]
+    fn a_non_colliding_report_keeps_its_plain_minted_labels() {
+        let mut report = ValidationReport {
+            conforms: false,
+            results: vec![make_result()],
+            conformance_disallows: ConformanceDisallows::default(),
+            shapes_graph_well_formed: None,
+            diagnostics: Vec::new(),
+        };
+        // `r1` is one past the last result index, and `reports` is not `report`:
+        // neither is a label this report mints.
+        report.results[0].focus_node = Term::blank("r1");
+        report.results[0].value = Some(Term::blank("reports"));
+
+        assert_eq!(
+            mint_prefix(&report, None),
+            "",
+            "no collision means no prefix"
+        );
+        let nt = report.to_ntriples().expect("authored report emits");
+        assert!(
+            nt.contains("_:report "),
+            "plain report label retained:\n{nt}"
+        );
+        assert!(nt.contains("_:r0 "), "plain result label retained:\n{nt}");
+    }
+
+    /// A complex path's root and interior nodes are minted too, so a data graph
+    /// carrying the root label must not fuse with the path structure either.
+    #[test]
+    fn minted_path_structure_never_fuses_with_carried_labels() {
+        let mut report = hostile_report();
+        // `path0` is the complex path's root; `path0-1` one of its interiors.
+        report.results[0].focus_node = Term::blank("path0");
+        report.results[4].focus_node = Term::blank("path0-1");
+
+        let mint = mint_prefix(&report, None);
+        assert_ne!(mint, "", "a carried root label must force a mint prefix");
+
+        let dataset = report.dataset_as_carried().expect("authored report emits");
+        // The carried nodes are still only focus nodes — never path structure.
+        for carried in ["path0", "path0-1"] {
+            assert!(
+                object_string(&dataset, &Term::blank(carried), sh::ALTERNATIVE_PATH).is_none()
+                    && object_string(&dataset, &Term::blank(carried), rdf::FIRST).is_none(),
+                "_:{carried} is a carried data node, not part of the path structure"
+            );
+        }
+        // …and the graph is still the same one the text path produces.
+        assert_eq!(
+            ::purrdf_rdf::try_canonicalize(&dataset).unwrap().nquads,
+            ::purrdf_rdf::try_canonicalize(
+                &dataset_from_ntriples(&carried_ntriples(&report)).expect("must parse")
+            )
+            .unwrap()
+            .nquads
+        );
+        assert_eq!(
+            ::purrdf_rdf::try_canonicalize(&dataset).unwrap().nquads,
+            ::purrdf_rdf::try_canonicalize(&report.to_dataset().expect("authored report emits"))
+                .unwrap()
+                .nquads,
+            "relabelling must not change the graph"
+        );
+    }
+
+    /// A shapes-graph blank node and a data-graph blank node that carry the SAME label in
+    /// their own graphs are two nodes in the report — in the report graph and in its
+    /// relabelling — while one node reported twice keeps one label.
+    #[test]
+    fn a_shapes_blank_and_a_data_blank_sharing_a_label_stay_two_nodes() {
+        let mut first = make_result();
+        first.focus_node = Term::blank("b0");
+        first.source_shape = Term::blank("b0");
+        first.value = Some(Term::blank("b0"));
+        let mut second = make_result();
+        second.focus_node = Term::blank("b1");
+        second.source_shape = Term::blank("b0");
+        second.value = Some(Term::blank("b0"));
+        let report = ValidationReport {
+            conforms: false,
+            results: vec![first, second],
+            conformance_disallows: ConformanceDisallows::default(),
+            shapes_graph_well_formed: None,
+            diagnostics: Vec::new(),
+        };
+        let (labelled, labels) = report.with_report_blank_labels();
+        assert_eq!(labelled.results[0].focus_node, Term::blank("dg0"));
+        assert_eq!(labelled.results[0].source_shape, Term::blank("sg0"));
+        assert_eq!(labelled.results[0].value, Some(Term::blank("dg0")));
+        assert_eq!(labelled.results[1].focus_node, Term::blank("dg1"));
+        assert_eq!(labelled.results[1].source_shape, Term::blank("sg0"));
+        assert_eq!(labelled.results[1].value, Some(Term::blank("dg0")));
+        assert_eq!(
+            labels.source_of("sg0"),
+            Some((BlankOrigin::ShapesGraph, "b0"))
+        );
+        assert_eq!(
+            labels.source_of("dg0"),
+            Some((BlankOrigin::DataGraph, "b0"))
+        );
+
+        let nt = report.to_ntriples().expect("authored report emits");
+        assert!(
+            nt.contains("<http://www.w3.org/ns/shacl#sourceShape> _:sg0 .")
+                && nt.contains("<http://www.w3.org/ns/shacl#value> _:dg0 ."),
+            "{nt}"
+        );
+        assert!(!nt.contains("_:b0"), "{nt}");
+        // The observing control: written with the labels as carried, the shapes node and
+        // the data node collapse into one — the defect relabelling removes.
+        let carried = carried_ntriples(&report);
+        assert!(
+            carried.contains("<http://www.w3.org/ns/shacl#sourceShape> _:b0 .")
+                && carried.contains("<http://www.w3.org/ns/shacl#value> _:b0 ."),
+            "{carried}"
+        );
+    }
+
+    #[test]
+    fn empty_conforming_report_round_trips() {
+        let report = ValidationReport {
+            conforms: true,
+            results: vec![],
+            conformance_disallows: ConformanceDisallows::default(),
+            shapes_graph_well_formed: None,
+            diagnostics: Vec::new(),
+        };
+
+        let nt = report.to_ntriples().expect("authored report emits");
+
+        // conforms=true must appear in the N-Triples
+        assert!(
+            nt.contains("true"),
+            "N-Triples must contain 'true' for sh:conforms"
+        );
+
+        let parsed =
+            tuples_from_ntriples(&nt).expect("N-Triples from empty report must parse cleanly");
+        assert!(parsed.is_empty(), "empty report must produce zero tuples");
+
+        // Check conforms_from_dataset directly
+        let data = dataset_from_ntriples(&nt).unwrap();
+        assert_eq!(conforms_from_dataset(&data), Ok(Some(true)));
+    }
+
+    #[test]
+    fn conforms_from_ntriples_true() {
+        let nt = "_:r <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/shacl#ValidationReport> .\n\
+                  _:r <http://www.w3.org/ns/shacl#conforms> \"true\"^^<http://www.w3.org/2001/XMLSchema#boolean> .\n";
+        assert!(
+            conforms_from_ntriples(nt).expect("must parse"),
+            "conforming report must return true"
+        );
+    }
+
+    #[test]
+    fn conforms_from_ntriples_false() {
+        let nt = "_:r <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/shacl#ValidationReport> .\n\
+                  _:r <http://www.w3.org/ns/shacl#conforms> \"false\"^^<http://www.w3.org/2001/XMLSchema#boolean> .\n";
+        assert!(
+            !conforms_from_ntriples(nt).expect("must parse"),
+            "violating report must return false"
+        );
+    }
+
+    #[test]
+    fn conforms_from_ntriples_parse_error() {
+        let bad = "not valid ntriples @@@\n";
+        assert!(
+            conforms_from_ntriples(bad).is_err(),
+            "invalid N-Triples must return Err"
+        );
+    }
+
+    #[test]
+    fn conforms_from_ntriples_no_report_node_defaults_true() {
+        // Empty graph has no sh:ValidationReport → unwrap_or(true)
+        let nt = "";
+        assert!(
+            conforms_from_ntriples(nt).expect("empty must parse"),
+            "missing sh:conforms defaults to true"
+        );
+    }
+
+    #[test]
+    fn severity_iri_round_trip() {
+        for sev in [Severity::Violation, Severity::Warning, Severity::Info] {
+            let iri = sev.iri().to_owned();
+            let parsed = Severity::from_iri(&iri);
+            assert_eq!(
+                parsed.as_ref(),
+                Some(&sev),
+                "from_iri(iri()) must round-trip for {sev:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn severity_from_iri_unknown_returns_none() {
+        assert!(Severity::from_iri("http://example.org/Unknown").is_none());
+    }
+
+    // ── S5 attribution tests ──────────────────────────────────────────────────
+
+    /// Test 1: Cross-slice SHACL distinct roles.
+    ///
+    /// A SHACL result where the SHAPE is owned by slice A and the FOCUS NODE
+    /// data is asserted by slice B. The result records TWO attributions:
+    /// `ShapeOwner = A`, `FocusOrigin = B` — distinct units with distinct roles.
+    #[test]
+    fn cross_slice_shacl_distinct_roles() {
+        use ::purrdf_rdf::provenance::{Attribution, AttributionRole, UnitInterner};
+
+        let mut interner = UnitInterner::new();
+        let unit_a = interner
+            .intern("https://example.org/slices/core/shapes")
+            .expect("authored unit identity"); // slice A — owns the shape
+        let unit_b = interner
+            .intern("https://example.org/slices/ext/data")
+            .expect("authored unit identity"); // slice B — asserts the focus node
+
+        let mut result = make_result();
+        // Apply two attributions with different roles and different units.
+        result.attributions = vec![
+            Attribution {
+                unit: unit_a,
+                role: AttributionRole::ShapeOwner,
+                evidence: Some("slices/core/epistemics/shapes.ttl".to_owned()),
+            },
+            Attribution {
+                unit: unit_b,
+                role: AttributionRole::FocusOrigin,
+                evidence: Some("http://example.org/focusA".to_owned()),
+            },
+        ];
+
+        assert_eq!(result.attributions.len(), 2, "must carry two attributions");
+
+        // The two attributions must reference different units.
+        assert_ne!(
+            result.attributions[0].unit, result.attributions[1].unit,
+            "shape-owner and focus-origin units must be distinct (cross-slice)"
+        );
+
+        // The roles must be distinct.
+        assert_ne!(
+            result.attributions[0].role, result.attributions[1].role,
+            "roles must differ"
+        );
+        assert_eq!(result.attributions[0].role, AttributionRole::ShapeOwner);
+        assert_eq!(result.attributions[1].role, AttributionRole::FocusOrigin);
+    }
+
+    /// Test 2: Absence-based violation (`sh:minCount`) attribution.
+    ///
+    /// A `minCount` violation has NO offending data quad — there is no value to
+    /// attribute. The result still carries EvaluationScope + ShapeOwner
+    /// attributions. `AssertionOrigin` / `FocusOrigin` / `ValueOrigin` are NOT
+    /// required (and not asserted here).
+    #[test]
+    fn absence_based_violation_carries_scope_and_shape_attributions() {
+        use ::purrdf_rdf::provenance::{Attribution, AttributionRole, UnitInterner};
+
+        let mut interner = UnitInterner::new();
+        let unit_shape = interner
+            .intern("https://example.org/slices/core/shapes")
+            .expect("authored unit identity"); // owns the sh:minCount shape
+        let unit_scope = interner
+            .intern("https://example.org/slices/core/profile")
+            .expect("authored unit identity"); // defines the evaluation scope
+
+        let min_count_result = ValidationResult {
+            focus_node: Term::NamedNode(NamedNode::new_unchecked("http://example.org/subjectX")),
+            // minCount: no result_path (not path-scoped here for simplicity).
+            result_path: None,
+            path_structure: None,
+            // No offending value — absence-based.
+            value: None,
+            source_constraint_component: NamedNode::new_unchecked(
+                "http://www.w3.org/ns/shacl#MinCountConstraintComponent",
+            ),
+            source_shape: Term::NamedNode(NamedNode::new_unchecked(
+                "http://example.org/RequiredPropertyShape",
+            )),
+            severity: Severity::Violation,
+            messages: vec![Literal::new_simple_literal("missing required property")],
+            source_box_roles: vec![],
+            path_box_roles: vec![],
+            result_box_roles: vec![],
+            // ShapeOwner + EvaluationScope — no AssertionOrigin (nothing was asserted).
+            attributions: vec![
+                Attribution {
+                    unit: unit_shape,
+                    role: AttributionRole::ShapeOwner,
+                    evidence: None,
+                },
+                Attribution {
+                    unit: unit_scope,
+                    role: AttributionRole::EvaluationScope,
+                    evidence: None,
+                },
+            ],
+            details: vec![],
+            annotations: vec![],
+        };
+
+        // No value (absence-based) — this is the critical invariant.
+        assert!(
+            min_count_result.value.is_none(),
+            "minCount violation must have no offending value"
+        );
+        // No AssertionOrigin — nothing was asserted.
+        assert!(
+            !min_count_result
+                .attributions
+                .iter()
+                .any(|a| a.role == AttributionRole::AssertionOrigin),
+            "absence-based violation must not carry AssertionOrigin"
+        );
+        // Shape owner is present.
+        assert!(
+            min_count_result
+                .attributions
+                .iter()
+                .any(|a| a.role == AttributionRole::ShapeOwner),
+            "must carry ShapeOwner attribution"
+        );
+        // Evaluation scope is present.
+        assert!(
+            min_count_result
+                .attributions
+                .iter()
+                .any(|a| a.role == AttributionRole::EvaluationScope),
+            "must carry EvaluationScope attribution"
+        );
+    }
+}
+
+#[cfg(test)]
+mod term_walk_tests {
+    //! The blank-label survey against its recursive reference.
+
+    use crate::term::Term;
+    use crate::term::term_walk_tests::generated;
+    use purrdf_core::FastSet;
+
+    use super::collect_blank_labels;
+
+    fn reference<'a>(term: &'a Term, labels: &mut FastSet<&'a str>) {
+        match term {
+            Term::BlankNode(label) => {
+                labels.insert(label.as_str());
+            }
+            Term::Triple(t) => {
+                reference(&t.subject, labels);
+                reference(&t.object, labels);
+            }
+            Term::NamedNode(_) | Term::Literal(_) => {}
+        }
+    }
+
+    /// The survey finds every blank label a generated term carries, as the recursive
+    /// reference does.
+    #[test]
+    fn the_survey_agrees_with_its_recursive_reference_on_generated_terms() {
+        for seed in 0..400_u64 {
+            let term = generated(seed);
+            let (mut found, mut expected) = (FastSet::default(), FastSet::default());
+            collect_blank_labels(&term, &mut found);
+            reference(&term, &mut expected);
+            assert_eq!(found, expected, "seed {seed}");
+        }
+    }
+}

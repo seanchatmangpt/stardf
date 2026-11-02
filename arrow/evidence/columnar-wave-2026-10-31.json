@@ -1,0 +1,102 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "consolidation": {
+    "kind": "phase-2-closure-lane-18",
+    "wave": "columnar-wave-2026-10-31",
+    "note": "Per the lane contract, per-lane standing is recorded ONLY as observable on disk. No files named S8..S16 exist under stardf/arrow/ (searched evidence/, docs/, tickets/, docs/jira/). On-disk receipts are keyed LANE-9, LANE-11, LANE-15, LANE-16 and the prior wave-consolidation; the S8-S16 designators from the dispatch do not resolve to any on-disk artifact, so those cells are UNKNOWN, not guessed."
+  },
+  "subject": {
+    "tree_digest": "dde4967d318d5f5691fadd6045efe57b83e59017c94fefb8008ab22255b478a9",
+    "head": "c9f8028ced8c89feb7eb5d6e0fcb651bb3fd1781 (parent repo HEAD; stardf/ is untracked in parent; whole-tree sha256 over all 58 files excluding */target via `find . -path \"*/target\" -prune -o -type f -print | sort | xargs shasum -a 256 | shasum -a 256`, computed BEFORE this receipt file was written — this file postdates the digest)",
+    "file_count": 58
+  },
+  "per_lane_standing": {
+    "s8": "UNKNOWN — no on-disk receipt artifact for S8; designator does not resolve on disk. Per-lane construction receipts exist only in parent-session wave reports (per wave-consolidated-2026-10-31.json source_limits). source:none-on-disk",
+    "s9": "UNKNOWN — no on-disk S9 artifact. source:none-on-disk",
+    "s10": "UNKNOWN — no on-disk S10 artifact. source:none-on-disk",
+    "s11": "UNKNOWN — no on-disk S11 artifact. source:none-on-disk",
+    "s12": "UNKNOWN — no on-disk S12 artifact. source:none-on-disk",
+    "s13": "UNKNOWN — no on-disk S13 artifact. source:none-on-disk",
+    "s14": "Cited via wave-report only: 13 exports (wave-consolidated conflict C3 superseded W14's 8-export claim). No S14 file on disk; standing carried by LANE-16/consolidated receipts. source:lane-report",
+    "s15": "On-disk: evidence/replay-2026-10-31.json (completion-lane-15). verify-receipt pair PASS (ALIVE); purrdf-contract-extract pair PASS (ALIVE); bench-determinism pair PARTIAL (throughput variance under concurrent load, deterministic counts/allocs). source:on-disk-receipt",
+    "s16": "On-disk: evidence/wave-finish-lane16-2026-10-31.json — standing PARTIAL_ALIVE at its receipt-time tree (332392fa…, 45 files). Several of its failures were later superseded by LANE-11 and the consolidated receipt. source:on-disk-receipt",
+    "lane9": "On-disk: docs/RECEIPTS.md LANE-9 row — verify.py gate PARTIAL_ALIVE (local gate only); verify.py → 0, --mutate drop-export → 1 (flip witnessed); replay WITNESSED. source:on-disk-row",
+    "lane11": "On-disk: docs/RECEIPTS.md LANE-11 row — completion truth pass #2, PARTIAL_ALIVE; all targets green except anti_vacuity 1/3 (fixture drift); verify.py pair byte-identical; clippy/fmt exit 0 at its receipt time. source:on-disk-row",
+    "consolidated": "On-disk: evidence/wave-consolidated-2026-10-31.json — standing PARTIAL_ALIVE at tree 70524cdd… (50 files); stream_courts 6/6, anti_vacuity 1/3, capi lib-test compile-abort E0308 x2, clippy exit 101, fmt exit 1; replay WITNESSED via --emit-receipt flag. source:on-disk-receipt"
+  },
+  "checks": [
+    {
+      "id": "verify-py-replay-pair-emit-receipt",
+      "passed": true,
+      "count": 2,
+      "comment": "THIS LANE'S OWN RUN on the post-wave tree (58 files, digest dde4967d…): python3 scripts/verify.py --emit-receipt /tmp/l18r1.json → exit 0; run 2 → /tmp/l18r2.json → exit 0; cmp -s → exit 0 (byte-identical); sha256 of both emitted receipts: cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef. Output: 109 triples, 22 individuals, 13 header decls == 13 #[no_mangle] exports, three-way parity. The emitted receipt's own replay field is UNKNOWN by the script's design (replay is witnessed externally, never self-asserted)."
+    },
+    {
+      "id": "tree-digest-at-receipt-time",
+      "passed": true,
+      "count": 58,
+      "comment": "Whole-tree digest dde4967d318d5f5691fadd6045efe57b83e59017c94fefb8008ab22255b478a9 computed before writing this receipt file; file count 58 (up from 50 at consolidated-receipt time — 8 files added by inter-wave landings including evidence/ growth and parent-repo untracked scripts)."
+    }
+  ],
+  "conflict_log": [
+    {
+      "id": "C1",
+      "observation": "F16 (wave-finish-lane16): stream_courts 5 passed / 1 failed (court_2, n=1 yields 0 batches)",
+      "superseding": "wave-consolidated lane run: 6/6 pass, exit 0; LANE-11 row also records all capi targets green",
+      "resolution": "later receipts outrank earlier; standing follows the latest witnessed run",
+      "source": "on-disk-receipts"
+    },
+    {
+      "id": "C2",
+      "observation": "F16 nonclaim: '--emit-receipt flag NOT landed in scripts/verify.py' (grep for 'emit' returned no matches at its receipt time)",
+      "superseding": "flag now on disk at scripts/verify.py:136 with emit_receipt() at :296; this lane ran the replay pair THROUGH the flag, byte-identical, sha cb57ce4e… (same sha as the consolidated lane's witness — verify.py output stable across trees dde4967d… and 70524cdd…)",
+      "resolution": "disk truth at this receipt's time outranks F16's receipt-time absence",
+      "source": "lane-run"
+    },
+    {
+      "id": "C3",
+      "observation": "export-count drift across receipts: W14 wave report 8 exports vs F14/consolidated 13 exports",
+      "superseding": "this lane's own verify.py runs on the post-wave tree: 13 header decls == 13 impl exports == 13 ontology targetSymbols (three-way)",
+      "resolution": "13 confirmed by this lane's run; disk truth",
+      "source": "lane-run"
+    },
+    {
+      "id": "C4",
+      "observation": "consolidated receipt witnessed anti_vacuity 1/3 (exit 101) and capi lib-test compile-abort E0308 x2 (exit 101)",
+      "superseding": "LANE-11 row and evidence/manufacturing-receipt-2026-10-31.json (later) record all-green capi targets, anti_vacuity 1/3 (fixture drift class), clippy/fmt exit 0",
+      "resolution": "later receipts outrank earlier; the anti_vacuity 1/3 fixture-drift class is the latest consistent witness across LANE-11, consolidated, and manufacturing receipts — the capi E0308 was mid-wave and repaired by its owning lane",
+      "source": "on-disk-receipts"
+    },
+    {
+      "id": "C5",
+      "observation": "dispatch named per-lane receipts S8-S16; no artifact under those designators exists on disk",
+      "superseding": "on-disk receipts are keyed LANE-9/11/15/16 + wave-consolidated; recorded as per-lane UNKNOWN rather than guessed",
+      "resolution": "naming did not survive to disk; per-lane standing recorded only where observable",
+      "source": "lane-run"
+    }
+  ],
+  "commands": [
+    { "cmd": "python3 scripts/verify.py --emit-receipt /tmp/l18r1.json", "exit": 0 },
+    { "cmd": "python3 scripts/verify.py --emit-receipt /tmp/l18r2.json", "exit": 0 },
+    { "cmd": "cmp -s /tmp/l18r1.json /tmp/l18r2.json", "exit": 0, "comment": "replay pair byte-identical" },
+    { "cmd": "shasum -a 256 /tmp/l18r1.json /tmp/l18r2.json", "exit": 0, "comment": "cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef (both)" },
+    { "cmd": "find . -path \"*/target\" -prune -o -type f -print | sort | xargs shasum -a 256 | shasum -a 256", "exit": 0, "comment": "tree digest dde4967d… over 58 files, computed pre-receipt-write" }
+  ],
+  "replay": {
+    "status": "WITNESSED",
+    "comment": "Re-witnessed on the post-wave tree by this lane: two verify.py --emit-receipt runs, both exit 0, cmp exit 0 (byte-identical), emitted-receipt sha256 cb57ce4ed5873db8d23e6d6a69b54313b7d1ced0caa756d05468642257862cef recorded. Supersedes nothing — it confirms the consolidated lane's identical-sha witness on a tree that grew 50 → 58 files."
+  },
+  "standing": "PARTIAL_ALIVE",
+  "nonclaims": [
+    "avec gate NOT RUN — avec-ffi path-dep never wired; no avec test executed this wave or by this lane",
+    "SQL wave not started — tickets/GL-STARDF-002-freeze-expansion.md is DRAFT-PENDING-OPERATOR-RATIFICATION (freeze ticket UNRATIFIED)",
+    "duckdb integration not started — no duckdb artifact or gate witnessed",
+    "BLAKE3 UNSIGNED — no BLAKE3 attestation/signing witnessed anywhere in stardf/arrow this session",
+    "S8-S16 per-lane receipts NOT on disk — only LANE-9/11/15/16 + wave-consolidated artifacts resolve; construction-wave receipts exist only in parent-session wave reports",
+    "CI not run in Actions — ci/stardf-arrow-reconstitution.yml never witnessed executing; all gates local runs only",
+    "bench numbers UNVERIFIED-local (min-of-5, one contended machine); bench-determinism pair was PARTIAL under concurrent load (lane-15 receipt)",
+    "no slice claimed ALIVE unqualified — every ALIVE-local is a local gate witness, not external production standing",
+    "anti_vacuity 1/3 (fixture-drift class) is the latest consistent witness — NOT claimed repaired by this lane",
+    "no git operations performed by this lane (contract: no git mutations; tree already carried uncommitted/untracked state at lane start)"
+  ]
+}

@@ -1,0 +1,1596 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! The `SHOIQ(D)` knowledge base as DL-CLAUSES — the input the hypertableau resolves.
+//!
+//! A DL-clause is
+//!
+//! ```text
+//! U₁ ∧ … ∧ Uₙ  →  (V₁ ∧ … ∧ V_j) ∨ … ∨ (W₁ ∧ … ∧ W_k)
+//! ```
+//!
+//! with every variable universally quantified over the completion graph, an EMPTY head
+//! meaning `⊥`, and existential quantification carried by the at-least head atom
+//! [`HeadAtom::AtLeast`] rather than by a quantifier prefix. That is the shape
+//! [`purrdf_datalog::clause`] classifies into five head forms, and
+//! [`DlClause::head_form`] answers with that crate's own
+//! [`HeadForm`](purrdf_datalog::clause::HeadForm): the taxonomy is shared, so
+//! [`HeadForm::Disjunctive`] names exactly the clauses
+//! [`hyper`](crate::owl_dl::hyper) case-splits over.
+//!
+//! # Why the ATOMS are not `purrdf-datalog`'s
+//!
+//! `purrdf_datalog::clause::ClauseAtom` is the arity-4 quad `triple(?s, ?p, ?o, ?g)` over
+//! term SURFACES. Two atoms of this fragment have no quad to be:
+//!
+//! * `≥n r.C(x)` — a counting head atom. There is no triple whose assertion means "x has n
+//!   pairwise-distinct r-successors in C"; the number and the filler are part of the atom.
+//! * `x ≈ y` — an equality head atom, which the `≤n` clauses below make the whole point of
+//!   the calculus. Asserting it merges two graph nodes rather than adding a triple.
+//!
+//! Encoding either as a quad would need a predicate IRI to carry it, and **PurRDF mints no
+//! vocabulary**; encoding a concept id as a literal surface would put every rule application
+//! behind string comparison of terms that denote nothing in RDF. So the atoms here are
+//! concept ids and role pairs over graph nodes — the representation the completion graph
+//! already is — while the HEAD FORM taxonomy, the thing a case split is dispatched on,
+//! is imported rather than re-invented.
+//!
+//! # Where the clauses come from
+//!
+//! One pass over the finalized [`ConceptTable`](crate::owl_dl::concept::ConceptTable), in
+//! ascending concept-id order, plus one pass over the role axioms. Each concept id yields the
+//! clauses that say what holding it FORCES, so the search never walks a concept tree: the
+//! structure is compiled out in front, and a node's label is then just a set of trigger
+//! atoms.
+//!
+//! | concept | clause | reading |
+//! |---|---|---|
+//! | `⊥` | `⊥(x) → ` | the empty head is `false` |
+//! | `C₁ ⊓ … ⊓ Cₙ` | `c(x) → C₁(x) ∧ … ∧ Cₙ(x)` | conjunctive head |
+//! | `C₁ ⊔ … ⊔ Cₙ` | `c(x) → C₁(x) ∨ … ∨ Cₙ(x)` | **disjunctive head** |
+//! | `∃r.C` | `c(x) → ≥1 r.C(x)` | existential head |
+//! | `≥n r.C`, `n ≥ 1` | `c(x) → ≥n r.C(x)` | existential head |
+//! | `≥0 r.C` | — | `≥0 r.C` is `⊤`, which forces nothing |
+//! | `∀r.C` | `c(x) ∧ r(x,y) → C(y)` | a two-variable body, matched against an EDGE |
+//! | `≤n r.C` | `c(x) ∧ r(x,y) → C(y) ∨ ¬C(y)` | the filler must be DECIDED to be counted |
+//! | `≤n r.C` | `c(x) ∧ ⋀ᵢ₌₀..ₙ (r(x,yᵢ) ∧ C(yᵢ)) → ⋁_{i<j} yᵢ ≈ yⱼ` | **disjunctive head of equalities** |
+//! | `∃r.Self` | `c(x) → r(x,x)` | an edge head |
+//! | `¬∃r.Self` | `c(x) ∧ r(x,x) → ` | `owl:IrreflexiveProperty`, verbatim |
+//! | `{a₁,…,aₙ}` | `c(x) → x ≈ a₁ ∨ … ∨ x ≈ aₙ` | **disjunctive** for `n > 1`; a merge for `n = 1` |
+//! | `¬{a₁,…,aₙ}` | `c(x) ∧ denotes_{aᵢ}(x) → ` | one clause per member |
+//! | any `C` | `C(x) ∧ ¬C(x) → ` | the complementary-pair clash, once per pair |
+//!
+//! and from the knowledge base itself:
+//!
+//! | axiom | clause |
+//! |---|---|
+//! | absorbed inclusion ([`Kb::absorbed`]) | `⋀ guard → D(x_head)`, verbatim |
+//! | `owl:AsymmetricProperty` `r` | `r(x,y) ∧ r(y,x) → ` |
+//! | `owl:propertyDisjointWith` `r`, `s` | `r(x,y) ∧ s(x,y) → ` |
+//!
+//! The absorbed table is [`crate::owl_dl::absorb`]'s output and it arrives here already
+//! clausified — guard, head variable, head concept — so this module TRANSLATES it and does
+//! not decide it. That is deliberate: which inclusions become guarded clauses is a claim about
+//! the semantics of a completion graph (the faithful-antecedent criterion), and it belongs
+//! where that argument is written down rather than spread over a clause emitter. `A ⊑ D` is
+//! the degenerate one-atom guard; `∃r.C ⊑ D`, `A ⊓ B ⊑ D`, `rdfs:domain` and `rdfs:range` are
+//! the shapes an earlier revision could not absorb at all.
+//!
+//! The inclusions whose antecedent nothing can guard are NOT clauses here: they are
+//! internalized as the meta-concepts [`Kb::meta`], which the completion graph seeds into every
+//! abstract node's label, so the `⊔`-clause of `nnf(¬C ⊔ D)` fires on every node. That is the
+//! same internalization the incumbent uses, kept so the two calculi differ in their rules and
+//! not in their input.
+//!
+//! # The two things this table deliberately does NOT encode
+//!
+//! * **The concrete domain.** A `Data(r)` leaf's constraint is not a clause of bounded
+//!   arity: satisfiability of `r₁ ∩ … ∩ rₘ ∩ ¬s₁ ∩ … ∩ ¬sₖ` is a question about the WHOLE set
+//!   of ranges on a node, and it is answered by [`crate::owl_dl::data`] against
+//!   `purrdf-xsd`'s value spaces. [`Graph::data_clashes`](crate::owl_dl::graph::Graph::data_clashes)
+//!   stays the decision procedure for it, unchanged and shared by both calculi.
+//! * **A role's closure.** A body atom `r(x,y)` is read as "`y` is an `r`-NEIGHBOUR of `x`",
+//!   which [`Graph::neighbors`](crate::owl_dl::graph::Graph::neighbors) answers through the
+//!   role hierarchy, the inverse-role declarations and the transitive closure. Compiling the
+//!   closure into clauses instead would need a clause per derived pair, and transitivity has
+//!   no finite clause set over an unbounded graph.
+//!
+//! # Determinism
+//!
+//! Clauses are emitted in ascending concept-id order (which is parse order), then in the
+//! `BTreeMap`/`BTreeSet` order of the role axioms; the trigger index is a `BTreeMap`; and
+//! every body and head is a `Vec` in the order emitted. Nothing here is read out of a hash
+//! map, so the clause set — and therefore the branch order of every search over it — is a
+//! pure function of the knowledge base.
+//!
+//! A DISJUNCTIVE head's alternatives are emitted in the order [`Kb::order_disjuncts`] gives —
+//! the alternatives that mint no witnesses first, and a STABLE sort, so the canonical order the
+//! members already carry survives inside each rank. It is a pure function of the concept table
+//! and the absorbed clauses and it is decided ONCE, here, rather than at each case split. That
+//! ordering is deliberately not the interner's: `Kb::order_disjuncts` states why the identity
+//! order and the search order must stay two orders.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use purrdf_datalog::clause::HeadForm;
+
+use crate::owl_dl::Kb;
+use crate::owl_dl::concept::{Decomp, Role};
+
+/// A clause variable, as an index into the matcher's binding frame.
+///
+/// Variable `0` is the TRIGGER variable: every clause is matched by binding it to one node
+/// and joining outward, which is what makes the trigger index below a complete applicability
+/// test rather than a heuristic.
+pub(crate) type Var = u32;
+
+/// One body atom of a DL-clause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BodyAtom {
+    /// `C(xᵢ)` — the concept is in the node's label.
+    Concept {
+        /// The variable the atom constrains.
+        var: Var,
+        /// The concept id.
+        concept: u32,
+    },
+    /// `r(xᵢ, xⱼ)` — `xⱼ` is an `r`-NEIGHBOUR of `xᵢ`, read through the role hierarchy, the
+    /// inverse-role declarations and the transitive closure.
+    Role {
+        /// The variable the edge leaves.
+        from: Var,
+        /// The variable the edge enters.
+        to: Var,
+        /// The role, named or inverse.
+        role: Role,
+    },
+    /// `r(x₀,y₁) ∧ C(y₁) ∧ … ∧ r(x₀,y_count) ∧ C(y_count)` with the `yᵢ` pairwise different —
+    /// the counted successors of a `≤n` restriction, as ONE schematic atom binding
+    /// `count` consecutive variables from `first`.
+    ///
+    /// # Why it is schematic rather than `2·count` ordinary atoms
+    ///
+    /// `count` is `n + 1`, and `n` comes from the ontology: `owl:maxCardinality "300"` is
+    /// ordinary OWL 2. Writing the atoms out would put `2n + 2` body atoms and — because the
+    /// head is the disjunction of the tuple's PAIRS — `n(n+1)/2` head disjuncts in the clause
+    /// set for a bound the completion graph may never come near, and would make the clause set
+    /// quadratic in a number the ontology chose. Schematic, the clause costs one atom whatever
+    /// `n` is, and the disjunction is expanded at MATCH time from the successors that actually
+    /// exist — so the cost of a `≤n` restriction is bounded by the graph rather than by `n`.
+    ///
+    /// The matcher binds the `yᵢ` in strictly increasing node order, which enumerates the
+    /// `count`-element SETS of successors rather than the `count!`-times-larger tuple space.
+    /// That is sound because the head is invariant under permuting them.
+    Successors {
+        /// The role the successors are reached by.
+        role: Role,
+        /// The concept every counted successor satisfies.
+        filler: u32,
+        /// The first variable this atom binds.
+        first: Var,
+        /// How many successors it binds — `n + 1` for a `≤n` restriction.
+        count: u32,
+    },
+    /// `xᵢ` DENOTES the individual `a` — the atom a negated nominal clashes against.
+    ///
+    /// Not a concept atom: OWL 2 makes no unique name assumption, so "denotes `a`" is a
+    /// property of the node's identity (the names it was identified with), never a name
+    /// comparison.
+    Denotes {
+        /// The variable the atom constrains.
+        var: Var,
+        /// The individual term id.
+        individual: u32,
+    },
+}
+
+impl BodyAtom {
+    /// The variable this atom BINDS when matched — the one that may still be unbound.
+    ///
+    /// Only a role atom binds: it is the join that walks the graph. Every other atom is a
+    /// filter over an already-bound variable, which is what makes the matcher's left-to-right
+    /// body order a complete plan.
+    #[cfg(test)]
+    const fn binds(self) -> Option<Var> {
+        match self {
+            Self::Role { to, .. } => Some(to),
+            Self::Successors { first, count, .. } => Some(first + count - 1),
+            Self::Concept { .. } | Self::Denotes { .. } => None,
+        }
+    }
+}
+
+/// One head atom of a DL-clause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HeadAtom {
+    /// `C(xᵢ)` — add the concept to the node's label.
+    Concept {
+        /// The variable the atom asserts about.
+        var: Var,
+        /// The concept id.
+        concept: u32,
+    },
+    /// `r(xᵢ, xᵢ)` — the node is its own `r`-successor (`owl:hasSelf`).
+    SelfLoop {
+        /// The variable the loop is on.
+        var: Var,
+        /// The role.
+        role: Role,
+    },
+    /// `≥n r.C(xᵢ)` — the node has `n` pairwise-distinct `r`-neighbours satisfying `C`.
+    ///
+    /// The existential of the clause language: asserting it MINTS anonymous witnesses (no
+    /// IRI, no blank node) up to the shortfall, and forces the whole witness set pairwise
+    /// distinct.
+    AtLeast {
+        /// The variable the successors belong to.
+        var: Var,
+        /// How many pairwise-distinct successors are demanded.
+        n: u32,
+        /// The role they are reached by.
+        role: Role,
+        /// The concept they satisfy.
+        filler: u32,
+    },
+    /// `⋁_{i<j} yᵢ ≈ yⱼ` over the `count` variables from `first` — the `≤n` restriction's own
+    /// disjunction, kept schematic for the reason [`BodyAtom::Successors`] is.
+    ///
+    /// This is the ONLY equality between two variables the fragment derives: `≤n r.C` is the
+    /// only axiom form that forces two elements together without naming either of them, and it
+    /// forces them as a CHOICE among pairs rather than as one pair. So there is no bare
+    /// `xᵢ ≈ xⱼ` head atom beside this one — a head that could assert one pair unconditionally
+    /// would be a head no axiom of this fragment produces.
+    ///
+    /// It is the ONE head atom that stands for several DISJUNCTS rather than for one atom, so
+    /// a clause carrying it is [`HeadForm::Disjunctive`] however many disjuncts its `head`
+    /// vector happens to hold: the disjunction is in the atom. Grounding expands it against a
+    /// matched frame; nothing else in this module treats it specially.
+    EqualSomePair {
+        /// The first of the counted variables.
+        first: Var,
+        /// How many of them there are; the disjunction has `count · (count − 1) / 2` disjuncts.
+        count: u32,
+    },
+    /// `xᵢ ≈ a` — identify the node with the individual `a`'s root.
+    EqualIndividual {
+        /// The variable to identify.
+        var: Var,
+        /// The individual term id.
+        individual: u32,
+    },
+}
+
+/// One DL-clause: `⋀ body → ⋁ (⋀ conjuncts)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DlClause {
+    /// The body conjunction, in the order the matcher joins it. Variable `0` is bound by the
+    /// caller; every later atom either filters a bound variable or binds one through a role.
+    pub(crate) body: Vec<BodyAtom>,
+    /// The head disjunction, each disjunct a conjunction of atoms. EMPTY means `⊥`.
+    ///
+    /// One entry may itself stand for several disjuncts: see [`HeadAtom::EqualSomePair`].
+    pub(crate) head: Vec<Vec<HeadAtom>>,
+}
+
+impl DlClause {
+    /// The concept whose presence in a node's label can make this clause applicable AT that
+    /// node, or `None` for a clause whose body opens with a role atom.
+    ///
+    /// A complete applicability filter, not a heuristic: matching always binds variable `0`
+    /// first, so a clause whose first body atom is `C(x₀)` cannot match a node without `C`.
+    /// The role a node must realize through an incident edge for this clause to match there,
+    /// when the body opens with a role or successor atom on variable 0.
+    pub(crate) fn first_role(&self) -> Option<Role> {
+        match self.body.first() {
+            Some(&BodyAtom::Role { from: 0, role, .. } | &BodyAtom::Successors { role, .. }) => {
+                Some(role)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn trigger(&self) -> Option<u32> {
+        match self.body.first() {
+            Some(&BodyAtom::Concept { var: 0, concept }) => Some(concept),
+            _ => None,
+        }
+    }
+
+    /// Which of [`purrdf-datalog`](purrdf_datalog::clause)'s five head forms this clause has.
+    ///
+    /// The same precedence that crate documents — empty, then existential, then disjunctive,
+    /// then conjunctive, then atomic — over this fragment's own atoms. It is what the
+    /// hypertableau dispatches on:
+    /// [`Inconsistency`](HeadForm::Inconsistency) closes the branch,
+    /// [`Atomic`](HeadForm::Atomic) and [`Conjunctive`](HeadForm::Conjunctive) are
+    /// deterministic assertions, [`Existential`](HeadForm::Existential) mints witnesses, and
+    /// [`Disjunctive`](HeadForm::Disjunctive) is the ONE source of don't-know
+    /// nondeterminism in the calculus.
+    pub(crate) fn head_form(&self) -> HeadForm {
+        let Some((first, rest)) = self.head.split_first() else {
+            return HeadForm::Inconsistency;
+        };
+        if self
+            .head
+            .iter()
+            .flatten()
+            .any(|atom| matches!(atom, HeadAtom::AtLeast { .. }))
+        {
+            return HeadForm::Existential;
+        }
+        if !rest.is_empty()
+            || self
+                .head
+                .iter()
+                .flatten()
+                .any(|atom| matches!(atom, HeadAtom::EqualSomePair { .. }))
+        {
+            return HeadForm::Disjunctive;
+        }
+        if first.len() > 1 {
+            return HeadForm::Conjunctive;
+        }
+        HeadForm::Atomic
+    }
+
+    /// How many variables the clause uses.
+    ///
+    /// Read by this module's own well-formedness test rather than by the matcher: a binding
+    /// frame GROWS as variables bind, so the matcher never needs the width up front — which is
+    /// what keeps a `≤300 r.C` clause from costing three hundred slots at a node with two
+    /// successors.
+    #[cfg(test)]
+    pub(crate) fn arity(&self) -> usize {
+        let mut width = 1usize;
+        let mut widen = |var: Var| width = width.max(var as usize + 1);
+        for atom in &self.body {
+            match *atom {
+                BodyAtom::Concept { var, .. } | BodyAtom::Denotes { var, .. } => widen(var),
+                BodyAtom::Role { from, to, .. } => {
+                    widen(from);
+                    widen(to);
+                }
+                BodyAtom::Successors { first, count, .. } => widen(first + count - 1),
+            }
+        }
+        for atom in self.head.iter().flatten() {
+            match *atom {
+                HeadAtom::Concept { var, .. }
+                | HeadAtom::SelfLoop { var, .. }
+                | HeadAtom::AtLeast { var, .. }
+                | HeadAtom::EqualIndividual { var, .. } => widen(var),
+                HeadAtom::EqualSomePair { first, count } => widen(first + count - 1),
+            }
+        }
+        width
+    }
+
+    /// Whether the clause is well-formed for the matcher: every variable is bound before it
+    /// is used, and only variable `0` is bound from outside.
+    ///
+    /// Checked once per derived clause set by this module's own tests rather than asserted at
+    /// each match, because a malformed clause is a bug in [`derive`] and not a data state.
+    #[cfg(test)]
+    fn is_matchable(&self) -> bool {
+        let mut bound = vec![false; self.arity()];
+        bound[0] = true;
+        for atom in &self.body {
+            match *atom {
+                BodyAtom::Concept { var, .. } | BodyAtom::Denotes { var, .. } => {
+                    if !bound[var as usize] {
+                        return false;
+                    }
+                }
+                BodyAtom::Role { from, to, .. } => {
+                    if !bound[from as usize] {
+                        return false;
+                    }
+                    bound[to as usize] = true;
+                }
+                BodyAtom::Successors { first, count, .. } => {
+                    for var in first..first + count {
+                        bound[var as usize] = true;
+                    }
+                }
+            }
+        }
+        let head_vars_bound = self.head.iter().flatten().all(|atom| match *atom {
+            HeadAtom::Concept { var, .. }
+            | HeadAtom::SelfLoop { var, .. }
+            | HeadAtom::AtLeast { var, .. }
+            | HeadAtom::EqualIndividual { var, .. } => bound[var as usize],
+            HeadAtom::EqualSomePair { first, count } => {
+                (first..first + count).all(|var| bound[var as usize])
+            }
+        });
+        head_vars_bound
+            && self
+                .body
+                .iter()
+                .filter_map(|atom| atom.binds())
+                .all(|var| (var as usize) < self.arity())
+    }
+}
+
+/// Every DL-clause of one knowledge base, indexed by the trigger concept.
+#[derive(Debug, Clone)]
+pub(crate) struct ClauseSet {
+    /// The clauses, in derivation order.
+    clauses: Vec<DlClause>,
+    /// Trigger concept id → the indices of the clauses it can make applicable, ascending.
+    by_trigger: BTreeMap<u32, Vec<usize>>,
+    /// The clauses neither a CONCEPT nor an EDGE triggers — a body that opens with a `denotes`
+    /// atom or nothing at all — so they are tried at every node of every round. A body that
+    /// opens with a role atom is indexed by the edges that can satisfy it instead: see
+    /// [`Self::by_edge`].
+    ///
+    /// # What lands here, and the bound that makes it affordable
+    ///
+    /// Exactly two populations, and neither scales with the ontology's CONCEPT count:
+    ///
+    /// * the two role axioms (`owl:AsymmetricProperty`, `owl:propertyDisjointWith`), one
+    ///   clause each;
+    /// * an absorbed inclusion whose faithful antecedent names no class anywhere —
+    ///   `⊤ ⊑ D` (an empty body), `rdfs:range` and `rdfs:domain` (`r(x,y)`), `{a} ⊑ D`
+    ///   (`denotes_a(x)`). One clause per such axiom.
+    ///
+    /// Everything else is re-rooted at a named class by
+    /// [`crate::owl_dl::absorb`] and reaches [`Self::by_trigger`]: an `∃r.C ⊑ D` with a named
+    /// filler is authored `C(x₀) ∧ r⁻(x₀,x₁) → D(x₁)`, so the common absorbed shape does NOT
+    /// land here. The count is therefore bounded by the ontology's AXIOM count — but the
+    /// per-node cost of one of them is NOT a free failure. A single
+    /// [`Graph::neighbors`](crate::owl_dl::graph::Graph::neighbors) call resolves the role's
+    /// achiever closure (memoized per role for the run, see
+    /// [`Graph::achiever_cache`](crate::owl_dl::graph::Graph); a role queried for the first
+    /// time still walks the role hierarchy to build it) and then walks the edges indexed
+    /// under the read node's root, in ascending order — an empty list for a node with no
+    /// incident edge. The work meter bills each step the edges it reads plus one, so a node
+    /// with no such edge still pays one unit per attempt before `neighbors` reports it has
+    /// nothing. What the bound above
+    /// buys is a per-node cost independent of the ontology's CONCEPT count, not a per-node
+    /// cost of zero.
+    ///
+    /// The axiom-count bound did not make that per-node cost affordable at scale: a schema
+    /// with thousands of `rdfs:domain` and `rdfs:range` axioms over a large ABox paid every one
+    /// of them at every node, nearly all at nodes with no edge the clause could match — the
+    /// step ledger's schema-heavy row, twenty-three domain/range pairs over a three-node ABox,
+    /// spent 1,048 units of one round on it. So role-first clauses are indexed by edge
+    /// ([`Self::by_edge`]) and only the rest remain here.
+    untriggered: Vec<usize>,
+    /// Edge pattern `(property, forward?)` → the role-first clauses an incident edge with that
+    /// pattern can satisfy, ascending.
+    ///
+    /// A clause body's first atom is matched from variable 0, the node being visited: a
+    /// `Role { from: 0, .. }` atom reads that node's neighbourhood over its role, and a
+    /// `Successors` atom counts that node's successors over its role. Both are empty unless
+    /// the node has an incident edge realizing the role — `(p, true)` with the node as source,
+    /// `(p, false)` as target, for `(p, ·)` in the role's closure under sub-roles and inverses —
+    /// and the transitive closure of a role is seeded from that same first step. So such a
+    /// clause is tried at a node exactly when one of the node's incident edge patterns indexes
+    /// it, and skipping the other nodes skips only attempts that match nothing.
+    by_edge: BTreeMap<(u32, bool), Vec<usize>>,
+    /// Role-first clauses awaiting [`Self::by_edge`] until the role axioms resolve them.
+    role_first: Vec<(Role, usize)>,
+    /// Original inclusion ordinal of each TBox-derived clause, by clause index.
+    ///
+    /// A TBox clause is scoped to the OBJECT domain: a general concept inclusion quantifies
+    /// over `owl:Thing`, and a literal value is not in it, so firing one at a node of `Δ_D`
+    /// would derive a consequence the ontology does not state. The concept-structure clauses
+    /// carry no such source — `C ⊓ ¬C ⊑ ⊥` and the decomposition of a concept a node's label
+    /// actually carries are statements about that concept, valid over either domain.
+    tbox_sources: Vec<Option<std::num::NonZeroUsize>>,
+    role_clauses: std::ops::Range<usize>,
+    asymmetric_clauses: std::ops::Range<usize>,
+    disjoint_role_clauses: std::ops::Range<usize>,
+    /// Number of original admitted schema guards appended logically to this
+    /// compilation. Their bodies and sorted trigger directory remain in the Kb.
+    schema_count: usize,
+    /// Per clause, the transitive patterns its body atoms read — see [`Self::reads`].
+    reads: Vec<u64>,
+    /// See [`Self::transitive_readers`].
+    transitive_readers: Vec<usize>,
+}
+
+impl ClauseSet {
+    /// Resolve the original role constraint from its compiler-owned emission range.
+    /// The role keys are already in the emitted body; no second source table is needed.
+    pub(crate) fn constraint_source(&self, index: usize) -> Option<super::input_source::Input> {
+        use super::input_source::Input;
+        if self.asymmetric_clauses.contains(&index) {
+            let BodyAtom::Role {
+                role: Role::Named(property),
+                ..
+            } = self.clauses[index].body[0]
+            else {
+                unreachable!("an asymmetric clause starts with its original named role")
+            };
+            Some(Input::Asymmetric(property))
+        } else if self.disjoint_role_clauses.contains(&index) {
+            let [
+                BodyAtom::Role {
+                    role: Role::Named(left),
+                    ..
+                },
+                BodyAtom::Role {
+                    role: Role::Named(right),
+                    ..
+                },
+            ] = self.clauses[index].body.as_slice()
+            else {
+                unreachable!("a disjoint-role clause contains its two original named roles")
+            };
+            Some(Input::DisjointRole(*left, *right))
+        } else {
+            None
+        }
+    }
+    pub(crate) fn role_source(
+        &self, index: usize, program: &super::roles::RoleProgram,
+    ) -> Option<super::roles::RoleClause> {
+        self.role_clauses
+            .contains(&index)
+            .then(|| program.clause_source(index - self.role_clauses.start))
+            .flatten()
+    }
+    /// The clause at `index`.
+    pub(crate) fn schema_class(
+        &self, index: usize, schema: &super::bounds::Preparation,
+    ) -> Option<u32> {
+        let ordinal = index.checked_sub(self.clauses.len())?;
+        schema.guards.get(ordinal).map(|(class, _)| *class)
+    }
+
+    pub(crate) fn schema_clauses<'a>(
+        &'a self, schema: &'a super::bounds::Preparation,
+    ) -> impl Iterator<Item = (usize, u32)> + 'a {
+        schema
+            .guards
+            .iter()
+            .enumerate()
+            .map(|(ordinal, (class, _))| (self.clauses.len() + ordinal, *class))
+    }
+
+    pub(crate) fn clause<'a>(
+        &'a self, index: usize, schema: &'a super::bounds::Preparation,
+    ) -> &'a DlClause {
+        if let Some(clause) = self.clauses.get(index) {
+            clause
+        } else {
+            &schema.guards[index - self.clauses.len()].1
+        }
+    }
+
+    /// How many clauses the knowledge base produced.
+    pub(crate) fn count(&self) -> usize {
+        self.clauses.len() + self.schema_count
+    }
+
+    /// The clauses `concept` can make applicable, in derivation order.
+    pub(crate) fn triggered_by<'a>(
+        &'a self, concept: u32, schema: &'a super::bounds::Preparation,
+    ) -> impl Iterator<Item = usize> + 'a {
+        self.by_trigger
+            .get(&concept)
+            .into_iter()
+            .flatten()
+            .copied()
+            .chain(
+                schema
+                    .guards
+                    .binary_search_by_key(&concept, |(class, _)| *class)
+                    .ok()
+                    .map(|ordinal| self.clauses.len() + ordinal),
+            )
+    }
+
+    /// How many neighbourhood READS a clause match rooted at one node can chain: an upper
+    /// bound on every body's variable-tree depth, each `Role` or `Successors` atom being one
+    /// read whatever length of transitive path it follows — and never less than one. A node
+    /// more reads than this from every change since its last match cannot match anything new,
+    /// which is what delta saturation relies on.
+    ///
+    /// A head adds no read. What a head reads — whether a concept is in a label, whether `n`
+    /// distinct witnesses are already there — only becomes MORE true as labels and edges
+    /// grow, so a head the last match found satisfied stays so and one it found unsatisfied
+    /// it asserted. The one way back is a merge of two counted witnesses, which writes both:
+    /// the floor of one read is what keeps the node counting them in reach of that write when
+    /// no body reads at all.
+    pub(crate) fn match_radius(&self) -> usize {
+        self.clauses
+            .iter()
+            .map(|clause| {
+                clause
+                    .body
+                    .iter()
+                    .filter(|atom| {
+                        matches!(atom, BodyAtom::Role { .. } | BodyAtom::Successors { .. })
+                    })
+                    .count()
+            })
+            .max()
+            .unwrap_or(0)
+            .max(1)
+    }
+
+    /// The role-first clauses an incident edge with `pattern` can satisfy, ascending.
+    pub(crate) fn edge_triggered(&self, pattern: (u32, bool)) -> &[usize] {
+        self.by_edge
+            .get(&pattern)
+            .map_or(&[] as &[usize], Vec::as_slice)
+    }
+
+    /// Every role-first clause, under whichever edge pattern triggers it.
+    pub(crate) fn all_edge_triggered(&self) -> impl Iterator<Item = usize> + '_ {
+        self.by_edge.values().flatten().copied()
+    }
+
+    /// The clauses neither a concept nor an edge triggers — tried at every node.
+    pub(crate) fn untriggered(&self) -> &[usize] {
+        &self.untriggered
+    }
+
+    /// The transitive patterns ([`TransitivePatterns::bit`]) the clause at `index` can read
+    /// through some body atom, as a mask: zero for a clause no transitive closure reaches.
+    pub(crate) fn reads(&self, index: usize) -> u64 {
+        if index < self.clauses.len() {
+            self.reads[index]
+        } else {
+            assert!(
+                index < self.count(),
+                "clause index is outside this compilation"
+            );
+            0 // A schema guard reads only its current class membership.
+        }
+    }
+
+    /// The clauses whose body reads some transitive closure, ascending — the only ones a
+    /// change reached through nothing but such a closure can give a new match.
+    pub(crate) fn transitive_readers(&self) -> &[usize] {
+        &self.transitive_readers
+    }
+
+    /// Every clause with the given head form, by index — the inventory a test reads to see
+    /// WHICH forms an ontology actually produced.
+    #[cfg(test)]
+    pub(crate) fn with_head_form(&self, form: HeadForm) -> Vec<usize> {
+        (0..self.clauses.len())
+            .filter(|&index| self.clauses[index].head_form() == form)
+            .collect()
+    }
+
+    /// Whether the clause at `index` is TBox-derived, and so scoped to the object domain.
+    pub(crate) fn is_tbox(&self, index: usize) -> bool {
+        if index < self.clauses.len() {
+            self.tbox_sources[index].is_some()
+        } else {
+            assert!(
+                index < self.count(),
+                "clause index is outside this compilation"
+            );
+            true // A schema guard quantifies over the object domain.
+        }
+    }
+
+    /// Original normalized inclusion behind an absorbed clause. Logical schema
+    /// guards can have several inclusion licenses and have no single ordinal here.
+    pub(crate) fn tbox_source(&self, index: usize) -> Option<usize> {
+        self.tbox_sources
+            .get(index)
+            .copied()
+            .flatten()
+            .map(|source| source.get() - 1)
+    }
+
+    /// Record one clause, indexing it by its trigger.
+    fn push(&mut self, clause: DlClause) {
+        self.record(clause, None);
+    }
+
+    /// Record one TBox-derived clause — see [`ClauseSet::tbox_sources`].
+    fn push_tbox(&mut self, clause: DlClause, source: usize) {
+        self.record(clause, Some(source));
+    }
+
+    /// Record one clause, indexing it by its trigger and noting its provenance.
+    fn record(&mut self, clause: DlClause, source: Option<usize>) {
+        let index = self.clauses.len();
+        match (clause.trigger(), clause.first_role()) {
+            (Some(concept), _) => self.by_trigger.entry(concept).or_default().push(index),
+            (None, Some(role)) => self.role_first.push((role, index)),
+            (None, None) => self.untriggered.push(index),
+        }
+        self.clauses.push(clause);
+        // An inclusion ordinal is below its allocated Vec length, so adding one
+        // cannot overflow. The niche keeps each provenance slot one native word.
+        self.tbox_sources.push(source.map(|source| {
+            std::num::NonZeroUsize::new(source + 1)
+                .expect("an allocated inclusion ordinal plus one is nonzero")
+        }));
+    }
+
+    /// Record `body → head` where the body opens with the trigger concept `trigger` on
+    /// variable 0.
+    fn push_triggered(&mut self, trigger: u32, rest: Vec<BodyAtom>, head: Vec<Vec<HeadAtom>>) {
+        let mut body = vec![BodyAtom::Concept {
+            var: 0,
+            concept: trigger,
+        }];
+        body.extend(rest);
+        self.push(DlClause { body, head });
+    }
+}
+
+/// Derive the DL-clause set of `kb`.
+///
+/// The knowledge base's concept table must be finalized ([`Kb::finalize`]): the
+/// complementary-pair clauses read the negation cache, and a concept whose negation is not
+/// cached simply produces no such clause rather than a panic — one fewer derived clash, never
+/// an invented one.
+pub(crate) fn derive(kb: &Kb) -> ClauseSet {
+    let mut out = ClauseSet {
+        clauses: Vec::new(),
+        by_trigger: BTreeMap::new(),
+        untriggered: Vec::new(),
+        by_edge: BTreeMap::new(),
+        role_first: Vec::new(),
+        tbox_sources: Vec::new(),
+        role_clauses: 0..0,
+        asymmetric_clauses: 0..0,
+        disjoint_role_clauses: 0..0,
+        schema_count: kb.schema.guards.len(),
+        reads: Vec::new(),
+        transitive_readers: Vec::new(),
+    };
+    for id in 0..kb.table.len() {
+        let id = u32::try_from(id).expect("concept count fits u32");
+        derive_concept(kb, id, &mut out);
+        // `C ⊓ ¬C ⊑ ⊥`, valid for every concept and emitted once per PAIR — the clash the
+        // incumbent detects by scanning a label for a complementary pair, here as the clause
+        // that says why it is one.
+        if let Some(negation) = kb.table.negation(id)
+            && id < negation
+        {
+            out.push_triggered(
+                id,
+                vec![BodyAtom::Concept {
+                    var: 0,
+                    concept: negation,
+                }],
+                Vec::new(),
+            );
+        }
+    }
+    // Universal restrictions over regular role languages use a finite closure
+    // of internal state labels. These labels travel with blocking signatures;
+    // no completion edge or RDF name stands in for an automaton continuation.
+    let role_start = out.clauses.len();
+    if let Some(program) = &kb.role_program {
+        for obligation in &program.obligations {
+            let machine = &program.machines[obligation.machine];
+            out.push_triggered(
+                obligation.source,
+                Vec::new(),
+                vec![vec![HeadAtom::Concept {
+                    var: 0,
+                    concept: obligation.states[machine.initial],
+                }]],
+            );
+            out.push_triggered(
+                obligation.states[machine.accepting],
+                Vec::new(),
+                vec![vec![HeadAtom::Concept {
+                    var: 0,
+                    concept: obligation.filler,
+                }]],
+            );
+            for edge in &machine.transitions {
+                let (body, target) = match edge.letter {
+                    Some(role) => (
+                        vec![BodyAtom::Role {
+                            from: 0,
+                            to: 1,
+                            role,
+                        }],
+                        1,
+                    ),
+                    None => (Vec::new(), 0),
+                };
+                out.push_triggered(
+                    obligation.states[edge.from],
+                    body,
+                    vec![vec![HeadAtom::Concept {
+                        var: target,
+                        concept: obligation.states[edge.to],
+                    }]],
+                );
+            }
+        }
+    }
+    out.role_clauses = role_start..out.clauses.len();
+    // The absorbed TBox, verbatim: [`crate::owl_dl::absorb`] has already decided each
+    // inclusion's guard, so emission is a translation and not a second place the encoding is
+    // chosen. Marked as TBox-derived, which is what scopes it to the OBJECT domain — a
+    // general concept inclusion quantifies over `owl:Thing`, and no literal value is in it.
+    for (ordinal, clause) in kb.absorbed.iter().enumerate() {
+        // ATOMIC-HEAD invariant: a [`GuardedClause`] head is ONE concept id on ONE variable
+        // (see its doc), so its translation is ONE disjunct of ONE atom — never a case split
+        // of this clause's own. A `⊔` reached by way of an absorbed head still branches, but
+        // through the SEPARATE per-concept clause [`derive_concept`] emits for that head id
+        // when its decomposition is [`Decomp::Or`] — a clause that is NOT `push_tbox`, so it
+        // is not scoped away from `Δ_D`. If a future edit ever flattened a disjunctive head
+        // in here instead, this TBox-scoped, `Δ_D`-excluded clause would start branching on
+        // whichever domain a node inhabited, silently past the object-domain scope the
+        // `push_tbox` marking exists to hold — which is exactly what this assertion is here
+        // to catch before it reaches the search.
+        let head = vec![vec![HeadAtom::Concept {
+            var: clause.head_var,
+            concept: clause.head,
+        }]];
+        debug_assert_eq!(
+            (head.len(), head[0].len()),
+            (1, 1),
+            "an absorbed TBox clause's head must be one concept on one variable"
+        );
+        out.push_tbox(
+            DlClause {
+                body: clause.body.clone(),
+                head,
+            },
+            kb.absorbed_sources[ordinal],
+        );
+    }
+    // The two role axioms that constrain EDGES rather than labels, so neither can be
+    // internalized as a general concept inclusion and neither has a concept to trigger it.
+    // Asymmetry with `y = x` is the self-loop case, which is how it subsumes irreflexivity.
+    let asymmetric_start = out.clauses.len();
+    for &property in &kb.asymmetric {
+        let role = Role::Named(property);
+        out.push(DlClause {
+            body: vec![
+                BodyAtom::Role {
+                    from: 0,
+                    to: 1,
+                    role,
+                },
+                BodyAtom::Role {
+                    from: 1,
+                    to: 0,
+                    role,
+                },
+            ],
+            head: Vec::new(),
+        });
+    }
+    out.asymmetric_clauses = asymmetric_start..out.clauses.len();
+    let disjoint_start = out.clauses.len();
+    for &(left, right) in &kb.disjoint_roles {
+        // The pair is held in both orders so a lookup needs no normalization; one clause per
+        // unordered pair is enough, because the body is symmetric in the two roles.
+        if left > right {
+            continue;
+        }
+        out.push(DlClause {
+            body: vec![
+                BodyAtom::Role {
+                    from: 0,
+                    to: 1,
+                    role: Role::Named(left),
+                },
+                BodyAtom::Role {
+                    from: 0,
+                    to: 1,
+                    role: Role::Named(right),
+                },
+            ],
+            head: Vec::new(),
+        });
+    }
+    out.disjoint_role_clauses = disjoint_start..out.clauses.len();
+    // Resolve each role-first clause to the edge patterns that can satisfy its first atom.
+    // Clauses are recorded in ascending index order, so every list stays ascending.
+    for (role, index) in std::mem::take(&mut out.role_first) {
+        for pattern in role_patterns(kb, role) {
+            let clauses = out.by_edge.entry(pattern).or_default();
+            if clauses.last() != Some(&index) {
+                clauses.push(index);
+            }
+        }
+    }
+    // Which transitive closures each body can read: every role atom reads its role from the
+    // variable it starts at, in the role's own direction, and a match rooted at variable 0
+    // makes its first read through one of the atoms starting there. Every atom counts, not
+    // only those, which over-approximates and can only widen what a round re-matches.
+    // Schema guards are appended logically, preserving every unrelated legacy
+    // clause index and proof encoding. The original admitted preparation owns
+    // their bodies and trigger directory, so this compilation copies neither.
+    let patterns = TransitivePatterns::of(kb);
+    out.reads = out
+        .clauses
+        .iter()
+        .map(|clause| {
+            clause
+                .body
+                .iter()
+                .map(|atom| match *atom {
+                    BodyAtom::Role { role, .. } | BodyAtom::Successors { role, .. } => {
+                        patterns.mask(kb, role)
+                    }
+                    BodyAtom::Concept { .. } | BodyAtom::Denotes { .. } => 0,
+                })
+                .fold(0, |mask, atom| mask | atom)
+        })
+        .collect();
+    out.transitive_readers = (0..out.clauses.len())
+        .filter(|&index| out.reads[index] != 0)
+        .collect();
+    out
+}
+
+/// Emit the clauses one concept id forces, per the table in the [module docs](self).
+fn derive_concept(kb: &Kb, id: u32, out: &mut ClauseSet) {
+    match *kb.table.decomp(id) {
+        Decomp::Bottom => out.push_triggered(id, Vec::new(), Vec::new()),
+        Decomp::And(ref children) => {
+            let conjuncts: Vec<HeadAtom> = children
+                .iter()
+                .map(|&concept| HeadAtom::Concept { var: 0, concept })
+                .collect();
+            if !conjuncts.is_empty() {
+                out.push_triggered(id, Vec::new(), vec![conjuncts]);
+            }
+        }
+        Decomp::Or(ref children) => {
+            // AUTHORED in search order, not in the interner's: see [`Kb::order_disjuncts`] for
+            // why the canonical member order and this one are different orders with different
+            // jobs. The `⊔`-rule branches in the order it finds here, so this is where a
+            // terminology's cheap alternatives are put first — once, in front of every search
+            // over the clause set, rather than re-decided at each case split.
+            let disjuncts: Vec<Vec<HeadAtom>> = kb
+                .order_disjuncts(children)
+                .into_iter()
+                .map(|concept| vec![HeadAtom::Concept { var: 0, concept }])
+                .collect();
+            // An EMPTY disjunction is `⊥`, which is exactly the empty head — so the degenerate
+            // `⊔` of nothing needs no special case.
+            out.push_triggered(id, Vec::new(), disjuncts);
+        }
+        Decomp::Some(role, filler) => out.push_triggered(
+            id,
+            Vec::new(),
+            vec![vec![HeadAtom::AtLeast {
+                var: 0,
+                n: 1,
+                role,
+                filler,
+            }]],
+        ),
+        // `≥0 r.C` IS `⊤`: it forces nothing, so it produces no clause rather than a clause
+        // with a vacuous head.
+        Decomp::Min(0, _, _) => {}
+        Decomp::Min(n, role, filler) => out.push_triggered(
+            id,
+            Vec::new(),
+            vec![vec![HeadAtom::AtLeast {
+                var: 0,
+                n,
+                role,
+                filler,
+            }]],
+        ),
+        Decomp::All(role, filler) => out.push_triggered(
+            id,
+            vec![BodyAtom::Role {
+                from: 0,
+                to: 1,
+                role,
+            }],
+            vec![vec![HeadAtom::Concept {
+                var: 1,
+                concept: filler,
+            }]],
+        ),
+        Decomp::Max(n, role, filler) => derive_at_most(kb, id, n, role, filler, out),
+        Decomp::SelfRestriction(role) => {
+            out.push_triggered(
+                id,
+                Vec::new(),
+                vec![vec![HeadAtom::SelfLoop { var: 0, role }]],
+            );
+        }
+        Decomp::NegSelfRestriction(role) => out.push_triggered(
+            id,
+            vec![BodyAtom::Role {
+                from: 0,
+                to: 0,
+                role,
+            }],
+            Vec::new(),
+        ),
+        Decomp::Nominal(ref members) => {
+            let disjuncts: Vec<Vec<HeadAtom>> = members
+                .iter()
+                .map(|&individual| vec![HeadAtom::EqualIndividual { var: 0, individual }])
+                .collect();
+            out.push_triggered(id, Vec::new(), disjuncts);
+        }
+        Decomp::NegNominal(ref members) => {
+            for &individual in members {
+                out.push_triggered(
+                    id,
+                    vec![BodyAtom::Denotes { var: 0, individual }],
+                    Vec::new(),
+                );
+            }
+        }
+        // Atomic leaves force nothing on their own: a named class is opaque, and a data range
+        // is decided by the concrete domain rather than by a clause. See the module docs.
+        Decomp::Top | Decomp::Named | Decomp::NegNamed | Decomp::Data(_) | Decomp::NegData(_) => {}
+    }
+}
+
+/// Emit the two clauses of `≤n r.C`.
+///
+/// The first DECIDES the filler on every `r`-neighbour, and it is not an optimization: a
+/// counting clause can only count what the labels say, so without it a neighbour whose
+/// `C`-membership is undetermined would be silently counted as a non-member and the
+/// restriction would be satisfiable by not deciding. It is the standard structural
+/// transformation of a concept occurring NEGATIVELY (a `≤` restriction is antitone in its
+/// filler) specialized to this shape, and it is exactly what the incumbent's `≤`-choose rule
+/// does.
+///
+/// The second is the restriction itself: `n + 1` pairwise-distinct `C`-successors are one too
+/// many, so at least two of them must be the same element. Every pair is a branch; a state
+/// where every pair is already recorded `≠` has no branch left and closes — which is how a
+/// `≤n` violation becomes a clash without a second clash rule to state it.
+fn derive_at_most(kb: &Kb, id: u32, n: u32, role: Role, filler: u32, out: &mut ClauseSet) {
+    if let Some(negated) = kb.table.negation(filler) {
+        // The two alternatives are ordered like any other authored case split: deciding a
+        // neighbour's membership one way may force it to mint successors of its own, and the
+        // way that does not is the one to try first.
+        let decided: Vec<Vec<HeadAtom>> = kb
+            .order_disjuncts(&[filler, negated])
+            .into_iter()
+            .map(|concept| vec![HeadAtom::Concept { var: 1, concept }])
+            .collect();
+        out.push_triggered(
+            id,
+            vec![BodyAtom::Role {
+                from: 0,
+                to: 1,
+                role,
+            }],
+            decided,
+        );
+    }
+    // The counting clause, schematic in `n + 1`: one body atom for the counted successors and
+    // one head atom for the disjunction of their pairs. See `BodyAtom::Successors` for why it
+    // is not written out — an `owl:maxCardinality "300"` would otherwise put 45_150 head
+    // disjuncts in the clause set for a bound no completion graph in this crate will reach.
+    let count = n + 1;
+    out.push_triggered(
+        id,
+        vec![BodyAtom::Successors {
+            role,
+            filler,
+            first: 1,
+            count,
+        }],
+        vec![vec![HeadAtom::EqualSomePair { first: 1, count }]],
+    );
+}
+
+/// A role's achiever patterns `(property, forward?)`, sorted.
+pub(crate) type Patterns = [(u32, bool)];
+
+/// The edge patterns of the knowledge base's TRANSITIVE roles, numbered.
+///
+/// A neighbourhood read over a role follows each transitive achiever `(t, forward?)` of it to
+/// any length in ONE read ([`Graph::neighbors`](crate::owl_dl::graph::Graph)), so a change
+/// at the far end of a long `t`-path is one read from the path's start — but only along the
+/// path's own direction, and only for a clause that reads `t` at all. Numbering the patterns
+/// lets delta saturation say WHICH closures carried a change to a node, and lets the clause
+/// set say which closures each clause reads, so the two can be intersected.
+pub(crate) struct TransitivePatterns {
+    /// Pattern index → `(t, forward?)`: both directions of every transitive role, ascending,
+    /// so a pattern is found by binary search.
+    patterns: Vec<(u32, bool)>,
+    /// Pattern index → the achievers of the pattern's own role, sorted: the edges a read over
+    /// the pattern steps along.
+    forwards: Vec<Vec<(u32, bool)>>,
+    /// Pattern index → the achievers of the pattern's MIRROR role, sorted: the edges a read
+    /// over the pattern is walked back along, from the node it reached to the node it started
+    /// at.
+    mirrors: Vec<Vec<(u32, bool)>>,
+}
+
+impl TransitivePatterns {
+    /// The patterns of `kb`'s transitive roles.
+    pub(crate) fn of(kb: &Kb) -> Self {
+        let patterns: Vec<(u32, bool)> = kb
+            .transitive
+            .iter()
+            .flat_map(|&t| [(t, false), (t, true)])
+            .collect();
+        let closed =
+            |role: Role| -> Vec<(u32, bool)> { role_patterns(kb, role).into_iter().collect() };
+        let role = |t: u32, forward: bool| {
+            if forward {
+                Role::Named(t)
+            } else {
+                Role::Inv(t)
+            }
+        };
+        let forwards = patterns
+            .iter()
+            .map(|&(t, forward)| closed(role(t, forward)))
+            .collect();
+        let mirrors = patterns
+            .iter()
+            .map(|&(t, forward)| closed(role(t, !forward)))
+            .collect();
+        Self {
+            patterns,
+            forwards,
+            mirrors,
+        }
+    }
+
+    /// The index of `pattern`, if it is a transitive role's.
+    pub(crate) fn index(&self, pattern: (u32, bool)) -> Option<usize> {
+        self.patterns.binary_search(&pattern).ok()
+    }
+
+    /// How many patterns there are.
+    pub(crate) fn len(&self) -> usize {
+        self.patterns.len()
+    }
+
+    /// The achievers pattern `index` steps along.
+    pub(crate) fn forward(&self, index: usize) -> &[(u32, bool)] {
+        &self.forwards[index]
+    }
+
+    /// The mask bit of pattern `index`. Past sixty-three patterns the rest share the last
+    /// bit, which merges them and can only widen a re-match, never narrow one.
+    pub(crate) fn bit(index: usize) -> u64 {
+        1 << index.min(63)
+    }
+
+    /// The patterns a read over `role` follows to any length, as a mask: its achievers whose
+    /// property is transitive.
+    pub(crate) fn mask(&self, kb: &Kb, role: Role) -> u64 {
+        role_patterns(kb, role)
+            .into_iter()
+            .filter_map(|pattern| self.patterns.binary_search(&pattern).ok())
+            .fold(0, |mask, index| mask | Self::bit(index))
+    }
+
+    /// The indices of the patterns a read over `role` follows to any length.
+    pub(crate) fn indices(&self, kb: &Kb, role: Role) -> Vec<usize> {
+        role_patterns(kb, role)
+            .into_iter()
+            .filter_map(|pattern| self.index(pattern))
+            .collect()
+    }
+
+    /// Every pattern's mask bit, beside the achievers it steps along and the achievers it is
+    /// walked back along.
+    pub(crate) fn steps(&self) -> impl Iterator<Item = (u64, &Patterns, &Patterns)> {
+        self.forwards
+            .iter()
+            .zip(&self.mirrors)
+            .enumerate()
+            .map(|(index, (forward, mirror))| {
+                (Self::bit(index), forward.as_slice(), mirror.as_slice())
+            })
+    }
+}
+
+/// The `(property, forward?)` edge patterns that realize `role` under `kb`'s role hierarchy and
+/// inverse declarations — the closure [`Graph::achievers`](crate::owl_dl::graph::Graph) walks,
+/// computed here once per clause-set rather than charged per read.
+fn role_patterns(kb: &Kb, role: Role) -> BTreeSet<(u32, bool)> {
+    let start = match role {
+        Role::Named(p) => (p, true),
+        Role::Inv(p) => (p, false),
+    };
+    let mut patterns = BTreeSet::new();
+    let mut stack = vec![start];
+    while let Some((q, dir)) = stack.pop() {
+        if !patterns.insert((q, dir)) {
+            continue;
+        }
+        if let Some(subs) = kb.role_sub.get(&q) {
+            stack.extend(subs.iter().map(|&s| (s, dir)));
+        }
+        if let Some(inverses) = kb.inverses.get(&q) {
+            stack.extend(inverses.iter().map(|&s| (s, !dir)));
+        }
+    }
+    patterns
+}
+
+#[cfg(test)]
+mod tests {
+    use purrdf_datalog::clause::HeadForm;
+
+    use super::{BodyAtom, DlClause, HeadAtom, derive};
+    use crate::owl_dl::Kb;
+    use crate::owl_dl::concept::{Concept, Role};
+
+    /// A knowledge base holding one asserted concept, finalized.
+    fn kb_of(concept: Concept) -> Kb {
+        let mut kb = Kb::empty();
+        let id = kb.table.intern(concept);
+        kb.abox_types.push((1, id));
+        kb.individuals.insert(1);
+        kb.finalize().expect("fixture preparation");
+        kb
+    }
+
+    /// Every derived clause is matchable: each variable is bound before use, and only
+    /// variable 0 comes from outside. A clause that failed this would make the matcher's
+    /// left-to-right join plan incomplete.
+    #[test]
+    fn every_derived_clause_is_matchable() {
+        let concepts = vec![
+            Concept::And(vec![Concept::Named(10), Concept::Named(11)]),
+            Concept::Or(vec![Concept::Named(10), Concept::Named(11)]),
+            Concept::Some(Role::Named(20), Box::new(Concept::Named(10))),
+            Concept::All(Role::Inv(20), Box::new(Concept::Named(10))),
+            Concept::Min(3, Role::Named(20), Box::new(Concept::Named(10))),
+            Concept::Max(2, Role::Named(20), Box::new(Concept::Named(10))),
+            Concept::Nominal(vec![30, 31]),
+            Concept::Not(Box::new(Concept::Nominal(vec![30]))),
+            Concept::SelfRestriction(Role::Named(20)),
+            Concept::Not(Box::new(Concept::SelfRestriction(Role::Named(20)))),
+        ];
+        for concept in concepts {
+            let mut kb = kb_of(concept.clone());
+            kb.asymmetric.insert(21);
+            kb.disjoint_roles.insert((20, 21));
+            kb.disjoint_roles.insert((21, 20));
+            let clauses = derive(&kb);
+            for index in 0..clauses.count() {
+                let clause = clauses.clause(index, &kb.schema);
+                assert!(
+                    clause.is_matchable(),
+                    "{concept:?} derived an unmatchable clause: {clause:?}"
+                );
+            }
+        }
+    }
+
+    /// A DISJUNCTION derives a clause whose head form is [`HeadForm::Disjunctive`] — the form
+    /// `purrdf-datalog` classifies and refuses, and which the hypertableau case-splits over.
+    #[test]
+    fn a_disjunction_derives_a_disjunctive_head() {
+        let kb = kb_of(Concept::Or(vec![Concept::Named(10), Concept::Named(11)]));
+        let clauses = derive(&kb);
+        let disjunctive = clauses.with_head_form(HeadForm::Disjunctive);
+        assert_eq!(
+            disjunctive.len(),
+            1,
+            "one disjunction, one disjunctive clause"
+        );
+        let clause = clauses.clause(disjunctive[0], &kb.schema);
+        assert_eq!(clause.head.len(), 2, "two disjuncts");
+        assert!(
+            clause
+                .head
+                .iter()
+                .all(|disjunct| matches!(disjunct.as_slice(), [HeadAtom::Concept { var: 0, .. }])),
+            "each disjunct adds one concept to the trigger node: {clause:?}"
+        );
+    }
+
+    /// `≤n r.C` derives BOTH clauses: the choose disjunction that decides the filler on each
+    /// neighbour, and the counting disjunction over `n + 1` interchangeable successors whose
+    /// disjuncts are equalities.
+    #[test]
+    fn an_at_most_restriction_derives_a_choose_clause_and_a_counting_clause() {
+        let kb = kb_of(Concept::Max(
+            2,
+            Role::Named(20),
+            Box::new(Concept::Named(10)),
+        ));
+        let clauses = derive(&kb);
+        let counting = (0..clauses.count())
+            .map(|index| clauses.clause(index, &kb.schema))
+            .find(|clause| {
+                clause
+                    .head
+                    .iter()
+                    .flatten()
+                    .any(|atom| matches!(atom, HeadAtom::EqualSomePair { .. }))
+            })
+            .expect("a counting clause");
+        // Disjunctive because of the SCHEMATIC atom, not because the head vector is long: the
+        // disjunction over the tuple's pairs is expanded at match time.
+        assert_eq!(counting.head_form(), HeadForm::Disjunctive);
+        assert_eq!(counting.arity(), 4, "x plus three counted successors");
+        assert_eq!(counting.head.len(), 1, "one schematic disjunction");
+        assert!(matches!(
+            counting.head[0][0],
+            HeadAtom::EqualSomePair { first: 1, count: 3 }
+        ));
+        assert!(matches!(
+            counting.body[1],
+            BodyAtom::Successors {
+                first: 1,
+                count: 3,
+                ..
+            }
+        ));
+
+        let choose = (0..clauses.count())
+            .map(|index| clauses.clause(index, &kb.schema))
+            .find(|clause| {
+                clause.head.len() == 2
+                    && clause
+                        .head
+                        .iter()
+                        .flatten()
+                        .all(|atom| matches!(atom, HeadAtom::Concept { var: 1, .. }))
+            })
+            .expect("a choose clause");
+        assert_eq!(choose.head_form(), HeadForm::Disjunctive);
+        assert_eq!(choose.arity(), 2, "x and one neighbour");
+    }
+
+    /// `≥n r.C` and `∃r.C` derive the EXISTENTIAL head form; `≥0 r.C` derives no clause at
+    /// all, because it is `⊤`.
+    #[test]
+    fn a_min_restriction_derives_an_existential_head() {
+        let kb = kb_of(Concept::Min(2, Role::Named(20), Box::new(Concept::Top)));
+        let clauses = derive(&kb);
+        let existential = clauses.with_head_form(HeadForm::Existential);
+        assert_eq!(existential.len(), 1);
+        assert!(matches!(
+            clauses.clause(existential[0], &kb.schema).head[0][0],
+            HeadAtom::AtLeast { n: 2, .. }
+        ));
+
+        let zero = kb_of(Concept::Min(0, Role::Named(20), Box::new(Concept::Top)));
+        let clauses = derive(&zero);
+        assert!(
+            clauses.with_head_form(HeadForm::Existential).is_empty(),
+            "≥0 r.C is ⊤ and forces nothing"
+        );
+    }
+
+    /// A LARGE cardinality is ordinary OWL 2, and the clause set holds it in CONSTANT size.
+    ///
+    /// `owl:maxCardinality "300"` is a legal restriction. Written out, its counting clause
+    /// would carry 602 body atoms and 45_150 head disjuncts — quadratic in a number the
+    /// ontology chose, for a bound the completion graph may never come near — and an earlier
+    /// revision of this module panicked on it outright, because the variable index did not fit.
+    /// Schematic, it is one body atom and one head atom, whatever `n` is.
+    #[test]
+    fn a_large_cardinality_derives_one_schematic_clause() {
+        let kb = kb_of(Concept::Max(
+            300,
+            Role::Named(20),
+            Box::new(Concept::Named(10)),
+        ));
+        let clauses = derive(&kb);
+        let counting = (0..clauses.count())
+            .map(|index| clauses.clause(index, &kb.schema))
+            .find(|clause| {
+                clause
+                    .head
+                    .iter()
+                    .flatten()
+                    .any(|atom| matches!(atom, HeadAtom::EqualSomePair { .. }))
+            })
+            .expect("a counting clause");
+        assert_eq!(counting.head_form(), HeadForm::Disjunctive);
+        assert_eq!(counting.body.len(), 2, "the trigger and one schematic atom");
+        assert_eq!(counting.head.len(), 1, "one schematic disjunction");
+        assert_eq!(counting.arity(), 302);
+        assert!(counting.is_matchable());
+    }
+
+    /// A conjunction derives ONE conjunctive-head clause — not one clause per conjunct — so
+    /// the whole conjunction is asserted in one derivation step.
+    #[test]
+    fn a_conjunction_derives_one_conjunctive_head() {
+        let kb = kb_of(Concept::And(vec![Concept::Named(10), Concept::Named(11)]));
+        let clauses = derive(&kb);
+        let conjunctive = clauses.with_head_form(HeadForm::Conjunctive);
+        assert_eq!(conjunctive.len(), 1);
+        assert_eq!(clauses.clause(conjunctive[0], &kb.schema).head[0].len(), 2);
+    }
+
+    /// A complementary pair, `⊥`, a negated self restriction, a negated nominal and the two
+    /// role axioms all derive the INCONSISTENCY head form — the empty head, which is `false`.
+    #[test]
+    fn the_clash_clauses_have_empty_heads() {
+        let mut kb = kb_of(Concept::Not(Box::new(Concept::SelfRestriction(
+            Role::Named(20),
+        ))));
+        kb.asymmetric.insert(21);
+        let clauses = derive(&kb);
+        let inconsistency = clauses.with_head_form(HeadForm::Inconsistency);
+        assert!(
+            inconsistency.len() >= 2,
+            "the negated self restriction and the asymmetry axiom, at least: {inconsistency:?}"
+        );
+        assert!(
+            inconsistency
+                .iter()
+                .all(|&index| clauses.clause(index, &kb.schema).head.is_empty())
+        );
+        // The asymmetry clause opens with a role atom, so an incident edge over that role
+        // triggers it rather than every node.
+        assert_eq!(clauses.untriggered(), &[] as &[usize]);
+        assert_eq!(clauses.edge_triggered((21, true)).len(), 1);
+        let asymmetry = clauses.clause(clauses.edge_triggered((21, true))[0], &kb.schema);
+        assert_eq!(asymmetry.trigger(), None);
+        assert_eq!(asymmetry.arity(), 2);
+        assert_eq!(asymmetry.head, [] as [Vec<HeadAtom>; 0]);
+    }
+
+    /// A SINGLETON nominal derives an atomic head — a deterministic identification — while a
+    /// multi-member one derives a disjunction over its members. That difference is the whole
+    /// of the `o`-rule, and it never compares names.
+    #[test]
+    fn a_nominal_derives_an_identification_per_member() {
+        let one = kb_of(Concept::Nominal(vec![30]));
+        let clauses = derive(&one);
+        let identifications = clauses
+            .with_head_form(HeadForm::Atomic)
+            .into_iter()
+            .filter(|&index| {
+                matches!(
+                    clauses.clause(index, &one.schema).head[0][0],
+                    HeadAtom::EqualIndividual { .. }
+                )
+            })
+            .count();
+        assert_eq!(identifications, 1, "one member, one deterministic merge");
+
+        let two = kb_of(Concept::Nominal(vec![30, 31]));
+        let clauses = derive(&two);
+        let disjunctive: Vec<usize> = clauses
+            .with_head_form(HeadForm::Disjunctive)
+            .into_iter()
+            .filter(|&index| {
+                clauses
+                    .clause(index, &two.schema)
+                    .head
+                    .iter()
+                    .flatten()
+                    .all(|atom| matches!(atom, HeadAtom::EqualIndividual { .. }))
+            })
+            .collect();
+        assert_eq!(disjunctive.len(), 1, "two members, one branch of two");
+        assert_eq!(clauses.clause(disjunctive[0], &two.schema).head.len(), 2);
+    }
+
+    /// The absorbed TBox becomes an atomic-head clause triggered by the named class, which is
+    /// what keeps a terminology from branching on every node.
+    #[test]
+    fn the_absorbed_tbox_becomes_triggered_atomic_clauses() {
+        let mut kb = Kb::empty();
+        kb.push_gci(Concept::Named(10), Concept::Named(11));
+        kb.finalize().expect("fixture preparation");
+        let named = kb.table.intern(Concept::Named(10));
+        let clauses = derive(&kb);
+        let triggered: Vec<usize> = clauses.triggered_by(named, &kb.schema).collect();
+        assert!(
+            triggered.iter().any(|&index| {
+                let clause = clauses.clause(index, &kb.schema);
+                clause.head_form() == HeadForm::Atomic
+                    && matches!(clause.head[0][0], HeadAtom::Concept { var: 0, .. })
+            }),
+            "A ⊑ D is a clause triggered by A: {triggered:?}"
+        );
+    }
+
+    /// An absorbed `∃r.C ⊑ D` is TRIGGERED, not untriggered — the whole point of authoring it
+    /// re-rooted at its filler. It is the shape a terminology states most often after the
+    /// named-class one, and head-first it would be retried at every node of every round.
+    #[test]
+    fn an_absorbed_existential_antecedent_is_triggered_by_its_filler() {
+        let mut kb = Kb::empty();
+        kb.push_gci(
+            Concept::Some(Role::Named(20), Box::new(Concept::Named(10))),
+            Concept::Named(11),
+        );
+        kb.finalize().expect("fixture preparation");
+        let filler = kb.table.intern(Concept::Named(10));
+        let clauses = derive(&kb);
+        assert!(
+            clauses.untriggered().is_empty(),
+            "∃r.C ⊑ D must not land in the untriggered set: {:?}",
+            clauses.untriggered()
+        );
+        assert!(
+            clauses.triggered_by(filler, &kb.schema).any(|index| {
+                matches!(
+                    clauses.clause(index, &kb.schema).body.as_slice(),
+                    [
+                        BodyAtom::Concept { var: 0, .. },
+                        BodyAtom::Role {
+                            from: 0,
+                            to: 1,
+                            role: Role::Inv(20)
+                        },
+                    ]
+                )
+            }),
+            "the clause is triggered by the FILLER and walks back through r⁻"
+        );
+    }
+
+    /// THE UNTRIGGERED INVARIANT, as a population rather than a promise.
+    ///
+    /// Every clause that no concept triggers is tried at every node of every round, so what
+    /// may land there is a bounded, enumerable set — the two role axioms, and the absorbed
+    /// inclusions whose faithful antecedent names no class anywhere. This knowledge base
+    /// states one of each of the five, and the count is exactly five: nothing that could have
+    /// been re-rooted onto a trigger is here, and in particular the concept table's own
+    /// clauses — one per interned concept, the population that scales — are all triggered.
+    #[test]
+    fn only_the_class_free_guards_are_untriggered_and_role_first_clauses_are_edge_indexed() {
+        let mut kb = Kb::empty();
+        // `⊤ ⊑ A` — an empty body.
+        kb.push_gci(Concept::Top, Concept::Named(10));
+        // `rdfs:range` — `r(x,y) → A(y)`.
+        kb.push_gci(
+            Concept::Top,
+            Concept::All(Role::Named(20), Box::new(Concept::Named(10))),
+        );
+        // `rdfs:domain` — `r(x,y) → A(x)`.
+        kb.push_gci(
+            Concept::Some(Role::Named(20), Box::new(Concept::Top)),
+            Concept::Named(10),
+        );
+        // A nominal guard — `denotes_a(x) → A(x)`.
+        kb.push_gci(Concept::Nominal(vec![30]), Concept::Named(10));
+        // …beside inclusions that MUST be triggered rather than untriggered.
+        kb.push_gci(Concept::Named(11), Concept::Named(10));
+        kb.push_gci(
+            Concept::Some(Role::Named(20), Box::new(Concept::Named(11))),
+            Concept::Named(10),
+        );
+        kb.asymmetric.insert(21);
+        kb.disjoint_roles.insert((20, 21));
+        kb.disjoint_roles.insert((21, 20));
+        kb.finalize().expect("fixture preparation");
+        let clauses = derive(&kb);
+        // Only what nothing can trigger is tried everywhere: `⊤ ⊑ A` and the nominal guard.
+        assert_eq!(
+            clauses.untriggered().len(),
+            2,
+            "the empty body and the nominal guard: {:?}",
+            clauses
+                .untriggered()
+                .iter()
+                .map(|&index| clauses.clause(index, &kb.schema))
+                .collect::<Vec<&DlClause>>()
+        );
+        // The range, the domain and the two role axioms open with a role atom, so each is
+        // reached through an edge over its role, and only through one.
+        let edge_indexed: std::collections::BTreeSet<usize> = [20, 21]
+            .into_iter()
+            .flat_map(|property| [(property, true), (property, false)])
+            .flat_map(|pattern| clauses.edge_triggered(pattern).iter().copied())
+            .collect();
+        assert_eq!(
+            edge_indexed.len(),
+            4,
+            "range, domain, asymmetry, disjointness"
+        );
+        for &index in &edge_indexed {
+            let clause = clauses.clause(index, &kb.schema);
+            assert_eq!(clause.trigger(), None);
+            assert!(clause.first_role().is_some(), "{clause:?}");
+        }
+        assert!(
+            clauses.untriggered().len() < clauses.count(),
+            "the population that scales with the concept table is the TRIGGERED one"
+        );
+    }
+}

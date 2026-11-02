@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+name = "stardf-sparql-conformance"
+description = "Native W3C SPARQL 1.0/1.1/1.2 conformance harness: discovers mf: test manifests, runs stardf-sparql-eval, and compares expected SPARQL Results (SRX/SRJ), DAWG RDF result sets and canonical N-Quads. Federated SERVICE tests resolve through an in-memory RemoteQuerySource (no network)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+# Vendoring law: lib name upstream-verbatim (package renamed, lib unchanged).
+name = "purrdf_sparql_conformance"
+path = "src/lib.rs"
+
+[dependencies]
+# The engine under test + its algebra front-end.
+stardf-sparql-eval = { workspace = true }
+stardf-sparql-algebra = { workspace = true }
+# Native Turtle/TriG/N-Quads loader (parse_dataset) + RDFC-1.0 canonicalization,
+# both native.
+purrdf = { workspace = true }
+stardf-core = { workspace = true }
+# Borrowed structured comparison failures and the existing frozen trace hashes.
+stardf-hash = { workspace = true }
+# The one extension-to-media-type table the data-file loaders filter.
+stardf-gts = { workspace = true }
+# The SEP-0009 composite value space: the lexical-space grader the divergence
+# scan reads (`tests/cdt_lexical_divergence.rs`).
+stardf-cdt = { workspace = true }
+# Hand-rolled SPARQL Results readers for the expected SRX/SRJ files.
+stardf-sparql-results = { workspace = true }
+# Native RDFS/OWL-RL entailment closure for `sd:entailmentRegime` tests.
+stardf-entail = { workspace = true }
+# The W3C vocabulary IRIs the manifests and the RIF and OWL 2 harnesses read.
+stardf-iri = { workspace = true }
+# The workspace root a manifest's sentinel-space file IRIs resolve against
+# (`src/manifest.rs`), and the libtest-compatible runner the `harness = false`
+# `sparql_conformance` target hands its discovered manifests to. This crate is
+# unpublished, so a normal edge to the unpublished test support is allowed.
+stardf-testkit = { workspace = true }
+# The community SHACL runner: the dated-profile engine and shared validate doors
+# under test, and the unpublished kit that owns report and outcome grading.
+stardf-conformance-kit = { workspace = true }
+stardf-shapes = { workspace = true }
+stardf-validate = { workspace = true }
+stardf-lex = { workspace = true }
+
+[dev-dependencies]
+# Runs the deep-structure tests on a stack of a stated size: a fresh thread
+# natively, the running stack under a fresh floor on wasm32.
+stardf-stack = { workspace = true }
+
+[[test]]
+name = "sparql_conformance"
+harness = false
+
+# PURRDF-owned native regression corpus. This deliberately avoids the historical
+# ontology query corpus and does not load generated/dist/purrdf.gts; the broad
+# W3C / extension coverage stays in the manifest-driven `sparql_conformance` test.
+[[test]]
+name = "corpus_conformance"
+harness = true
+
+# The community SHACL corpus under every applicable dated profile.
+[[test]]
+name = "community_conformance"
+harness = true

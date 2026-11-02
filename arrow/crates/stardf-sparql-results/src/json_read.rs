@@ -1,0 +1,2598 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! SPARQL Results **JSON** (SRJ) reader — the inverse of [`crate::json`].
+//!
+//! Parses a W3C SPARQL 1.1 Query Results JSON document
+//! (<https://www.w3.org/TR/sparql11-results-json/>) into a [`ParsedSolutions`]
+//! (for `SELECT`) or a boolean (for `ASK`). This is what SPARQL `SERVICE`
+//! federation uses to ingest a remote endpoint's response, and what
+//! the W3C conformance harness uses to read expected `.srj` results.
+//!
+//! # Wasm discipline
+//!
+//! The JSON grammar is the workspace's one reader, [`purrdf_lex::json`]. The
+//! `SELECT` readers drive its pull [`Reader`] and build each binding row
+//! straight from its events: no JSON tree is built, a string without an escape
+//! is borrowed from the document until it becomes a term, and a member the
+//! reader does not want is checked without being built. The `ASK` and
+//! provenance readers, whose documents are a handful of members, read the tree.
+//! No `std::io`, so the crate stays wasm-clean.
+//!
+//! # Refusals
+//!
+//! [`from_json`] refuses exactly what a reader that first built the whole
+//! tree and then judged its shape would refuse, with the same message: a
+//! document that is not JSON is refused as JSON at its first defect, wherever
+//! a shape refusal sits before it, and among shape refusals the first in the
+//! order the tree would meet them wins — the `boolean` member, then `head`,
+//! its `vars`, `results`, its `bindings`, then the rows in order, each row's
+//! cells in `head.vars` order, and each binding's members in the order the
+//! decoder consults them. The streaming decoder therefore records a shape
+//! refusal, checks the rest of what it is reading, and reports the refusal
+//! only once nothing that outranks it can follow.
+//!
+//! # Nesting depth
+//!
+//! Every walk over input nesting — reading a JSON value, skipping one, and
+//! decoding an RDF 1.2 triple-term binding — runs over an explicit heap stack
+//! rather than the machine stack, and the reader sets no container-depth cap.
+//! A document nested to any depth is therefore parsed (or refused for a syntax
+//! or shape error) with a machine-stack footprint independent of that depth,
+//! which is what keeps a remote `SERVICE` endpoint's deeply nested answer from
+//! overflowing the stack.
+
+use purrdf_lex::allocation::{Admission, Memory, Resident, StorageError};
+use std::borrow::Cow;
+use std::ops::Range;
+
+use purrdf_core::TermBox;
+use purrdf_core::blank_label::{LabelAlphabet, decode_blank_label_with_memory};
+use purrdf_core::{RdfTextDirection, TermValue};
+use purrdf_lex::json::{self, Event, Kind, Limits, Reader, Value};
+
+use crate::error::{Error, ReadReason, ReadRefusal, ReadShape, ReadToken};
+use crate::model::{ProvenanceNamespace, ResultProvenance, SolutionProvenance};
+
+use purrdf_core::datatype::XSD_STRING;
+use purrdf_core::vocab::language_datatype_iri;
+
+/// Dense decoded row and bounded row-prefix result aliases keep the streaming reader's
+/// signatures readable without changing the public model.
+type BindingRow = Vec<Option<TermValue>>;
+type BoundedRows = (Vec<BindingRow>, bool);
+type BoundedRowsResult = Result<BoundedRows, Error>;
+
+/// What a streaming step decoded, or the shape refusal it recorded: the inner
+/// result of a [`Step`].
+type Shaped<T> = Result<T, Error>;
+
+/// A streaming step: the outer error is a JSON refusal, which outranks every
+/// shape refusal and ends the read at once; the inner one is a shape refusal
+/// the step recorded after reading its whole value.
+type Step<T> = Result<Shaped<T>, Error>;
+
+/// A decoded `SELECT` result set: ordered variable names plus dense rows. A
+/// `None` cell is an unbound (absent) binding for that variable in that row.
+///
+/// This is the structural inverse of [`purrdf_core::SparqlResult::Solutions`]
+/// and the shape the SERVICE evaluator interns into a solution sequence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedSolutions {
+    /// The result variables, in `head.vars` order.
+    pub variables: Vec<String>,
+    /// One row per binding; `rows[i][j]` is the value of `variables[j]`.
+    pub rows: Vec<Vec<Option<TermValue>>>,
+}
+
+/// A bounded decode result. `truncated` means the document contained at least one binding
+/// beyond the supplied intermediate-cell ceiling; `solutions.rows` is the ordered prefix
+/// that fit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundedParsedSolutions {
+    /// The decoded, cell-bounded solution prefix.
+    pub solutions: ParsedSolutions,
+    /// Whether a further binding was present and deliberately not materialized.
+    pub truncated: bool,
+}
+
+/// Parse a SPARQL Results JSON `SELECT` document into [`ParsedSolutions`].
+///
+/// # Examples
+///
+/// ```
+/// use purrdf_core::TermValue;
+/// use purrdf_sparql_results::from_json;
+///
+/// let doc = br#"{
+///   "head": { "vars": ["s"] },
+///   "results": { "bindings": [
+///     { "s": { "type": "uri", "value": "http://example.org/alice" } }
+///   ] }
+/// }"#;
+///
+/// let parsed = from_json(doc).expect("well-formed SRJ");
+/// assert_eq!(parsed.variables, ["s"]);
+/// assert_eq!(
+///     parsed.rows,
+///     [vec![Some(TermValue::Iri("http://example.org/alice".to_string()))]],
+/// );
+/// ```
+///
+/// # Errors
+///
+/// Returns [`Error::Json`] on malformed JSON, or [`Error::Format`] on a non-object document, an `ASK`
+/// (`boolean`) document (use [`from_json_boolean`]), or a binding object whose
+/// `type`/`value` shape is invalid.
+pub fn from_json(bytes: &[u8]) -> Result<ParsedSolutions, Error> {
+    let mut storage = Resident;
+    let mut memory = Memory::new(&mut storage);
+    let mut reader = Reader::from_slice(bytes, LIMITS)
+        .map_err(|error| syntax_with_memory(error, &mut memory))?;
+    let result = select_document(&mut reader, &mut memory);
+    reader
+        .release_with_memory(&mut memory)
+        .map_err(Error::Storage)?;
+    result?
+}
+
+/// The original result shape refusal or physical producer failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadError {
+    /// JSON syntax or SPARQL result shape, preserving its original native cause.
+    Lexical(Error),
+    /// Original admission, layout or allocator refusal.
+    Storage(StorageError),
+}
+
+impl std::fmt::Display for ReadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Lexical(error) => error.fmt(f),
+            Self::Storage(error) => error.fmt(f),
+        }
+    }
+}
+impl purrdf_hash::error::StructuredError for ReadError {
+    purrdf_hash::error_visit! {
+        Lexical(cause) => "sparql-results-read-lexical" { "cause" => Cause(cause) },
+        Storage(cause) => "sparql-results-read-storage" { "cause" => Cause(cause) },
+    }
+}
+
+purrdf_lex::error_source!(ReadError { Lexical, Storage });
+
+/// Decode the original SELECT producer under caller-owned physical admission.
+/// The caller keeps this original grant with the returned payload or refusal.
+/// `max_cells` selects the existing bounded-prefix law; `None` selects the
+/// full decoder's syntax-before-shape ordering.
+/// # Errors
+/// Returns the original syntax/shape refusal or typed storage failure.
+pub fn from_json_with_memory<S: Admission + ?Sized>(
+    bytes: &[u8], max_cells: Option<u64>, memory: &mut Memory<'_, S>,
+) -> Result<BoundedParsedSolutions, ReadError> {
+    let initial_bytes = memory.admitted_bytes();
+    let result = (|| {
+        if let Some(max_cells) = max_cells {
+            return bounded_document(bytes, max_cells, memory);
+        }
+        let mut reader =
+            Reader::from_slice(bytes, LIMITS).map_err(|error| syntax_with_memory(error, memory))?;
+        let result = select_document(&mut reader, memory);
+        reader.release_with_memory(memory).map_err(Error::Storage)?;
+        result?.map(|solutions| BoundedParsedSolutions {
+            solutions,
+            truncated: false,
+        })
+    })();
+    // On grammar/storage failure no parser-owned output survives this scope.
+    // All local strings, frames and rows have already been destroyed. JSON's
+    // native grammar error and StorageError are inline, so refund the remaining
+    // transient charge while preserving the caller's pre-existing ownership.
+    if matches!(&result, Err(Error::Json(_) | Error::Storage(_))) {
+        let transient = memory
+            .admitted_bytes()
+            .checked_sub(initial_bytes)
+            .ok_or(ReadError::Storage(StorageError::SizeOverflow))?;
+        let refund = memory.release_bytes(transient).map_err(ReadError::Storage);
+        if let Err(Error::Storage(error)) = &result {
+            // Match Memory::release_vec_after: a refusal to shrink keeps the
+            // original grant alive and never replaces the first physical fault.
+            return Err(ReadError::Storage(*error));
+        }
+        refund?;
+    }
+    result.map_err(|error| match error {
+        Error::Storage(error) => ReadError::Storage(error),
+        error => ReadError::Lexical(error),
+    })
+}
+
+/// Parse a SPARQL Results JSON `SELECT` document without materializing more than
+/// `max_cells` cells (`rows * head.vars.len()`).
+///
+/// The document is scanned twice. The first pass reads only `head.vars`; the second decodes
+/// bindings in source order until the inclusive ceiling is full, then structurally skips
+/// the suffix without constructing its JSON tree or owned RDF terms. Two passes over bytes
+/// are cheaper than building an attacker-sized response tree, and retain JSON's
+/// order-independence (`results` may precede `head`).
+///
+/// A zero-column result has zero cells regardless of row count and is therefore decoded in
+/// full. Callers that need to bound unit rows must use a row/answer governor.
+///
+/// # Errors
+///
+/// Returns [`Error::Format`] under the same structural conditions as [`from_json`]. JSON in
+/// the deliberately skipped over-limit suffix is still syntax-validated, but its SPARQL
+/// binding shape is not decoded because the cell governor has already refused that work.
+pub fn from_json_bounded(bytes: &[u8], max_cells: u64) -> Result<BoundedParsedSolutions, Error> {
+    bounded_document(bytes, max_cells, &mut Memory::new(&mut Resident))
+}
+
+fn bounded_document<S: Admission + ?Sized>(
+    bytes: &[u8], max_cells: u64, memory: &mut Memory<'_, S>,
+) -> Result<BoundedParsedSolutions, Error> {
+    let variables = scan_variables(bytes, memory)?;
+    // Zero-column rows carry no cells, so the cells-per-row governor has no
+    // denominator: any row bound derived from `max_cells` would be arbitrary
+    // (a made-up cost per row). The `None` limit is deliberate and pinned by
+    // `bounded_reader_does_not_invent_a_row_bound_for_zero_columns` — empty
+    // rows are zero-width and each entry still pays its own parser admission.
+    let row_limit = if variables.is_empty() {
+        None
+    } else {
+        let width = u64::try_from(variables.len()).unwrap_or(u64::MAX);
+        Some(usize::try_from(max_cells / width).unwrap_or(usize::MAX))
+    };
+    let (rows, truncated) = match scan_bindings(bytes, &variables, row_limit, memory) {
+        Ok(rows) => rows,
+        Err(error) => {
+            release_items(variables, memory, |text, memory| {
+                memory.release_string(text).map_err(Error::Storage)
+            })?;
+            return Err(error);
+        }
+    };
+    Ok(BoundedParsedSolutions {
+        solutions: ParsedSolutions { variables, rows },
+        truncated,
+    })
+}
+
+/// First bounded-decoder pass: locate and decode `head.vars`, skipping every other value
+/// without building a JSON tree.
+fn scan_variables<S: Admission + ?Sized>(
+    bytes: &[u8], memory: &mut Memory<'_, S>,
+) -> Result<Vec<String>, Error> {
+    let mut reader =
+        Reader::from_slice(bytes, LIMITS).map_err(|error| syntax_with_memory(error, memory))?;
+    let result = (|| {
+        open_object(&mut reader, ReadShape::TopObject, memory)?;
+        let mut variables = None;
+        while let Some(key) = next_key(&mut reader, memory)? {
+            if key == "head" && variables.is_none() {
+                variables = Some(head_variables(&mut reader, memory)?);
+            } else {
+                reader
+                    .skip_value_with_memory(memory)
+                    .map_err(|error| syntax_with_memory(error, memory))?;
+            }
+        }
+        reader
+            .finish_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?;
+        variables.ok_or_else(|| fmt_with_memory(ReadShape::Head, memory))
+    })();
+    reader.release_with_memory(memory).map_err(Error::Storage)?;
+    result
+}
+
+/// Second bounded-decoder pass: locate `results.bindings`, materializing only the prefix
+/// admitted by `row_limit`.
+fn scan_bindings<S: Admission + ?Sized>(
+    bytes: &[u8], variables: &[String], row_limit: Option<usize>, memory: &mut Memory<'_, S>,
+) -> BoundedRowsResult {
+    let mut reader =
+        Reader::from_slice(bytes, LIMITS).map_err(|error| syntax_with_memory(error, memory))?;
+    let mut found = None;
+    let result = (|| {
+        open_object(&mut reader, ReadShape::TopObject, memory)?;
+        let mut saw_boolean = false;
+        while let Some(key) = next_key(&mut reader, memory)? {
+            match key {
+                "boolean" => {
+                    saw_boolean = true;
+                    reader
+                        .skip_value_with_memory(memory)
+                        .map_err(|error| syntax_with_memory(error, memory))?;
+                }
+                "results" if found.is_none() => {
+                    found = Some(bounded_results(&mut reader, variables, row_limit, memory)?);
+                }
+                _ => {
+                    reader
+                        .skip_value_with_memory(memory)
+                        .map_err(|error| syntax_with_memory(error, memory))?;
+                }
+            }
+        }
+        reader
+            .finish_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?;
+        if saw_boolean {
+            return Err(fmt_with_memory(ReadShape::Select, memory));
+        }
+        found
+            .take()
+            .ok_or_else(|| fmt_with_memory(ReadShape::Results, memory))
+    })();
+    if let Some((rows, _)) = found {
+        release_items(rows, memory, release_row)?;
+    }
+    reader.release_with_memory(memory).map_err(Error::Storage)?;
+    result
+}
+
+/// Parse a SPARQL Results JSON `ASK` document into its boolean.
+///
+/// # Examples
+///
+/// ```
+/// use purrdf_sparql_results::from_json_boolean;
+///
+/// let verdict = from_json_boolean(br#"{ "head": {}, "boolean": true }"#)
+///     .expect("well-formed ASK document");
+/// assert!(verdict);
+/// ```
+///
+/// # Errors
+///
+/// Returns [`Error::Json`] on malformed JSON, or [`Error::Format`] on a document without a boolean
+/// `boolean` field.
+pub fn from_json_boolean(bytes: &[u8]) -> Result<bool, Error> {
+    let doc = read_document(bytes)?;
+    let obj = doc.as_object().ok_or_else(|| {
+        ReadRefusal::shape(crate::SparqlResultsFormat::Json, ReadShape::TopObject)
+    })?;
+    match obj.get("boolean") {
+        Some(Value::Bool(b)) => Ok(*b),
+        _ => Err(ReadRefusal::shape(
+            crate::SparqlResultsFormat::Json,
+            ReadShape::Boolean,
+        )),
+    }
+}
+
+/// Decode the additive `purrdf` provenance extension a
+/// [`ProvenanceNamespace`]-keyed SRJ document carries, or
+/// [`ResultProvenance::default`] when no such top-level member is present.
+///
+/// This is the inverse of [`crate::json::to_json`]'s additive extension (see
+/// [`crate::model::ProvenanceNamespace`]'s module docs): the writer emits the
+/// member keyed under the caller-supplied namespace's `prefix`, but the KEY
+/// SPELLING is not what identifies the member as this caller's own — a bare
+/// string like `"prov"` has no uniqueness guarantee (the actual W3C PROV
+/// namespace, `http://www.w3.org/ns/prov#`, is commonly bound to exactly that
+/// prefix). Identity is the `"namespace"` field the writer records INSIDE the
+/// member (the JSON twin of the XML writer's `xmlns:{prefix}="{iri}"`
+/// declaration): every top-level object-valued member is scanned, and the
+/// first one whose own `"namespace"` field equals `namespace.iri()` is
+/// decoded — regardless of which key it happens to be spelled under. This
+/// mirrors [`crate::xml_read::provenance_from_xml`]'s namespace-URI match
+/// exactly: a document that writes this caller's IRI under a DIFFERENT
+/// top-level key still decodes correctly, and a document that reuses this
+/// caller's PREFIX spelling for an unrelated namespace is correctly not read
+/// as this caller's extension. A document with no member recording
+/// `namespace.iri()` (never written, or written under a different namespace)
+/// decodes to the empty provenance, exactly like a document nothing ever
+/// populated.
+///
+/// The `queryForm` field is read to VALIDATE the member's shape but is not
+/// itself carried in [`ResultProvenance`] (it is derived from the result kind
+/// on write, not caller data).
+///
+/// # Errors
+///
+/// Returns [`Error::Json`] on malformed JSON, or [`Error::Format`] on a non-object document or a
+/// member recording `namespace.iri()` whose shape does not match the
+/// writer's (`queryForm`/`queryHash`/`engine`/`solutions[].sources[]`, all
+/// strings).
+pub fn provenance_from_json(
+    bytes: &[u8], namespace: &ProvenanceNamespace,
+) -> Result<ResultProvenance, Error> {
+    let doc = read_document(bytes)?;
+    let obj = doc.as_object().ok_or_else(|| {
+        ReadRefusal::shape(crate::SparqlResultsFormat::Json, ReadShape::TopObject)
+    })?;
+    let iri = namespace.iri();
+    let Some(member_obj) = obj.iter().find_map(|(_, value)| {
+        let candidate = value.as_object()?;
+        let recorded = candidate.get("namespace").and_then(Value::as_str)?;
+        (recorded == iri).then_some(candidate)
+    }) else {
+        return Ok(ResultProvenance::default());
+    };
+    let query_hash = member_obj
+        .get("queryHash")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let engine = member_obj
+        .get("engine")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let solutions = match member_obj.get("solutions") {
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                let item_obj = item.as_object().ok_or_else(|| {
+                    ReadRefusal::shape(
+                        crate::SparqlResultsFormat::Json,
+                        ReadShape::ProvenanceSolution,
+                    )
+                })?;
+                let sources = match item_obj.get("sources") {
+                    Some(Value::Array(values)) => values
+                        .iter()
+                        .map(|v| {
+                            v.as_str().map(str::to_owned).ok_or_else(|| {
+                                ReadRefusal::shape(
+                                    crate::SparqlResultsFormat::Json,
+                                    ReadShape::ProvenanceSource,
+                                )
+                            })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                    _ => Vec::new(),
+                };
+                Ok(SolutionProvenance { sources })
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        _ => Vec::new(),
+    };
+    Ok(ResultProvenance {
+        query_hash,
+        engine,
+        solutions,
+    })
+}
+
+/// A `SELECT` document, read to its end: its solutions, or the shape refusal
+/// that outranks every other one it holds.
+///
+/// `head` may follow `results`. When it does, the `bindings` array is checked
+/// where it stands and its span kept, and its rows are decoded once `head.vars`
+/// is known.
+fn select_document<S: Admission + ?Sized>(
+    reader: &mut Reader<'_>, memory: &mut Memory<'_, S>,
+) -> Step<ParsedSolutions> {
+    if reader.peek_kind() != Some(Kind::Object) {
+        reader
+            .check_value_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?;
+        reader
+            .finish_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?;
+        return Ok(Err(fmt_with_memory(ReadShape::TopObject, memory)));
+    }
+    reader
+        .next_event_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?;
+    let mut scratch = RowScratch::default();
+    let mut boolean = false;
+    let mut head: Option<Shaped<Vec<String>>> = None;
+    let mut results: Option<Shaped<Bindings>> = None;
+    let result = (|| {
+        while let Some(key) = next_key(reader, memory)? {
+            match key {
+                "boolean" => {
+                    boolean = true;
+                    reader
+                        .check_value_with_memory(memory)
+                        .map_err(|error| syntax_with_memory(error, memory))?;
+                }
+                "head" if head.is_none() => head = Some(read_head(reader, memory)?),
+                "results" if results.is_none() => {
+                    // Rows are worth decoding only for a document that can still
+                    // be a `SELECT` whose variables are known.
+                    let variables = match &head {
+                        Some(Ok(variables)) if !boolean => Some(variables.as_slice()),
+                        _ => None,
+                    };
+                    results = Some(read_results(reader, variables, &mut scratch, memory)?);
+                }
+                _ => {
+                    reader
+                        .check_value_with_memory(memory)
+                        .map_err(|error| syntax_with_memory(error, memory))?;
+                }
+            }
+        }
+        reader
+            .finish_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?;
+        if boolean {
+            return Ok(Err(fmt_with_memory(ReadShape::Select, memory)));
+        }
+        let variables = match head.as_ref() {
+            Some(Ok(variables)) => variables,
+            Some(Err(_)) => {
+                let Some(Err(refusal)) = head.take() else {
+                    unreachable!("the refused head exists");
+                };
+                return Ok(Err(refusal));
+            }
+            None => return Ok(Err(fmt_with_memory(ReadShape::Head, memory))),
+        };
+        let rows = match results.take() {
+            None => return Ok(Err(fmt_with_memory(ReadShape::Results, memory))),
+            Some(Err(refusal)) => return Ok(Err(refusal)),
+            Some(Ok(Bindings::Decoded(rows))) => rows,
+            Some(Ok(Bindings::Unread(span))) => {
+                let mut rows = Reader::new(&reader.text()[span], LIMITS);
+                let result = binding_rows(&mut rows, variables, &mut scratch, memory);
+                rows.release_with_memory(memory).map_err(Error::Storage)?;
+                result?
+            }
+        };
+        let rows = match rows {
+            Ok(rows) => rows,
+            Err(error) => return Ok(Err(error)),
+        };
+        let variables = head
+            .take()
+            .expect("the projected head exists")
+            .expect("the projected head was checked above");
+        Ok(Ok(ParsedSolutions { variables, rows }))
+    })();
+    if let Some(head) = head {
+        match head {
+            Ok(variables) => release_items(variables, memory, |text, memory| {
+                memory.release_string(text).map_err(Error::Storage)
+            })?,
+            Err(error) => release_error(error, memory)?,
+        }
+    }
+    if let Some(results) = results {
+        match results {
+            Ok(Bindings::Unread(_)) => {}
+            Ok(Bindings::Decoded(Ok(rows))) => release_items(rows, memory, release_row)?,
+            Ok(Bindings::Decoded(Err(error))) | Err(error) => release_error(error, memory)?,
+        }
+    }
+    release_scratch(scratch, memory)?;
+    result
+}
+
+/// The `results.bindings` array as [`select_document`] found it.
+enum Bindings {
+    /// Decoded where it stood: its rows, or its first row's refusal.
+    Decoded(Shaped<Vec<BindingRow>>),
+    /// Checked where it stood, before `head.vars` was known: its span.
+    Unread(Range<usize>),
+}
+
+/// A `head` value: its `vars`, or the refusal it earns.
+fn read_head<S: Admission + ?Sized>(
+    reader: &mut Reader<'_>, memory: &mut Memory<'_, S>,
+) -> Step<Vec<String>> {
+    if reader.peek_kind() != Some(Kind::Object) {
+        reader
+            .check_value_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?;
+        return Ok(Err(fmt_with_memory(ReadShape::Head, memory)));
+    }
+    reader
+        .next_event_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?;
+    let mut variables: Option<Shaped<Vec<String>>> = None;
+    while let Some(key) = next_key(reader, memory)? {
+        if key == "vars" && variables.is_none() && reader.peek_kind() == Some(Kind::Array) {
+            variables = Some(string_items(reader, ReadShape::Variable, memory)?);
+        } else {
+            if key == "vars" && variables.is_none() {
+                // A results doc with no `vars` array is degenerate but valid
+                // (zero columns).
+                variables = Some(Ok(Vec::new()));
+            }
+            reader
+                .check_value_with_memory(memory)
+                .map_err(|error| syntax_with_memory(error, memory))?;
+        }
+    }
+    Ok(variables.unwrap_or_else(|| Ok(Vec::new())))
+}
+
+/// A string-only array: its strings, or `item_error` at its first other item.
+fn string_items<S: Admission + ?Sized>(
+    reader: &mut Reader<'_>, item_error: ReadShape, memory: &mut Memory<'_, S>,
+) -> Step<Vec<String>> {
+    reader
+        .next_event_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?;
+    let mut items = Ok(Vec::new());
+    while reader
+        .next_item()
+        .map_err(|error| syntax_with_memory(error, memory))?
+    {
+        match (&mut items, reader.peek_kind()) {
+            (Ok(strings), Some(Kind::String)) => {
+                let Event::String(item) = reader
+                    .next_event_with_memory(memory)
+                    .map_err(|error| syntax_with_memory(error, memory))?
+                else {
+                    unreachable!("a string begins at the cursor");
+                };
+                let text = owned_text(
+                    item.decode_with_memory(memory)
+                        .map_err(|error| syntax_with_memory(error, memory))?,
+                    memory,
+                )?;
+                memory.push(strings, text).map_err(Error::Storage)?;
+            }
+            (found, _) => {
+                if found.is_ok() {
+                    let previous =
+                        std::mem::replace(found, Err(fmt_with_memory(item_error, memory)));
+                    if let Ok(strings) = previous {
+                        release_items(strings, memory, |text, memory| {
+                            memory.release_string(text).map_err(Error::Storage)
+                        })?;
+                    }
+                }
+                reader
+                    .check_value_with_memory(memory)
+                    .map_err(|error| syntax_with_memory(error, memory))?;
+            }
+        }
+    }
+    Ok(items)
+}
+
+/// A `results` value: its `bindings` array, decoded when `variables` are
+/// known and checked otherwise, or the refusal it earns.
+fn read_results<'a, S: Admission + ?Sized>(
+    reader: &mut Reader<'a>, variables: Option<&[String]>, scratch: &mut RowScratch<'a>,
+    memory: &mut Memory<'_, S>,
+) -> Step<Bindings> {
+    if reader.peek_kind() != Some(Kind::Object) {
+        reader
+            .check_value_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?;
+        return Ok(Err(fmt_with_memory(ReadShape::Results, memory)));
+    }
+    reader
+        .next_event_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?;
+    let mut bindings: Option<Shaped<Bindings>> = None;
+    while let Some(key) = next_key(reader, memory)? {
+        if key != "bindings" || bindings.is_some() {
+            reader
+                .check_value_with_memory(memory)
+                .map_err(|error| syntax_with_memory(error, memory))?;
+            continue;
+        }
+        bindings = Some(if reader.peek_kind() != Some(Kind::Array) {
+            reader
+                .check_value_with_memory(memory)
+                .map_err(|error| syntax_with_memory(error, memory))?;
+            Err(fmt_with_memory(ReadShape::Bindings, memory))
+        } else if let Some(variables) = variables {
+            Ok(Bindings::Decoded(binding_rows(
+                reader, variables, scratch, memory,
+            )?))
+        } else {
+            Ok(Bindings::Unread(
+                reader
+                    .check_value_with_memory(memory)
+                    .map_err(|error| syntax_with_memory(error, memory))?,
+            ))
+        });
+    }
+    Ok(bindings.unwrap_or_else(|| Err(fmt_with_memory(ReadShape::Bindings, memory))))
+}
+
+/// A `bindings` array, the cursor on its `[`: every row, or the first row's
+/// refusal once the rest of the array is checked.
+fn binding_rows<'a, S: Admission + ?Sized>(
+    reader: &mut Reader<'a>, variables: &[String], scratch: &mut RowScratch<'a>,
+    memory: &mut Memory<'_, S>,
+) -> Step<Vec<BindingRow>> {
+    reader
+        .next_event_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?;
+    let mut rows = Vec::new();
+    let mut refusal = None;
+    let result = (|| {
+        while reader
+            .next_item()
+            .map_err(|error| syntax_with_memory(error, memory))?
+        {
+            match binding_row(reader, variables, scratch, memory)? {
+                Ok(row) => memory.push(&mut rows, row).map_err(Error::Storage)?,
+                Err(error) => {
+                    refusal = Some(error);
+                    while reader
+                        .next_item()
+                        .map_err(|error| syntax_with_memory(error, memory))?
+                    {
+                        reader
+                            .check_value_with_memory(memory)
+                            .map_err(|error| syntax_with_memory(error, memory))?;
+                    }
+                    return Ok(Err(refusal.take().expect("the row was refused")));
+                }
+            }
+        }
+        Ok(Ok(std::mem::take(&mut rows)))
+    })();
+    release_items(rows, memory, release_row)?;
+    if let Some(error) = refusal {
+        release_error(error, memory)?;
+    }
+    result
+}
+
+/// Buffers one row decode reuses from the last: the open binding objects and
+/// which variables the row has bound.
+#[derive(Default)]
+struct RowScratch<'a> {
+    open: Vec<Open<'a>>,
+    bound: Vec<bool>,
+}
+
+/// One `results.bindings` entry, the cursor on it: a dense row over
+/// `variables`, or the refusal of the cell of the earliest variable that has
+/// one.
+///
+/// A cell is the FIRST member named after its variable; a later member of the
+/// same name, like every member no variable names, is checked and not decoded.
+/// An unmatched binding key is ignored, not a format refusal: the SPARQL 1.1
+/// Query Results JSON grammar does not constrain binding members to
+/// `head.vars`, so the reader projects onto the declared variables.
+fn binding_row<'a, S: Admission + ?Sized>(
+    reader: &mut Reader<'a>, variables: &[String], scratch: &mut RowScratch<'a>,
+    memory: &mut Memory<'_, S>,
+) -> Step<BindingRow> {
+    if reader.peek_kind() != Some(Kind::Object) {
+        reader
+            .check_value_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?;
+        return Ok(Err(fmt_with_memory(ReadShape::BindingEntry, memory)));
+    }
+    reader
+        .next_event_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?;
+    let mut row = Vec::new();
+    memory
+        .reserve(&mut row, variables.len())
+        .map_err(Error::Storage)?;
+    row.resize_with(variables.len(), || None);
+    scratch.bound.clear();
+    memory
+        .reserve(&mut scratch.bound, variables.len())
+        .map_err(Error::Storage)?;
+    scratch.bound.resize(variables.len(), false);
+    // The refusal of the earliest variable whose cell has one.
+    let mut refusal: Option<(usize, Error)> = None;
+    let result = (|| {
+        while let Some(raw) = reader
+            .next_key_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?
+        {
+            let key = raw
+                .decode_with_memory(memory)
+                .map_err(|error| syntax_with_memory(error, memory))?;
+            let index = variables
+                .iter()
+                .position(|variable| variable == key.as_ref());
+            release_text(key, memory)?;
+            let Some(index) = index else {
+                reader
+                    .check_value_with_memory(memory)
+                    .map_err(|error| syntax_with_memory(error, memory))?;
+                continue;
+            };
+            if scratch.bound[index] {
+                reader
+                    .check_value_with_memory(memory)
+                    .map_err(|error| syntax_with_memory(error, memory))?;
+                continue;
+            }
+            let start = reader.offset();
+            let cell = binding(reader, &mut scratch.open, memory)?;
+            let end = reader.offset();
+            // Move the original cell to its first column. Repeated head names use
+            // the same binding producer over the source span, admitting each actual
+            // copy before birth rather than cloning an unpriced term tree.
+            for column in index..variables.len() {
+                if variables[column] == variables[index] {
+                    scratch.bound[column] = true;
+                    if column != index && cell.is_ok() {
+                        let mut duplicate = Reader::new(&reader.text()[start..end], LIMITS);
+                        let decoded = binding(&mut duplicate, &mut scratch.open, memory);
+                        duplicate
+                            .release_with_memory(memory)
+                            .map_err(Error::Storage)?;
+                        row[column] = Some(decoded??);
+                    }
+                }
+            }
+            match cell {
+                Err(error)
+                    if refusal
+                        .as_ref()
+                        .is_none_or(|(earliest, _)| index < *earliest) =>
+                {
+                    if let Some((_, previous)) = refusal.take() {
+                        release_error(previous, memory)?;
+                    }
+                    refusal = Some((index, error));
+                }
+                Ok(term) => row[index] = Some(term),
+                Err(error) => release_error(error, memory)?,
+            }
+        }
+        Ok(match refusal.take() {
+            Some((_, error)) => Err(error),
+            None => Ok(std::mem::take(&mut row)),
+        })
+    })();
+    release_row(row, memory)?;
+    if let Some((_, error)) = refusal {
+        release_error(error, memory)?;
+    }
+    result
+}
+
+/// A binding object or a triple term's `value` object, open and being read.
+enum Open<'a> {
+    Binding(Box<BindingFields<'a>>),
+    Triple(Box<TripleParts>),
+}
+
+/// The members of a binding object that decide its term: the FIRST member of
+/// each name, `None` when it has none.
+#[derive(Default)]
+struct BindingFields<'a> {
+    kind: Option<Member<'a>>,
+    value: Option<BindingValue<'a>>,
+    language: Option<Member<'a>>,
+    its_dir: Option<Member<'a>>,
+    dir: Option<Member<'a>>,
+    datatype: Option<Member<'a>>,
+}
+
+/// A binding object's member whose value is a string when it is well formed.
+enum Member<'a> {
+    /// The string.
+    String(Cow<'a, str>),
+    /// A value of another kind.
+    Other,
+}
+
+impl<'a> Member<'a> {
+    /// The string, when the member holds one.
+    fn text(member: Option<Self>) -> Option<Cow<'a, str>> {
+        match member {
+            Some(Self::String(text)) => Some(text),
+            Some(Self::Other) | None => None,
+        }
+    }
+}
+
+/// A binding object's `value` member.
+enum BindingValue<'a> {
+    /// A string: an IRI, a label or a lexical form.
+    String(Cow<'a, str>),
+    /// An object, read as a triple term's components whatever the binding's
+    /// `type` turns out to be; only a `triple` binding consults them.
+    Triple(Box<TripleParts>),
+    /// Anything else.
+    Other,
+}
+
+/// A triple term's components: the FIRST `subject`, `predicate` and `object`
+/// member, each decoded or refused, and the one being read.
+#[derive(Default)]
+struct TripleParts {
+    subject: Option<Shaped<TermValue>>,
+    predicate: Option<Shaped<TermValue>>,
+    object: Option<Shaped<TermValue>>,
+    reading: Option<Component>,
+}
+
+/// A triple term's component.
+#[derive(Clone, Copy)]
+enum Component {
+    Subject,
+    Predicate,
+    Object,
+}
+
+impl TripleParts {
+    fn slot(&mut self, component: Component) -> &mut Option<Shaped<TermValue>> {
+        match component {
+            Component::Subject => &mut self.subject,
+            Component::Predicate => &mut self.predicate,
+            Component::Object => &mut self.object,
+        }
+    }
+
+    /// The triple term, or the refusal a decoder descending into `subject`,
+    /// `predicate` and `object` in that order meets first; the predicate is
+    /// held to be an IRI once its object has been decoded.
+    fn finish<S: Admission + ?Sized>(&mut self, memory: &mut Memory<'_, S>) -> Shaped<TermValue> {
+        // Leave successful components in their original slots until all three
+        // are present. The caller releases those slots after a shape refusal.
+        for (component, shape) in [
+            (Component::Subject, ReadShape::Subject),
+            (Component::Predicate, ReadShape::Predicate),
+            (Component::Object, ReadShape::Object),
+        ] {
+            let slot = self.slot(component);
+            match slot.as_ref() {
+                None => return Err(fmt_with_memory(shape, memory)),
+                Some(Err(_)) => return slot.take().expect("the refused component exists"),
+                Some(Ok(_)) => {}
+            }
+        }
+        let s = self.subject.take().expect("the subject exists")?;
+        let p = self.predicate.take().expect("the predicate exists")?;
+        let o = self.object.take().expect("the object exists")?;
+        if !matches!(p, TermValue::Iri(_)) {
+            release_term(s, memory)?;
+            release_term(o, memory)?;
+            return Err(Error::Format(ReadRefusal {
+                format: crate::SparqlResultsFormat::Json,
+                reason: ReadReason::Predicate(p),
+            }));
+        }
+        Ok(TermValue::Triple {
+            s: TermBox::try_new(s, memory).map_err(Error::Storage)?,
+            p: TermBox::try_new(p, memory).map_err(Error::Storage)?,
+            o: TermBox::try_new(o, memory).map_err(Error::Storage)?,
+        })
+    }
+}
+
+impl BindingFields<'_> {
+    /// The term the binding object denotes, or its refusal.
+    fn finish<S: Admission + ?Sized>(&mut self, memory: &mut Memory<'_, S>) -> Shaped<TermValue> {
+        let Some(kind) = Member::text(self.kind.take()) else {
+            return Err(fmt_with_memory(ReadShape::BindingType, memory));
+        };
+        let result = (|| match kind.as_ref() {
+            "uri" => Ok(TermValue::Iri(binding_text(self.value.take(), memory)?)),
+            "bnode" => {
+                // A bnode value is the writer's encoded blank-label token;
+                // unwrap the envelope back into (label, scope). The decode is
+                // total — tokens outside the envelope grammar stay verbatim
+                // at BlankScope::DEFAULT.
+                let token = binding_text(self.value.take(), memory)?;
+                let (label, scope) =
+                    decode_blank_label_with_memory(&token, LabelAlphabet::BlankNodeLabel, memory)
+                        .map_err(Error::Storage)?;
+                let label = match label {
+                    Cow::Borrowed(borrowed) => owned_text(Cow::Borrowed(borrowed), memory)?,
+                    Cow::Owned(owned) => owned,
+                };
+                Ok(TermValue::Blank { label, scope })
+            }
+            "literal" | "typed-literal" => {
+                let lexical_form = binding_text(self.value.take(), memory)?;
+                let language = Member::text(self.language.take());
+                if let Some(lang) = language.as_deref()
+                    && let Some(error) = crate::error::language_tag_refusal(lang)
+                {
+                    let language = owned_text(
+                        language.expect("the refused language member exists"),
+                        memory,
+                    )?;
+                    memory
+                        .release_string(lexical_form)
+                        .map_err(Error::Storage)?;
+                    return Err(Error::LanguageTag {
+                        format: "SPARQL-JSON",
+                        language,
+                        cause: error,
+                    });
+                }
+                let direction_token = Member::text(self.its_dir.take().or_else(|| self.dir.take()));
+                let direction = match direction_token.as_deref() {
+                    Some(token) => {
+                        let Some(direction) = RdfTextDirection::from_str_token(token) else {
+                            let error = ReadRefusal::token(
+                                crate::SparqlResultsFormat::Json,
+                                ReadToken::Direction,
+                                token,
+                                memory,
+                            );
+                            memory
+                                .release_string(lexical_form)
+                                .map_err(Error::Storage)?;
+                            if let Some(language) = language {
+                                release_text(language, memory)?;
+                            }
+                            if let Some(token) = direction_token {
+                                release_text(token, memory)?;
+                            }
+                            return Err(error);
+                        };
+                        Some(direction)
+                    }
+                    None => None,
+                };
+                if let Some(token) = direction_token {
+                    release_text(token, memory)?;
+                }
+                let datatype = Member::text(self.datatype.take());
+                let datatype = match datatype {
+                    Some(value) => owned_text(value, memory)?,
+                    None => {
+                        resolve_datatype(None, language.is_some(), direction.is_some(), memory)?
+                    }
+                };
+                Ok(TermValue::Literal {
+                    lexical_form,
+                    datatype,
+                    language: language.map(|lang| owned_text(lang, memory)).transpose()?,
+                    direction,
+                })
+            }
+            "triple" => match self.value.take() {
+                Some(BindingValue::Triple(mut parts)) => {
+                    let term = parts.finish(memory);
+                    release_parts(*parts, memory)?;
+                    memory
+                        .release_bytes(size_of::<TripleParts>())
+                        .map_err(Error::Storage)?;
+                    term
+                }
+                value => {
+                    if let Some(value) = value {
+                        release_binding_value(value, memory)?;
+                    }
+                    Err(fmt_with_memory(ReadShape::TripleValue, memory))
+                }
+            },
+            other => Err(ReadRefusal::token(
+                crate::SparqlResultsFormat::Json,
+                ReadToken::BindingType,
+                other,
+                memory,
+            )),
+        })();
+        release_text(kind, memory)?;
+        result
+    }
+}
+
+/// A member's value, the cursor on it: the string it holds, or
+/// [`Member::Other`] once a value of another kind has been checked.
+fn string_member<'a, S: Admission + ?Sized>(
+    reader: &mut Reader<'a>, memory: &mut Memory<'_, S>,
+) -> Result<Member<'a>, Error> {
+    if reader.peek_kind() == Some(Kind::String) {
+        let Event::String(text) = reader
+            .next_event_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?
+        else {
+            unreachable!("a string begins at the cursor");
+        };
+        return text
+            .decode_with_memory(memory)
+            .map(Member::String)
+            .map_err(|error| syntax_with_memory(error, memory));
+    }
+    reader
+        .check_value_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?;
+    Ok(Member::Other)
+}
+
+/// One SPARQL-JSON binding object, the cursor on it: its [`TermValue`], or its
+/// refusal once the whole value has been read.
+///
+/// An RDF 1.2 triple term nests further binding objects under its `subject`,
+/// `predicate` and `object` members to any depth. They are read over `open`, a
+/// heap stack of the binding and component objects being read, so the machine
+/// stack used does not grow with the nesting depth. A binding's members may
+/// come in any order, so each object is read whole before it is judged: a
+/// `value` object is read as a triple term's components before the `type` that
+/// says whether it is one may have been seen.
+fn binding<'a, S: Admission + ?Sized>(
+    reader: &mut Reader<'a>, open: &mut Vec<Open<'a>>, memory: &mut Memory<'_, S>,
+) -> Step<TermValue> {
+    open.clear();
+    if reader.peek_kind() != Some(Kind::Object) {
+        reader
+            .check_value_with_memory(memory)
+            .map_err(|error| syntax_with_memory(error, memory))?;
+        return Ok(Err(fmt_with_memory(ReadShape::BindingObject, memory)));
+    }
+    reader
+        .next_event_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?;
+    memory.reserve_for_push(open).map_err(Error::Storage)?;
+    let fields = memory
+        .boxed(BindingFields::default())
+        .map_err(Error::Storage)?;
+    open.push(Open::Binding(fields));
+    loop {
+        let Some(key) = next_key(reader, memory)? else {
+            // The innermost object is complete: hand it to the one enclosing
+            // it, or it is the binding.
+            match open.pop().expect("an object is open") {
+                Open::Binding(mut fields) => {
+                    let term = fields.finish(memory);
+                    release_fields(&mut fields, memory)?;
+                    drop(fields);
+                    memory
+                        .release_bytes(size_of::<BindingFields<'_>>())
+                        .map_err(Error::Storage)?;
+                    match open.last_mut() {
+                        None => return Ok(term),
+                        Some(Open::Triple(parts)) => {
+                            let component = parts.reading.take().expect("a component was open");
+                            *parts.slot(component) = Some(term);
+                        }
+                        Some(Open::Binding(_)) => {
+                            unreachable!("a binding object opens only in a triple term's component")
+                        }
+                    }
+                }
+                Open::Triple(parts) => match open.last_mut() {
+                    Some(Open::Binding(fields)) => fields.value = Some(BindingValue::Triple(parts)),
+                    _ => unreachable!("a component object opens only as a binding's value"),
+                },
+            }
+            continue;
+        };
+        match open.last_mut().expect("an object is open") {
+            Open::Binding(fields) => {
+                let slot = match key {
+                    "type" => &mut fields.kind,
+                    "xml:lang" => &mut fields.language,
+                    "its:dir" => &mut fields.its_dir,
+                    "dir" => &mut fields.dir,
+                    "datatype" => &mut fields.datatype,
+                    "value" if fields.value.is_none() => {
+                        fields.value = Some(match reader.peek_kind() {
+                            Some(Kind::Object) => {
+                                reader
+                                    .next_event_with_memory(memory)
+                                    .map_err(|error| syntax_with_memory(error, memory))?;
+                                memory.reserve_for_push(open).map_err(Error::Storage)?;
+                                let parts = memory
+                                    .boxed(TripleParts::default())
+                                    .map_err(Error::Storage)?;
+                                open.push(Open::Triple(parts));
+                                continue;
+                            }
+                            Some(Kind::String) => match string_member(reader, memory)? {
+                                Member::String(text) => BindingValue::String(text),
+                                Member::Other => unreachable!("a string begins at the cursor"),
+                            },
+                            _ => {
+                                reader
+                                    .check_value_with_memory(memory)
+                                    .map_err(|error| syntax_with_memory(error, memory))?;
+                                BindingValue::Other
+                            }
+                        });
+                        continue;
+                    }
+                    _ => {
+                        reader
+                            .check_value_with_memory(memory)
+                            .map_err(|error| syntax_with_memory(error, memory))?;
+                        continue;
+                    }
+                };
+                if slot.is_some() {
+                    reader
+                        .check_value_with_memory(memory)
+                        .map_err(|error| syntax_with_memory(error, memory))?;
+                } else {
+                    *slot = Some(string_member(reader, memory)?);
+                }
+            }
+            Open::Triple(parts) => {
+                let component = match key {
+                    "subject" => Component::Subject,
+                    "predicate" => Component::Predicate,
+                    "object" => Component::Object,
+                    _ => {
+                        reader
+                            .check_value_with_memory(memory)
+                            .map_err(|error| syntax_with_memory(error, memory))?;
+                        continue;
+                    }
+                };
+                if parts.slot(component).is_some() {
+                    reader
+                        .check_value_with_memory(memory)
+                        .map_err(|error| syntax_with_memory(error, memory))?;
+                } else if reader.peek_kind() == Some(Kind::Object) {
+                    reader
+                        .next_event_with_memory(memory)
+                        .map_err(|error| syntax_with_memory(error, memory))?;
+                    parts.reading = Some(component);
+                    memory.reserve_for_push(open).map_err(Error::Storage)?;
+                    let fields = memory
+                        .boxed(BindingFields::default())
+                        .map_err(Error::Storage)?;
+                    open.push(Open::Binding(fields));
+                } else {
+                    reader
+                        .check_value_with_memory(memory)
+                        .map_err(|error| syntax_with_memory(error, memory))?;
+                    *parts.slot(component) =
+                        Some(Err(fmt_with_memory(ReadShape::BindingObject, memory)));
+                }
+            }
+        }
+    }
+}
+
+/// Resolve a literal's datatype: an explicit `datatype` wins; otherwise a
+/// language-tagged literal is `rdf:langString` (or `rdf:dirLangString` with a
+/// base direction), and a plain literal is `xsd:string`.
+fn resolve_datatype<S: Admission + ?Sized>(
+    datatype: Option<&str>, has_lang: bool, has_dir: bool, memory: &mut Memory<'_, S>,
+) -> Result<String, Error> {
+    memory
+        .string(match datatype {
+            Some(dt) => dt,
+            None if has_lang => language_datatype_iri(has_dir),
+            None => XSD_STRING,
+        })
+        .map_err(Error::Storage)
+}
+
+fn owned_text<S: Admission + ?Sized>(
+    text: Cow<'_, str>, memory: &mut Memory<'_, S>,
+) -> Result<String, Error> {
+    match text {
+        Cow::Borrowed(text) => memory.string(text).map_err(Error::Storage),
+        Cow::Owned(text) => Ok(text),
+    }
+}
+
+fn release_text<S: Admission + ?Sized>(
+    text: Cow<'_, str>, memory: &mut Memory<'_, S>,
+) -> Result<(), Error> {
+    match text {
+        Cow::Borrowed(_) => Ok(()),
+        Cow::Owned(text) => memory.release_string(text).map_err(Error::Storage),
+    }
+}
+
+fn binding_text<S: Admission + ?Sized>(
+    value: Option<BindingValue<'_>>, memory: &mut Memory<'_, S>,
+) -> Result<String, Error> {
+    match value {
+        Some(BindingValue::String(text)) => owned_text(text, memory),
+        value => {
+            if let Some(value) = value {
+                release_binding_value(value, memory)?;
+            }
+            Err(fmt_with_memory(ReadShape::BindingValue, memory))
+        }
+    }
+}
+
+fn release_error<S: Admission + ?Sized>(
+    error: Error, memory: &mut Memory<'_, S>,
+) -> Result<(), Error> {
+    match error {
+        Error::Format(ReadRefusal { format: _, reason }) => match reason {
+            ReadReason::Shape(_) => Ok(()),
+            ReadReason::Token { token, .. } => memory.release_string(token).map_err(Error::Storage),
+            ReadReason::Predicate(term) => release_term(term, memory),
+        },
+        Error::LanguageTag { language, .. } => {
+            memory.release_string(language).map_err(Error::Storage)
+        }
+        // A write failure belongs to its original destination owner. The JSON
+        // reader creates no destination payload under this parsing account.
+        Error::Storage(_)
+        | Error::Write { .. }
+        | Error::Json(_)
+        | Error::XmlCharacter(_)
+        | Error::XmlSyntax { .. }
+        | Error::Utf8 { .. }
+        | Error::InvalidNamespace(_)
+        | Error::MalformedTerm(_)
+        | Error::UnsupportedResult { .. }
+        | Error::TsvHeader { .. } => Ok(()),
+    }
+}
+
+/// Release an original parser vector and each independently admitted payload.
+fn release_items<T, S: Admission + ?Sized>(
+    mut items: Vec<T>, memory: &mut Memory<'_, S>,
+    mut release: impl FnMut(T, &mut Memory<'_, S>) -> Result<(), Error>,
+) -> Result<(), Error> {
+    // Keep the original allocation for Memory::release_vec to destroy and refund.
+    // IntoIter would consume it before that capacity-accounting boundary.
+    #[allow(clippy::iter_with_drain)]
+    for item in items.drain(..).rev() {
+        release(item, memory)?;
+    }
+    memory.release_vec(items).map_err(Error::Storage)
+}
+
+fn release_row<S: Admission + ?Sized>(
+    row: BindingRow, memory: &mut Memory<'_, S>,
+) -> Result<(), Error> {
+    release_items(row, memory, |term, memory| match term {
+        Some(term) => release_term(term, memory),
+        None => Ok(()),
+    })
+}
+
+fn release_term<S: Admission + ?Sized>(
+    term: TermValue, memory: &mut Memory<'_, S>,
+) -> Result<(), Error> {
+    term.release_with_memory(memory).map_err(Error::Storage)
+}
+
+fn release_parts<S: Admission + ?Sized>(
+    parts: TripleParts, memory: &mut Memory<'_, S>,
+) -> Result<(), Error> {
+    for term in [parts.subject, parts.predicate, parts.object]
+        .into_iter()
+        .flatten()
+    {
+        match term {
+            Ok(term) => release_term(term, memory)?,
+            Err(error) => release_error(error, memory)?,
+        }
+    }
+    Ok(())
+}
+
+fn release_binding_value<S: Admission + ?Sized>(
+    value: BindingValue<'_>, memory: &mut Memory<'_, S>,
+) -> Result<(), Error> {
+    match value {
+        BindingValue::String(text) => release_text(text, memory),
+        BindingValue::Triple(parts) => {
+            release_parts(*parts, memory)?;
+            memory
+                .release_bytes(size_of::<TripleParts>())
+                .map_err(Error::Storage)
+        }
+        BindingValue::Other => Ok(()),
+    }
+}
+
+fn release_fields<S: Admission + ?Sized>(
+    fields: &mut BindingFields<'_>, memory: &mut Memory<'_, S>,
+) -> Result<(), Error> {
+    for member in [
+        fields.kind.take(),
+        fields.language.take(),
+        fields.its_dir.take(),
+        fields.dir.take(),
+        fields.datatype.take(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Member::String(text) = member {
+            release_text(text, memory)?;
+        }
+    }
+    if let Some(value) = fields.value.take() {
+        release_binding_value(value, memory)?;
+    }
+    Ok(())
+}
+
+fn release_scratch<S: Admission + ?Sized>(
+    mut scratch: RowScratch<'_>, memory: &mut Memory<'_, S>,
+) -> Result<(), Error> {
+    while let Some(open) = scratch.open.pop() {
+        match open {
+            Open::Binding(mut fields) => {
+                release_fields(&mut fields, memory)?;
+                drop(fields);
+                memory
+                    .release_bytes(size_of::<BindingFields<'_>>())
+                    .map_err(Error::Storage)?;
+            }
+            Open::Triple(parts) => {
+                release_parts(*parts, memory)?;
+                memory
+                    .release_bytes(size_of::<TripleParts>())
+                    .map_err(Error::Storage)?;
+            }
+        }
+    }
+    memory.release_vec(scratch.open).map_err(Error::Storage)?;
+    memory.release_vec(scratch.bound).map_err(Error::Storage)
+}
+
+/// Report a native shape; it has no heap payload to admit or render.
+fn fmt_with_memory<S: Admission + ?Sized>(shape: ReadShape, _memory: &mut Memory<'_, S>) -> Error {
+    ReadRefusal::shape(crate::SparqlResultsFormat::Json, shape)
+}
+
+fn syntax_with_memory<S: Admission + ?Sized>(
+    error: json::Error, _memory: &mut Memory<'_, S>,
+) -> Error {
+    match error.kind() {
+        json::ErrorKind::Storage(storage)
+        | json::ErrorKind::Escape(purrdf_lex::json_escape::JsonEscapeErrorKind::Storage(storage)) => {
+            Error::Storage(storage)
+        }
+        _ => Error::Json(error),
+    }
+}
+
+fn syntax(error: json::Error) -> Error {
+    syntax_with_memory(error, &mut Memory::new(&mut Resident))
+}
+
+/// The reader's bounds: no container-depth cap. Every walk over the document —
+/// the reader's own, the tree's drop, [`binding`] — runs over a heap stack, so
+/// nesting costs memory proportional to the input and never machine stack, and
+/// a triple term may nest as deep as the endpoint wrote it.
+const LIMITS: Limits = Limits::with_depth(usize::MAX);
+
+/// The whole document as a JSON tree.
+fn read_document(bytes: &[u8]) -> Result<Value, Error> {
+    json::read_slice(bytes, LIMITS).map_err(syntax)
+}
+
+/// Read the next value, requiring it to open an object; `message` otherwise.
+fn open_object<S: Admission + ?Sized>(
+    reader: &mut Reader<'_>, message: ReadShape, memory: &mut Memory<'_, S>,
+) -> Result<(), Error> {
+    match reader
+        .next_event_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?
+    {
+        Event::BeginObject { .. } => Ok(()),
+        _ => Err(fmt_with_memory(message, memory)),
+    }
+}
+
+/// Read the next value, requiring it to open an array; `message` otherwise.
+fn open_array<S: Admission + ?Sized>(
+    reader: &mut Reader<'_>, message: ReadShape, memory: &mut Memory<'_, S>,
+) -> Result<(), Error> {
+    match reader
+        .next_event_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?
+    {
+        Event::BeginArray { .. } => Ok(()),
+        _ => Err(fmt_with_memory(message, memory)),
+    }
+}
+
+/// The next member name of the open object, decoded, or `None` at its `}`.
+fn next_key<S: Admission + ?Sized>(
+    reader: &mut Reader<'_>, memory: &mut Memory<'_, S>,
+) -> Result<Option<&'static str>, Error> {
+    let Some(raw) = reader
+        .next_key_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?
+    else {
+        return Ok(None);
+    };
+    let key = raw
+        .decode_with_memory(memory)
+        .map_err(|error| syntax_with_memory(error, memory))?;
+    let identity = match key.as_ref() {
+        "boolean" => "boolean",
+        "head" => "head",
+        "vars" => "vars",
+        "results" => "results",
+        "bindings" => "bindings",
+        "type" => "type",
+        "xml:lang" => "xml:lang",
+        "its:dir" => "its:dir",
+        "dir" => "dir",
+        "datatype" => "datatype",
+        "value" => "value",
+        "subject" => "subject",
+        "predicate" => "predicate",
+        "object" => "object",
+        _ => "",
+    };
+    release_text(key, memory)?;
+    Ok(Some(identity))
+}
+
+/// Decode the first `vars` array in a `head` object, skipping other fields.
+fn head_variables<S: Admission + ?Sized>(
+    reader: &mut Reader<'_>, memory: &mut Memory<'_, S>,
+) -> Result<Vec<String>, Error> {
+    open_object(reader, ReadShape::Head, memory)?;
+    let mut variables = None;
+    while let Some(key) = next_key(reader, memory)? {
+        if key == "vars" && variables.is_none() && reader.peek_kind() == Some(Kind::Array) {
+            variables = Some(string_array(reader, ReadShape::Variable, memory)?);
+        } else {
+            reader
+                .skip_value_with_memory(memory)
+                .map_err(|error| syntax_with_memory(error, memory))?;
+        }
+    }
+    Ok(variables.unwrap_or_default())
+}
+
+/// Read a string-only JSON array.
+fn string_array<S: Admission + ?Sized>(
+    reader: &mut Reader<'_>, item_error: ReadShape, memory: &mut Memory<'_, S>,
+) -> Result<Vec<String>, Error> {
+    open_array(reader, ReadShape::Array, memory)?;
+    let mut items = Vec::new();
+    let result = (|| {
+        while reader
+            .next_item()
+            .map_err(|error| syntax_with_memory(error, memory))?
+        {
+            match reader
+                .next_event_with_memory(memory)
+                .map_err(|error| syntax_with_memory(error, memory))?
+            {
+                Event::String(item) => {
+                    let decoded = item
+                        .decode_with_memory(memory)
+                        .map_err(|error| syntax_with_memory(error, memory))?;
+                    let text = owned_text(decoded, memory)?;
+                    memory.push(&mut items, text).map_err(Error::Storage)?;
+                }
+                _ => return Err(fmt_with_memory(item_error, memory)),
+            }
+        }
+        Ok(std::mem::take(&mut items))
+    })();
+    release_items(items, memory, |text, memory| {
+        memory.release_string(text).map_err(Error::Storage)
+    })?;
+    result
+}
+
+/// Read the first `bindings` array in a `results` object through a bounded sink.
+fn bounded_results<S: Admission + ?Sized>(
+    reader: &mut Reader<'_>, variables: &[String], row_limit: Option<usize>,
+    memory: &mut Memory<'_, S>,
+) -> BoundedRowsResult {
+    open_object(reader, ReadShape::Results, memory)?;
+    let mut result = None;
+    while let Some(key) = next_key(reader, memory)? {
+        if key == "bindings" && result.is_none() {
+            result = Some(bounded_binding_array(reader, variables, row_limit, memory)?);
+        } else {
+            reader
+                .skip_value_with_memory(memory)
+                .map_err(|error| syntax_with_memory(error, memory))?;
+        }
+    }
+    result.ok_or_else(|| fmt_with_memory(ReadShape::Bindings, memory))
+}
+
+/// Decode the prefix of a bindings array that fits `row_limit`, then syntax-scan the
+/// suffix without constructing its tree.
+fn bounded_binding_array<S: Admission + ?Sized>(
+    reader: &mut Reader<'_>, variables: &[String], row_limit: Option<usize>,
+    memory: &mut Memory<'_, S>,
+) -> BoundedRowsResult {
+    open_array(reader, ReadShape::Bindings, memory)?;
+    let mut rows = Vec::new();
+    let mut truncated = false;
+    let mut scratch = RowScratch::default();
+    let result = (|| {
+        while reader
+            .next_item()
+            .map_err(|error| syntax_with_memory(error, memory))?
+        {
+            if row_limit.is_none_or(|limit| rows.len() < limit) {
+                let row = binding_row(reader, variables, &mut scratch, memory)??;
+                memory.push(&mut rows, row).map_err(Error::Storage)?;
+            } else {
+                truncated = true;
+                reader
+                    .skip_value_with_memory(memory)
+                    .map_err(|error| syntax_with_memory(error, memory))?;
+            }
+        }
+        Ok((std::mem::take(&mut rows), truncated))
+    })();
+    release_items(rows, memory, release_row)?;
+    release_scratch(scratch, memory)?;
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::json::to_json;
+    use purrdf_core::BlankScope;
+    use purrdf_core::SparqlResult;
+    use purrdf_core::TermBox;
+    use purrdf_core::vocab::rdf::{
+        DIR_LANG_STRING as RDF_DIR_LANGSTRING, LANG_STRING as RDF_LANGSTRING,
+    };
+
+    /// A `SELECT` document binding `?x` to a literal whose `value` member is
+    /// the JSON string `string` (quotes included, escapes as written).
+    fn literal_document(string: &[u8]) -> Vec<u8> {
+        let mut document =
+            br#"{"head":{"vars":["x"]},"results":{"bindings":[{"x":{"type":"literal","value":"#
+                .to_vec();
+        document.extend_from_slice(string);
+        document.extend_from_slice(b"}}]}}");
+        document
+    }
+
+    /// The lexical form `from_json` reads for [`literal_document`].
+    fn literal_value(string: &[u8]) -> Result<String, Error> {
+        let parsed = from_json(&literal_document(string))?;
+        let Some(TermValue::Literal { lexical_form, .. }) = parsed.rows[0][0].clone() else {
+            panic!("expected a literal");
+        };
+        Ok(lexical_form)
+    }
+
+    /// A raw C0 control inside a JSON string is refused (RFC 8259 §7), both in a
+    /// value that is decoded and in one that is only skipped.
+    #[test]
+    fn a_raw_control_character_in_a_string_is_refused() {
+        for raw in [0x01_u8, b'\t', b'\n', 0x1F] {
+            let mut string = b"\"a".to_vec();
+            string.push(raw);
+            string.extend_from_slice(b"b\"");
+            let error = literal_value(&string).expect_err("a raw control is refused");
+            assert!(
+                matches!(&error, Error::Json(cause)
+                    if cause.kind() == json::ErrorKind::RawControl),
+                "{raw:#04X}: {error:?}"
+            );
+            assert!(
+                from_json_bounded(&literal_document(&string), u64::MAX).is_err(),
+                "{raw:#04X}"
+            );
+            // And in a member the reader only skips.
+            let mut skipped = br#"{"head":{"vars":[],"note":"a"#.to_vec();
+            skipped.push(raw);
+            skipped.extend_from_slice(br#"b"},"boolean":true}"#);
+            assert!(from_json_boolean(&skipped).is_err(), "{raw:#04X}");
+            assert!(from_json_bounded(&skipped, u64::MAX).is_err(), "{raw:#04X}");
+        }
+    }
+
+    /// The valid neighbours: the same scalars written as escapes parse, and DEL
+    /// (not a C0 control) is lawful raw.
+    #[test]
+    fn an_escaped_control_character_still_parses() {
+        assert_eq!(
+            literal_value(br#""a\u0001b""#).expect("escaped U+0001"),
+            "a\u{1}b"
+        );
+        assert_eq!(
+            literal_value(br#""a\tb\nc\u001f""#).expect("escaped controls"),
+            "a\tb\nc\u{1f}"
+        );
+        assert_eq!(literal_value(b"\"a\x7fb\"").expect("raw DEL"), "a\u{7f}b");
+        let skipped = br#"{"head":{"vars":[],"note":"a\u0001b"},"boolean":true}"#;
+        assert!(from_json_boolean(skipped).expect("an escaped control in a skipped member"));
+    }
+
+    /// Strings decode across escapes, raw multibyte UTF-8 and surrogate pairs,
+    /// in the tree reader and the bounded reader alike.
+    #[test]
+    fn strings_decode_escapes_and_multibyte_text() {
+        let cases: [(&[u8], &str); 8] = [
+            (b"\"\"", ""),
+            (b"\"plain ascii\"", "plain ascii"),
+            (b"\"a\\\"b\"", "a\"b"),
+            (
+                b"\"tab\\tnl\\ncr\\r\\\\ \\/ \\b\\f\"",
+                "tab\tnl\ncr\r\\ / \u{8}\u{c}",
+            ),
+            (b"\"\\u00e9\\ud83d\\udc31\"", "\u{e9}\u{1f431}"),
+            (
+                "\"caf\u{e9} \u{4e2d}\u{6587} \u{1f431}\"".as_bytes(),
+                "caf\u{e9} \u{4e2d}\u{6587} \u{1f431}",
+            ),
+            (
+                "\"ascii \u{e9} \\\" more \\u0041 \u{1f431}\\n tail\"".as_bytes(),
+                "ascii \u{e9} \" more A \u{1f431}\n tail",
+            ),
+            (b"\"raw\\u0001control\"", "raw\u{1}control"),
+        ];
+        for (string, expected) in cases {
+            assert_eq!(
+                literal_value(string).expect("parses"),
+                expected,
+                "{string:?}"
+            );
+            let bounded = from_json_bounded(&literal_document(string), u64::MAX).expect("parses");
+            assert_eq!(
+                bounded.solutions,
+                from_json(&literal_document(string)).expect("parses"),
+                "{string:?}"
+            );
+        }
+    }
+
+    /// A malformed string is refused: unterminated, a bad escape, a lone
+    /// surrogate, invalid UTF-8.
+    #[test]
+    fn malformed_strings_are_refused() {
+        for string in [
+            &b"\"no terminator"[..],
+            b"\"ascii then bad escape \\q\"",
+            b"\"ascii then \\",
+            b"\"lone high \\ud83d\"",
+            b"\"ascii then \xff\"",
+            b"\"ascii then truncated \xe4\xb8\"",
+        ] {
+            assert!(literal_value(string).is_err(), "{string:?}");
+            assert!(
+                from_json_bounded(&literal_document(string), u64::MAX).is_err(),
+                "{string:?}"
+            );
+        }
+    }
+
+    /// RFC 8259 §6: a number is `[-] int [frac] [exp]`. A run of number
+    /// characters outside that grammar is refused wherever it stands, in a
+    /// skipped member included.
+    #[test]
+    fn a_number_outside_the_grammar_is_refused() {
+        let document = br#"{"head":{"vars":[]},"extra":1-2+e,"boolean":true}"#;
+        assert!(from_json_boolean(document).is_err());
+        let select = br#"{"head":{"vars":[]},"extra":1-2+e,"results":{"bindings":[]}}"#;
+        assert!(from_json(select).is_err());
+        assert!(from_json_bounded(select, u64::MAX).is_err());
+    }
+
+    /// The valid neighbour: a signed fraction with a signed exponent is a number.
+    #[test]
+    fn a_number_inside_the_grammar_is_accepted() {
+        let document = br#"{"head":{"vars":[]},"extra":-1.2e+3,"boolean":true}"#;
+        assert!(from_json_boolean(document).expect("a lawful number"));
+        let select = br#"{"head":{"vars":[]},"extra":-1.2e+3,"results":{"bindings":[]}}"#;
+        let empty = ParsedSolutions {
+            variables: Vec::new(),
+            rows: Vec::new(),
+        };
+        assert_eq!(from_json(select), Ok(empty.clone()));
+        assert_eq!(
+            from_json_bounded(select, u64::MAX).map(|bounded| bounded.solutions),
+            Ok(empty)
+        );
+    }
+
+    /// Provenance round-trip: what [`crate::json::to_json`] writes under a namespace,
+    /// [`provenance_from_json`] reads back — the writer no longer emits
+    /// something nothing can decode.
+    #[test]
+    fn provenance_round_trips_through_json() {
+        let result = SparqlResult::Boolean(true);
+        let provenance = ResultProvenance {
+            query_hash: Some("deadbeef".to_owned()),
+            engine: Some("purrdf-sparql-eval".to_owned()),
+            solutions: vec![
+                SolutionProvenance {
+                    sources: vec!["http://example.org/g1".to_owned()],
+                },
+                SolutionProvenance { sources: vec![] },
+            ],
+        };
+        let namespace = ProvenanceNamespace::new("prov", "http://example.org/ns/prov#")
+            .expect("valid namespace");
+        let outcome = to_json(&result, &provenance, Some(&namespace)).expect("serializes");
+
+        let decoded =
+            provenance_from_json(&outcome.bytes, &namespace).expect("provenance decodes back");
+        assert_eq!(decoded, provenance);
+    }
+
+    /// A document with no member under the caller's namespace prefix — because
+    /// the writer never populated one, or a different namespace was used —
+    /// decodes to the empty provenance rather than erroring.
+    #[test]
+    fn absent_provenance_member_decodes_to_default() {
+        let namespace = ProvenanceNamespace::new("prov", "http://example.org/ns/prov#")
+            .expect("valid namespace");
+        let doc = br#"{"head":{},"boolean":true}"#;
+        let decoded = provenance_from_json(doc, &namespace).expect("decodes");
+        assert!(decoded.is_empty());
+    }
+
+    /// Namespace-by-IRI pin (false NEGATIVE, mirroring
+    /// [`crate::xml_read::tests::provenance_reads_correctly_under_an_alternate_prefix_for_the_same_namespace`]):
+    /// a document that records the caller's OWN namespace IRI under a top-level
+    /// key spelled with a DIFFERENT prefix than this crate's own writer happens
+    /// to use (`p` instead of `prov`) must still decode — JSON provenance
+    /// identity is IRI-based (the `"namespace"` field), not top-level-key-based.
+    #[test]
+    fn provenance_reads_correctly_under_an_alternate_prefix_for_the_same_namespace() {
+        let namespace = ProvenanceNamespace::new("prov", "https://example.org/ns/prov#")
+            .expect("valid namespace");
+        let doc = br#"{"head":{},"boolean":true,"p":{
+            "namespace":"https://example.org/ns/prov#",
+            "queryForm":"ask",
+            "queryHash":"deadbeef",
+            "engine":"purrdf-sparql-eval"
+        }}"#;
+        let decoded = provenance_from_json(doc, &namespace).expect("decodes");
+        assert_eq!(
+            decoded,
+            ResultProvenance {
+                query_hash: Some("deadbeef".to_owned()),
+                engine: Some("purrdf-sparql-eval".to_owned()),
+                solutions: Vec::new(),
+            }
+        );
+    }
+
+    /// Namespace-by-IRI pin (false POSITIVE, mirroring
+    /// [`crate::xml_read::tests::foreign_namespace_under_the_writers_own_prefix_is_not_read_as_provenance`]):
+    /// a document that reuses this crate's writer's OWN prefix spelling
+    /// (`prov`) as its top-level key, but records an UNRELATED namespace IRI —
+    /// here the actual W3C PROV namespace (`http://www.w3.org/ns/prov#`), the
+    /// single most common real-world `prov:` binding — must NOT be read as the
+    /// caller's provenance extension just because the top-level key spelling
+    /// matches; only the recorded `"namespace"` IRI identifies it. This is the
+    /// direction the old, tautological `provenance_under_a_different_namespace_is_not_found`
+    /// test (which varied prefix AND iri together) could never actually observe.
+    #[test]
+    fn foreign_namespace_under_the_writers_own_prefix_is_not_read_as_provenance() {
+        let namespace = ProvenanceNamespace::new("prov", "https://example.org/ns/prov#")
+            .expect("valid namespace");
+        let doc = br#"{"head":{},"boolean":true,"prov":{
+            "namespace":"http://www.w3.org/ns/prov#",
+            "queryForm":"ask",
+            "queryHash":"deadbeef"
+        }}"#;
+        let decoded = provenance_from_json(doc, &namespace).expect("decodes without error");
+        assert!(
+            decoded.is_empty(),
+            "a `prov`-keyed member recording the W3C PROV namespace must not be mistaken \
+             for this caller's own `prov` namespace extension"
+        );
+    }
+
+    #[test]
+    fn reads_select_with_mixed_terms() {
+        let srj = r#"{
+          "head": { "vars": [ "s", "name", "label", "age" ] },
+          "results": { "bindings": [
+            {
+              "s": { "type": "uri", "value": "http://example.org/s" },
+              "name": { "type": "literal", "value": "Ada" },
+              "label": { "type": "literal", "value": "bonjour", "xml:lang": "fr" },
+              "age": { "type": "literal", "value": "42",
+                       "datatype": "http://www.w3.org/2001/XMLSchema#integer" }
+            },
+            {
+              "s": { "type": "bnode", "value": "b0" }
+            }
+          ] }
+        }"#;
+        let parsed = from_json(srj.as_bytes()).expect("parse");
+        assert_eq!(parsed.variables, vec!["s", "name", "label", "age"]);
+        assert_eq!(parsed.rows.len(), 2);
+        assert_eq!(
+            parsed.rows[0][0],
+            Some(TermValue::Iri("http://example.org/s".to_owned()))
+        );
+        assert_eq!(
+            parsed.rows[0][1],
+            Some(TermValue::Literal {
+                lexical_form: "Ada".to_owned(),
+                datatype: XSD_STRING.to_owned(),
+                language: None,
+                direction: None,
+            })
+        );
+        assert_eq!(
+            parsed.rows[0][2],
+            Some(TermValue::Literal {
+                lexical_form: "bonjour".to_owned(),
+                datatype: RDF_LANGSTRING.to_owned(),
+                language: Some("fr".to_owned()),
+                direction: None,
+            })
+        );
+        assert_eq!(
+            parsed.rows[0][3],
+            Some(TermValue::Literal {
+                lexical_form: "42".to_owned(),
+                datatype: "http://www.w3.org/2001/XMLSchema#integer".to_owned(),
+                language: None,
+                direction: None,
+            })
+        );
+        // Second row: only `s` bound (a bnode), the rest unbound.
+        assert_eq!(
+            parsed.rows[1][0],
+            Some(TermValue::Blank {
+                label: "b0".to_owned(),
+                scope: BlankScope::DEFAULT,
+            })
+        );
+        assert_eq!(parsed.rows[1][1], None);
+        assert_eq!(parsed.rows[1][3], None);
+    }
+
+    #[test]
+    fn bounded_reader_stops_before_the_limit_plus_one_binding() {
+        // `results` deliberately precedes `head`: the two-pass reader may not rely on the
+        // conventional field order when deriving the two-column row ceiling.
+        let srj = br#"{
+          "results":{"bindings":[
+            {"x":{"type":"uri","value":"http://example.org/0"}},
+            {"x":{"type":"uri","value":"http://example.org/1"}},
+            {"x":{"type":"uri","value":"http://example.org/2"}}
+          ]},
+          "head":{"vars":["x","y"]}
+        }"#;
+
+        let bounded = from_json_bounded(srj, 4).expect("two two-cell rows fit");
+        assert_eq!(bounded.solutions.variables, ["x", "y"]);
+        assert_eq!(bounded.solutions.rows.len(), 2);
+        assert!(bounded.truncated, "the third binding is the overflow proof");
+
+        let exact = from_json_bounded(srj, 6).expect("the exact boundary is inclusive");
+        assert_eq!(exact.solutions.rows.len(), 3);
+        assert!(!exact.truncated);
+        assert_eq!(exact.solutions, from_json(srj).expect("ordinary decode"));
+    }
+
+    #[test]
+    fn bounded_reader_does_not_invent_a_row_bound_for_zero_columns() {
+        let srj = br#"{"head":{"vars":[]},"results":{"bindings":[{},{},{}]}}"#;
+        let bounded = from_json_bounded(srj, 0).expect("unit rows consume zero cells");
+        assert_eq!(bounded.solutions.rows.len(), 3);
+        assert!(!bounded.truncated);
+    }
+
+    #[test]
+    fn reads_directional_literal() {
+        // `its:dir` is the SPARQL 1.2 Query Results spec spelling (see
+        // `crate::json`'s module docs for the fixture evidence).
+        let srj = r#"{"head":{"vars":["x"]},"results":{"bindings":[
+          {"x":{"type":"literal","value":"שלום","xml:lang":"he","its:dir":"rtl"}}]}}"#;
+        let parsed = from_json(srj.as_bytes()).expect("parse");
+        assert_eq!(
+            parsed.rows[0][0],
+            Some(TermValue::Literal {
+                lexical_form: "שלום".to_owned(),
+                datatype: RDF_DIR_LANGSTRING.to_owned(),
+                language: Some("he".to_owned()),
+                direction: Some(RdfTextDirection::Rtl),
+            })
+        );
+    }
+
+    /// The bare `dir` spelling is tolerated for interop with producers that
+    /// predate the SPARQL 1.2 `its:dir` spelling.
+    #[test]
+    fn tolerates_legacy_bare_dir_spelling() {
+        let srj = r#"{"head":{"vars":["x"]},"results":{"bindings":[
+          {"x":{"type":"literal","value":"hello","xml:lang":"en","dir":"ltr"}}]}}"#;
+        let parsed = from_json(srj.as_bytes()).expect("parse");
+        assert_eq!(
+            parsed.rows[0][0],
+            Some(TermValue::Literal {
+                lexical_form: "hello".to_owned(),
+                datatype: RDF_DIR_LANGSTRING.to_owned(),
+                language: Some("en".to_owned()),
+                direction: Some(RdfTextDirection::Ltr),
+            })
+        );
+    }
+
+    /// When both spellings are present, `its:dir` — the spec spelling — takes
+    /// priority over the legacy bare `dir`.
+    #[test]
+    fn its_dir_takes_priority_over_bare_dir() {
+        let srj = r#"{"head":{"vars":["x"]},"results":{"bindings":[
+          {"x":{"type":"literal","value":"hello","xml:lang":"en","its:dir":"ltr","dir":"rtl"}}]}}"#;
+        let parsed = from_json(srj.as_bytes()).expect("parse");
+        assert_eq!(
+            parsed.rows[0][0],
+            Some(TermValue::Literal {
+                lexical_form: "hello".to_owned(),
+                datatype: RDF_DIR_LANGSTRING.to_owned(),
+                language: Some("en".to_owned()),
+                direction: Some(RdfTextDirection::Ltr),
+            })
+        );
+    }
+
+    #[test]
+    fn reads_triple_term() {
+        let srj = r#"{"head":{"vars":["t"]},"results":{"bindings":[
+          {"t":{"type":"triple","value":{
+            "subject":{"type":"uri","value":"http://ex/s"},
+            "predicate":{"type":"uri","value":"http://ex/p"},
+            "object":{"type":"uri","value":"http://ex/o"}}}}]}}"#;
+        let parsed = from_json(srj.as_bytes()).expect("parse");
+        assert_eq!(
+            parsed.rows[0][0],
+            Some(TermValue::Triple {
+                s: TermBox::new(TermValue::Iri("http://ex/s".to_owned())),
+                p: TermBox::new(TermValue::Iri("http://ex/p".to_owned())),
+                o: TermBox::new(TermValue::Iri("http://ex/o".to_owned())),
+            })
+        );
+    }
+
+    #[test]
+    fn reads_ask_boolean() {
+        assert!(from_json_boolean(br#"{"head":{},"boolean":true}"#).expect("ask"));
+        assert!(!from_json_boolean(br#"{"head":{},"boolean":false}"#).expect("ask"));
+    }
+
+    #[test]
+    fn select_reader_rejects_ask_document() {
+        let err = from_json(br#"{"head":{},"boolean":true}"#).unwrap_err();
+        assert!(matches!(err, Error::Format(_)));
+    }
+
+    #[test]
+    fn handles_escapes_and_unicode() {
+        let srj = r#"{"head":{"vars":["x"]},"results":{"bindings":[
+          {"x":{"type":"literal","value":"a\"b\\c\nA😀"}}]}}"#;
+        let parsed = from_json(srj.as_bytes()).expect("parse");
+        let TermValue::Literal { lexical_form, .. } = parsed.rows[0][0].clone().unwrap() else {
+            panic!("expected literal");
+        };
+        assert_eq!(lexical_form, "a\"b\\c\nA😀");
+    }
+
+    #[test]
+    fn rejects_trailing_garbage() {
+        assert!(from_json(br#"{"head":{"vars":[]},"results":{"bindings":[]}} oops"#).is_err());
+    }
+
+    /// Guard against the O(N²) regression: a long multibyte string must parse
+    /// correctly and the decoded value must round-trip.
+    #[test]
+    fn long_multibyte_string_parses_correctly() {
+        // Build a large string of multibyte chars: mix of 2-byte (é, U+00E9)
+        // and 3-byte (你, U+4F60) code points so all width branches are hit.
+        let repeated_2byte = "é".repeat(1_500); // 3 000 bytes
+        let repeated_3byte = "你".repeat(1_000); // 3 000 bytes
+        let long_value = format!("{repeated_2byte}{repeated_3byte}");
+
+        let srj = format!(
+            r#"{{"head":{{"vars":["x"]}},"results":{{"bindings":[{{"x":{{"type":"literal","value":"{long_value}"}}}}]}}}}"#
+        );
+        let parsed = from_json(srj.as_bytes()).expect("parse long multibyte string");
+        let TermValue::Literal { lexical_form, .. } = parsed.rows[0][0].clone().unwrap() else {
+            panic!("expected literal");
+        };
+        assert_eq!(lexical_form, long_value, "decoded value must round-trip");
+    }
+
+    /// A 4-byte UTF-8 sequence (emoji, U+1F600) must decode correctly through
+    /// the lead-byte-width path.
+    #[test]
+    fn four_byte_utf8_sequence_parses() {
+        // U+1F600 GRINNING FACE encodes as 4 UTF-8 bytes.
+        let val = "😀".repeat(500);
+        let srj = format!(
+            r#"{{"head":{{"vars":["x"]}},"results":{{"bindings":[{{"x":{{"type":"literal","value":"{val}"}}}}]}}}}"#
+        );
+        let parsed = from_json(srj.as_bytes()).expect("parse 4-byte sequences");
+        let TermValue::Literal { lexical_form, .. } = parsed.rows[0][0].clone().unwrap() else {
+            panic!("expected literal");
+        };
+        assert_eq!(lexical_form, val);
+    }
+
+    /// Malformed UTF-8 bytes inside a JSON string must yield a parse Error, not
+    /// a panic.  We inject a raw invalid continuation byte (0x80) that is not
+    /// preceded by a valid lead byte.
+    #[test]
+    fn malformed_utf8_yields_error_not_panic() {
+        // Construct bytes: valid JSON prefix, then a bare 0x80 continuation byte
+        // (invalid as a lead byte), then closing JSON.
+        let prefix =
+            br#"{"head":{"vars":["x"]},"results":{"bindings":[{"x":{"type":"literal","value":""#;
+        let suffix = br#""}}]}}"#;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(prefix);
+        // Insert the invalid lead byte just before the closing quote.
+        bytes.push(0x80); // bare continuation — not a valid UTF-8 lead
+        bytes.extend_from_slice(suffix);
+        let result = from_json(&bytes);
+        assert!(result.is_err(), "expected Err for invalid UTF-8, got Ok");
+        assert!(
+            matches!(result.unwrap_err(), Error::Json(_)),
+            "error must retain the native JSON refusal"
+        );
+    }
+
+    /// Tags the `LANGTAG` grammar refuses, and the neighbouring ones it must
+    /// still take. Shared with the XML reader's twin and with the
+    /// `STRLANG`/`STRLANGDIR` gate in `purrdf-sparql-eval` — one accept set,
+    /// whichever door a tag arrives through.
+    const REFUSED_TAGS: &[&str] = &["en us", "1", "9-9", "123-456", "en-", "-", "!!!"];
+    const ACCEPTED_TAGS: &[&str] = &[
+        "en",
+        "en-US",
+        "zh-Hans-CN",
+        "de-CH-x-phonebk",
+        "i-enochian",
+        "x-purrdf-afrikaans",
+        "x-gmeow-english",
+        "en-fr-jura",
+        "fr-be-fbcl",
+    ];
+
+    fn srj_with_lang(tag: &str) -> Vec<u8> {
+        format!(
+            "{{\"head\":{{\"vars\":[\"l\"]}},\"results\":{{\"bindings\":\
+             [{{\"l\":{{\"type\":\"literal\",\"value\":\"x\",\"xml:lang\":\"{tag}\"}}}}]}}}}"
+        )
+        .into_bytes()
+    }
+
+    /// A results DOCUMENT is parsed input. A federated `SERVICE` response is
+    /// how a hostile or sloppy endpoint's tag gets in, and before this gate it
+    /// was copied verbatim into a `TermValue` and written straight back out.
+    #[test]
+    fn a_refused_language_tag_in_a_document_is_refused_with_its_diagnostic_code() {
+        for tag in REFUSED_TAGS {
+            let error = from_json(&srj_with_lang(tag))
+                .expect_err("a tag the grammar refuses must not decode");
+            let Error::LanguageTag {
+                language, cause, ..
+            } = &error
+            else {
+                panic!("expected native language refusal for {tag:?}, got {error:?}");
+            };
+            let fields = purrdf_testkit::error_capture::Capture::read(&error);
+            assert!(
+                matches!(fields.field("language"), purrdf_hash::error::ErrorValue::Text(value) if value == *tag)
+            );
+            assert_eq!(fields.child("cause").code, cause.diagnostic_code());
+            assert_eq!(language, tag);
+            let presentation = error.to_string();
+            let message = presentation.strip_prefix("result format error: ").unwrap();
+            assert!(
+                message.starts_with("SPARQL-JSON: invalid language tag "),
+                "the refusal must name the format and the tag: {message}"
+            );
+            assert!(
+                message.contains(&format!("`{tag}`")),
+                "the refusal must quote the offending tag verbatim, since this \
+                 crate's error carries no position: {message}"
+            );
+            assert!(
+                message.contains("(langtag-"),
+                "the refusal must surface the grammar's own diagnostic code, not \
+                 collapse to a generic sentence: {message}"
+            );
+        }
+    }
+
+    /// The over-refusal half. `i-enochian`, the two `x-` private-use tags and
+    /// the two terminal-only shapes are exactly what a profile chosen one notch
+    /// too strict would start silently rejecting on ingress.
+    #[test]
+    fn every_well_formed_language_tag_still_reads_back() {
+        for tag in ACCEPTED_TAGS {
+            let parsed = from_json(&srj_with_lang(tag))
+                .unwrap_or_else(|e| panic!("{tag:?} must still parse: {e}"));
+            assert_eq!(
+                parsed.rows[0][0],
+                Some(TermValue::Literal {
+                    lexical_form: "x".to_owned(),
+                    datatype: RDF_LANGSTRING.to_owned(),
+                    language: Some((*tag).to_owned()),
+                    direction: None,
+                }),
+                "the gate must not alter the tag it lets through ({tag:?})"
+            );
+        }
+    }
+
+    /// The nesting depth every deep-input test uses.
+    const DEEP: usize = 1_000_000;
+
+    /// The machine stack every deep-input test runs on, 128 KiB: a walk that
+    /// recursed once per nesting level would overflow it after a few hundred levels.
+    const SMALL_STACK: usize = 128 * 1024;
+
+    /// `depth` nested JSON arrays around nothing: `[[…[]…]]`.
+    fn nested_arrays(depth: usize) -> String {
+        let mut text = "[".repeat(depth);
+        text.push_str(&"]".repeat(depth));
+        text
+    }
+
+    fn select_with_binding(cell: &str) -> Vec<u8> {
+        format!(r#"{{"head":{{"vars":["x"]}},"results":{{"bindings":[{{"x":{cell}}}]}}}}"#)
+            .into_bytes()
+    }
+
+    fn format_error(message: &str) -> String {
+        format!("result format error: SPARQL-JSON: {message}")
+    }
+
+    #[test]
+    fn a_deeply_nested_value_in_a_binding_position_is_refused_without_overflow() {
+        let (full, bounded, truncated) = purrdf_stack::on_stack(SMALL_STACK, || {
+            let doc = select_with_binding(&nested_arrays(DEEP));
+            // The same nesting with its innermost array left unclosed.
+            let unclosed = select_with_binding(&"[".repeat(DEEP));
+            (
+                from_json(&doc),
+                from_json_bounded(&doc, u64::MAX).map(|bounded| bounded.solutions),
+                from_json(&unclosed),
+            )
+        })
+        .expect("spawn a small-stack thread");
+        let not_an_object = format_error("binding is not an object");
+        assert_eq!(
+            full.map_err(|error| error.to_string()),
+            Err(not_an_object.clone())
+        );
+        assert_eq!(
+            bounded.map_err(|error| error.to_string()),
+            Err(not_an_object)
+        );
+        assert_eq!(
+            truncated.map_err(|error| error.to_string()),
+            Err(format_error(&format!(
+                "JSON byte {}: expected a JSON value",
+                r#"{"head":{"vars":["x"]},"results":{"bindings":[{"x":"#.len() + DEEP
+            )))
+        );
+    }
+
+    #[test]
+    fn a_deeply_nested_ignored_member_parses_without_overflow() {
+        let (full, bounded, skipped) = purrdf_stack::on_stack(SMALL_STACK, || {
+            let deep = nested_arrays(DEEP);
+            let doc = format!(
+                r#"{{"head":{{"vars":["x"],"link":{deep}}},"results":{{"bindings":[{{"x":{{"type":"uri","value":"http://example.org/a"}},"y":{deep}}}]}},"extra":{deep}}}"#
+            )
+            .into_bytes();
+            // A second binding past a one-cell ceiling is skipped, not decoded.
+            let over_limit = format!(
+                r#"{{"head":{{"vars":["x"]}},"results":{{"bindings":[{{"x":{{"type":"uri","value":"http://example.org/a"}}}},{deep}]}}}}"#
+            )
+            .into_bytes();
+            (
+                from_json(&doc),
+                from_json_bounded(&doc, u64::MAX),
+                from_json_bounded(&over_limit, 1),
+            )
+        })
+        .expect("spawn a small-stack thread");
+        let expected = ParsedSolutions {
+            variables: vec!["x".to_owned()],
+            rows: vec![vec![Some(TermValue::Iri(
+                "http://example.org/a".to_owned(),
+            ))]],
+        };
+        assert_eq!(full.as_ref(), Ok(&expected));
+        assert_eq!(
+            bounded,
+            Ok(BoundedParsedSolutions {
+                solutions: expected.clone(),
+                truncated: false,
+            })
+        );
+        assert_eq!(
+            skipped,
+            Ok(BoundedParsedSolutions {
+                solutions: expected,
+                truncated: true,
+            })
+        );
+    }
+
+    /// A triple term nesting `depth` triple terms in object position, around an IRI.
+    fn nested_triple_binding(depth: usize) -> String {
+        let open = r#"{"type":"triple","value":{"subject":{"type":"bnode","value":"b"},"predicate":{"type":"uri","value":"http://example.org/p"},"object":"#;
+        let mut text = open.repeat(depth);
+        text.push_str(r#"{"type":"uri","value":"http://example.org/o"}"#);
+        text.push_str(&"}}".repeat(depth));
+        text
+    }
+
+    /// The triple-term nesting depth of `term`, counted along object positions.
+    fn object_chain_depth(mut term: &TermValue) -> usize {
+        let mut depth = 0;
+        while let TermValue::Triple { s, p, o } = term {
+            assert!(matches!(&**s, TermValue::Blank { label, .. } if label == "b"));
+            assert_eq!(&**p, &TermValue::Iri("http://example.org/p".to_owned()));
+            depth += 1;
+            term = o;
+        }
+        assert_eq!(term, &TermValue::Iri("http://example.org/o".to_owned()));
+        depth
+    }
+
+    #[test]
+    fn a_deeply_nested_triple_term_binding_decodes_without_overflow() {
+        let (full, bounded) = purrdf_stack::on_stack(SMALL_STACK, || {
+            let doc = select_with_binding(&nested_triple_binding(DEEP));
+            let full = from_json(&doc).map(|parsed| {
+                let [row] = parsed.rows.as_slice() else {
+                    panic!("one row");
+                };
+                object_chain_depth(row[0].as_ref().expect("bound"))
+            });
+            let bounded = from_json_bounded(&doc, u64::MAX).map(|bounded| {
+                object_chain_depth(bounded.solutions.rows[0][0].as_ref().expect("bound"))
+            });
+            (full, bounded)
+        })
+        .expect("spawn a small-stack thread");
+        assert_eq!(full, Ok(DEEP));
+        assert_eq!(bounded, Ok(DEEP));
+    }
+
+    #[test]
+    fn a_shallow_nested_triple_term_decodes_to_the_same_term() {
+        let parsed = from_json(&select_with_binding(&nested_triple_binding(2))).expect("parse");
+        let triple = |o: TermValue| TermValue::Triple {
+            s: TermBox::new(TermValue::Blank {
+                label: "b".to_owned(),
+                scope: BlankScope::DEFAULT,
+            }),
+            p: TermBox::new(TermValue::Iri("http://example.org/p".to_owned())),
+            o: TermBox::new(o),
+        };
+        let expected = triple(triple(TermValue::Iri("http://example.org/o".to_owned())));
+        assert_eq!(parsed.rows, vec![vec![Some(expected)]]);
+    }
+
+    #[test]
+    fn a_nested_triple_term_reports_its_first_error_in_component_order() {
+        // The predicate is not an IRI, and the object is malformed: the object is
+        // decoded before the predicate is checked, so the object's error is reported.
+        let both = r#"{"type":"triple","value":{"subject":{"type":"uri","value":"http://example.org/s"},"predicate":{"type":"literal","value":"p"},"object":{"type":"nonsense"}}}"#;
+        assert_eq!(
+            from_json(&select_with_binding(both)).map_err(|error| error.to_string()),
+            Err(format_error("unknown binding type `nonsense`"))
+        );
+        let predicate_only = r#"{"type":"triple","value":{"subject":{"type":"uri","value":"http://example.org/s"},"predicate":{"type":"literal","value":"p"},"object":{"type":"uri","value":"http://example.org/o"}}}"#;
+        assert_eq!(
+            from_json(&select_with_binding(predicate_only)).map_err(|error| error.to_string()),
+            Err(format_error("triple-term predicate is not an IRI"))
+        );
+        let no_object = r#"{"type":"triple","value":{"subject":{"type":"uri","value":"http://example.org/s"},"predicate":{"type":"uri","value":"http://example.org/p"}}}"#;
+        assert_eq!(
+            from_json(&select_with_binding(no_object)).map_err(|error| error.to_string()),
+            Err(format_error("triple has no object"))
+        );
+    }
+
+    #[test]
+    fn malformed_nesting_reports_the_same_errors() {
+        for (doc, message) in [
+            (
+                r#"{"a":[1,2}"#,
+                "JSON byte 9: expected `,` or `]` in an array",
+            ),
+            (
+                r#"{"a":{"b":1]}"#,
+                "JSON byte 11: expected `,` or `}` in an object",
+            ),
+            (
+                r#"{"a":{"b" 1}}"#,
+                "JSON byte 10: expected `:` after a member name",
+            ),
+            (
+                r#"{"a":[{ 7 }]}"#,
+                "JSON byte 8: expected a `\"`-quoted member name",
+            ),
+            (r#"{"a":[1,]}"#, "JSON byte 8: expected a JSON value"),
+            (
+                r#"{"a":[[[]]]} x"#,
+                "JSON byte 13: trailing data after the top-level value",
+            ),
+        ] {
+            let full = from_json(doc.as_bytes()).unwrap_err();
+            let bounded = from_json_bounded(doc.as_bytes(), u64::MAX).unwrap_err();
+            assert_eq!(full, bounded, "syntax priority on {doc}");
+            assert_eq!(full.to_string(), format_error(message));
+            let Error::Json(cause) = full else {
+                panic!("syntax refusal must retain its native fields");
+            };
+            let fields = purrdf_testkit::error_capture::Capture::read(&cause);
+            assert!(
+                matches!(fields.field("offset"), purrdf_hash::error::ErrorValue::ByteCount(value) if value == cause.offset() as u128)
+            );
+        }
+    }
+    #[test]
+    fn native_select_keeps_exact_original_payload_grant_and_refuses_before_birth() {
+        #[derive(Default)]
+        struct Grant {
+            live: usize,
+            peak: usize,
+            limit: usize,
+        }
+        impl Admission for Grant {
+            fn resize(&mut self, bytes: usize) -> Result<(), StorageError> {
+                if bytes > self.limit {
+                    return Err(StorageError::AdmissionFailed);
+                }
+                self.live = bytes;
+                self.peak = self.peak.max(bytes);
+                Ok(())
+            }
+        }
+        // Results before head, escaped structural/variable keys, repeated
+        // columns and nested RDF 1.2 terms exercise original live producers.
+        let bytes = br#"{"results":{"bindings":[{"\u0078":{"type":"triple","value":{"subject":{"type":"uri","value":"http://example.org/s"},"predicate":{"type":"uri","value":"http://example.org/p"},"object":{"type":"literal","value":"a\nb","xml:lang":"en","its:dir":"ltr","dir":"r\u0074l"}}}}]},"head":{"vars":["\u0078","x"]}}"#;
+        let mut refused = Grant::default();
+        assert!(matches!(
+            from_json_with_memory(bytes, None, &mut Memory::new(&mut refused)),
+            Err(ReadError::Storage(StorageError::AdmissionFailed))
+        ));
+        assert_eq!(refused.live, 0);
+        assert_eq!(refused.peak, 0);
+
+        for ceiling in [None, Some(2)] {
+            let mut grant = Grant {
+                limit: 1 << 20,
+                ..Grant::default()
+            };
+            let mut memory = Memory::new(&mut grant);
+            let parsed = from_json_with_memory(bytes, ceiling, &mut memory).expect("native SELECT");
+            assert!(!parsed.truncated);
+            assert_eq!(parsed.solutions, from_json(bytes).expect("resident parity"));
+            assert_eq!(parsed.solutions.rows[0][0], parsed.solutions.rows[0][1]);
+            let mut expected = parsed.solutions.variables.capacity() * size_of::<String>()
+                + parsed
+                    .solutions
+                    .variables
+                    .iter()
+                    .map(String::capacity)
+                    .sum::<usize>()
+                + parsed.solutions.rows.capacity() * size_of::<BindingRow>();
+            for row in &parsed.solutions.rows {
+                expected += row.capacity() * size_of::<Option<TermValue>>();
+                for term in row.iter().flatten() {
+                    let _ = term.visit_terms(|term| {
+                        expected += match term {
+                            TermValue::Iri(text) | TermValue::Blank { label: text, .. } => {
+                                text.capacity()
+                            }
+                            TermValue::Literal {
+                                lexical_form,
+                                datatype,
+                                language,
+                                ..
+                            } => {
+                                lexical_form.capacity()
+                                    + datatype.capacity()
+                                    + language.as_ref().map_or(0, String::capacity)
+                            }
+                            TermValue::Triple { .. } => 3 * size_of::<TermValue>(),
+                        };
+                        std::ops::ControlFlow::<()>::Continue(())
+                    });
+                }
+            }
+            assert_eq!(
+                memory.admitted_bytes(),
+                expected,
+                "only surviving output owns the original grant"
+            );
+            let mut solutions = parsed.solutions;
+            while let Some(mut row) = solutions.rows.pop() {
+                while let Some(term) = row.pop() {
+                    if let Some(term) = term {
+                        release_term(term, &mut memory).unwrap();
+                    }
+                }
+                memory.release_vec(row).unwrap();
+            }
+            memory.release_vec(solutions.rows).unwrap();
+            while let Some(variable) = solutions.variables.pop() {
+                memory.release_string(variable).unwrap();
+            }
+            memory.release_vec(solutions.variables).unwrap();
+            assert_eq!(memory.admitted_bytes(), 0);
+            assert_eq!(grant.live, 0);
+            assert!(grant.peak >= expected);
+        }
+    }
+
+    #[test]
+    fn native_select_retains_syntax_priority_and_bounded_suffix_law() {
+        let malformed = br#"{"head":{"vars":[false]},"results":{"bindings":[]},"extra":"\udc00"}"#;
+        let resident = from_json(malformed).unwrap_err();
+        let native =
+            from_json_with_memory(malformed, None, &mut Memory::new(&mut Resident)).unwrap_err();
+        assert_eq!(native, ReadError::Lexical(resident));
+        let bytes = br#"{"head":{"vars":["x"]},"results":{"bindings":[{"x":{"type":"uri","value":"http://example.org/x"}},false]}}"#;
+        let native =
+            from_json_with_memory(bytes, Some(1), &mut Memory::new(&mut Resident)).unwrap();
+        assert_eq!(native, from_json_bounded(bytes, 1).unwrap());
+        assert!(native.truncated);
+        assert_eq!(native.solutions.rows.len(), 1);
+    }
+
+    #[test]
+    fn superseded_native_refusals_release_original_tokens_and_terms() {
+        // The parser must finish syntax validation after a semantic refusal.
+        // A later syntax error supersedes it and releases every native payload.
+        for cell in [
+            r#"{"type":"unrecognized-original","value":"x"}"#,
+            r#"{"type":"triple","value":{"subject":{"type":"uri","value":"http://example.org/s"},"predicate":{"type":"literal","value":"original-predicate"},"object":{"type":"uri","value":"http://example.org/o"}}}"#,
+            r#"{"type":"triple","value":{"subject":{"type":"uri","value":"http://example.org/s"},"predicate":{"type":"uri","value":"http://example.org/p"}}}"#,
+        ] {
+            let input = format!(
+                r#"{{"head":{{"vars":["x"]}},"results":{{"bindings":[{{"x":{cell}}}]}},"tail":]}}"#
+            );
+            let mut resident = Resident;
+            let mut memory = Memory::new(&mut resident);
+            let error = from_json_with_memory(input.as_bytes(), None, &mut memory).unwrap_err();
+            assert!(matches!(error, ReadError::Lexical(Error::Json(_))));
+            assert_eq!(memory.admitted_bytes(), 0);
+        }
+    }
+
+    #[test]
+    fn semantic_refusals_keep_only_their_original_payload_charge() {
+        for (cell, retained) in [
+            (
+                r#"{"type":"unrecognized-original","value":"x"}"#,
+                "unrecognized-original".len(),
+            ),
+            (
+                r#"{"type":"literal","value":"original lexical form","xml:lang":"en us"}"#,
+                "en us".len(),
+            ),
+            (
+                r#"{"type":"literal","value":"original lexical form","xml:lang":"en","its:dir":"backwards"}"#,
+                "backwards".len(),
+            ),
+            (
+                r#"{"type":"triple","value":{"subject":{"type":"uri","value":"http://example.org/s"},"predicate":{"type":"bnode","value":"p"},"object":{"type":"uri","value":"http://example.org/o"}}}"#,
+                1,
+            ),
+            (
+                r#"{"type":"triple","value":{"subject":{"type":"uri","value":"http://example.org/s"},"predicate":{"type":"uri","value":"http://example.org/p"}}}"#,
+                0,
+            ),
+            (r#"{"value":"original value without a type"}"#, 0),
+        ] {
+            for ceiling in [None, Some(u64::MAX)] {
+                let mut resident = Resident;
+                let mut memory = Memory::new(&mut resident);
+                let original = memory.string("caller-owned-before-parsing").unwrap();
+                let original_bytes = memory.admitted_bytes();
+                // A successful prefix row must be discarded when the next
+                // row fails, under both original parser policies.
+                let input = format!(
+                    r#"{{"head":{{"vars":["x"]}},"results":{{"bindings":[{{"x":{{"type":"uri","value":"http://example.org/first"}}}},{{"x":{cell}}}]}}}}"#
+                );
+                let error =
+                    from_json_with_memory(input.as_bytes(), ceiling, &mut memory).unwrap_err();
+                drop(input);
+                assert_eq!(memory.admitted_bytes(), original_bytes + retained);
+                let ReadError::Lexical(error) = error else {
+                    panic!("the original semantic refusal must survive");
+                };
+                drop(purrdf_testkit::error_capture::Capture::read(&error));
+                release_error(error, &mut memory).unwrap();
+                assert_eq!(memory.admitted_bytes(), original_bytes);
+                memory.release_string(original).unwrap();
+                assert_eq!(memory.admitted_bytes(), 0);
+            }
+        }
+    }
+}

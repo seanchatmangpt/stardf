@@ -1,0 +1,170 @@
+<!--
+SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+-->
+
+<p align="center">
+  <a href="https://github.com/Blackcat-Informatics/purrdf">
+    <img src="https://raw.githubusercontent.com/Blackcat-Informatics/purrdf/main/docs/purrdf-logo.svg" alt="PurRDF logo" width="120" height="120">
+  </a>
+</p>
+
+# `purrdf-core` — RDF 1.2 Kernel
+
+[![crates.io](https://img.shields.io/crates/v/purrdf-core.svg)](https://crates.io/crates/purrdf-core)
+[![docs.rs](https://docs.rs/purrdf-core/badge.svg)](https://docs.rs/purrdf-core)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0%20OR%20MulanPSL--2.0-blue.svg)](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MIT)
+[![Repository](https://img.shields.io/badge/repo-Blackcat--Informatics%2Fpurrdf-181717.svg)](https://github.com/Blackcat-Informatics/purrdf)
+
+`purrdf-core` is the ring-fenced RDF 1.2 kernel of the PurRDF toolkit — the
+crate everything else in the workspace builds on. It owns:
+
+- **The immutable, value-interned dataset IR** — `RdfDatasetBuilder` →
+  `RdfDataset`, with every term stored once in a string arena addressed by
+  copyable `TermId`s, triple terms in object position, reifier/annotation
+  side-tables, base-direction literals, and copy-on-write mutation.
+- **`DatasetView`** — one statically dispatched read contract with typed failures
+  and pinned GAT guards. Resident guards borrow without allocation; operational
+  sessions admit storage under explicit budgets.
+- **Persistent read sessions** — stable wide IDs, segmented front-coded dictionary
+  blocks, certified indexed reopening, sparse caches and exact bounded evidence.
+  See [the storage contract](STORAGE.md).
+- **Structured diagnostics** — typed `RdfDiagnostic`s with source locations;
+  deliberately SARIF-free (the SARIF boundary is
+  [`purrdf-validate`](https://crates.io/crates/purrdf-validate)).
+- **Canonicalization** — `canonicalize` is the first-party `purrdf-rdfc12` v2
+  profile: W3C RDFC-1.0 in full, plus a lowering of reifiers and annotations
+  into a reserved `urn:purrdf:rdfc:` namespace (input already carrying it is
+  refused, except in the two shapes the profile itself emits, which fold back —
+  so the canonical document re-canonicalizes to itself). It agrees with
+  RDFC-1.0 byte for byte on the RDF 1.1 subset, which
+  the W3C fixture suite gates; a digest over its RDF 1.2 output must not be
+  labelled RDFC-1.0 (`CANON_PROFILE_ID`/`CANON_PROFILE_VERSION` name the
+  profile at runtime). Plus dataset diff and isomorphism checks.
+- **Complete dataset state identity** — additive `DatasetStateDigest` includes
+  empty named declarations and distinct ordinary/reifier/annotation roles under
+  one global blank bijection, including nested and CDT positions. See the
+  [versioned format and completeness proof](https://github.com/Blackcat-Informatics/purrdf/blob/main/docs/DATASET-STATE-DIGEST.md).
+- **Store/backend traits** — the narrow parser-ingress, serializer-egress, and
+  `SparqlEngine` seams concrete adapters implement in sibling crates.
+- **Provenance and the loss ledger** — a generic provenance sidecar for the
+  frozen IR and the machine-readable RDF↔GTS loss matrix, plus native FnO and
+  SSSOM codecs.
+
+The crate is deliberately dependency-strict: **no PyO3** — this crate is where that guarantee is
+structural (a hygiene gate asserts the dependency tree). It is also
+`wasm32-unknown-unknown`-clean, and its IR layer is file-IO-free.
+
+## Usage
+
+```sh
+cargo add purrdf-core
+```
+
+```rust
+use purrdf_core::{RdfDatasetBuilder, RdfLiteral};
+
+// Intern terms once; quads are rows of copyable TermIds.
+let mut b = RdfDatasetBuilder::new();
+let cat = b.intern_iri("https://example.org/cat");
+let says = b.intern_iri("https://example.org/says");
+let meow = b.intern_literal(RdfLiteral::simple("meow"));
+b.push_quad(cat, says, meow, None);
+
+// Freeze into the immutable, indexed dataset the engines evaluate over.
+let ds = b.freeze().expect("well-formed dataset");
+assert_eq!(ds.quad_count(), 1);
+```
+
+For repeated queries after a small mutation, `MutableDataset::snapshot_view()`
+returns an immutable `DeltaDatasetView` without compacting the base. It shares
+the base dictionary and indexes, freezes only added rows, and applies the
+suppression set during indexed reads. `DeltaViewId` keeps base and delta handles
+distinct while giving shared values one identity. Subsequent mutations do not
+change an earlier snapshot. `freeze()` remains the explicit compaction boundary.
+
+A mutation snapshot preserves the existing blank-node identity space; it is not
+an independent-document union. RDF 1.2 reifiers, annotations and empty named
+graphs survive. Source locations and other sidecars remain on `view.base()`;
+generic RDF materialization does not transfer those sidecars automatically.
+
+`CompositeDatasetView::from_sources` composes independently parsed documents from
+`CompositeSource` handles, including delta snapshots. It standardizes their blank
+scopes apart in source order, including references inside nested triple terms and
+composite literals. Equal non-blank values receive one view identity; local
+`TermId`s from different sources never establish equality. Use
+`from_shared_sources` only when the supplied scopes already describe one shared
+identity space. Adding the same handle twice in independent mode represents two
+document occurrences, each with its own blank identities.
+
+`GraphPlacement` explicitly preserves, flattens or relocates all three RDF record
+tables and graph declarations. View construction retains source dictionaries and
+indexes, copies alias mappings, and owns rewritten composite literal text only
+when blank scopes change. `materialize()` is the explicit native output boundary.
+Original source handles remain available for locations and non-RDF sidecars.
+
+`ViewLimits` bounds retained sources, terms, rows, native payload and charged
+auxiliary storage. `stats()` separates those retention estimates from copy,
+freeze and materialization work shared across view clones. Payload excludes
+allocator overhead, native indexes and sidecars; these figures are not RSS.
+Operational counters never contribute to RDF identities or serialized bytes.
+
+Text codecs are *not* here — parsing and serialization live one layer up in
+[`purrdf-rdf`](https://crates.io/crates/purrdf-rdf). This split keeps the
+kernel small and its invariants enforceable at the crate boundary.
+
+## Dated native XPath patterns
+
+`xsd_regex::xpath` compiles an explicitly selected XPath F&O 2.0 Second Edition
+(2010-12-14) or 3.1 (2017-03-21) law. Its flat native program supports ordered
+captures, backreferences and replacement. Non-capturing groups and the `q` flag
+belong to the 3.1 law. The existing `xsd_regex::compile` compatibility API and
+its `regex::Regex` representation retain their behavior.
+
+```rust
+use purrdf_core::xsd_regex::xpath::{compile, Error, Limits, Profile, Resource};
+
+let program = compile(Profile::Xpath31, r"(a)\1", "", Limits::new()).unwrap();
+assert!(program.is_match("aa", Limits::new()).unwrap());
+assert!(matches!(
+    program.is_match("aa", Limits::new().with(Resource::MatchSteps, 0)),
+    Err(Error::Resource(refusal)) if refusal.resource == Resource::MatchSteps
+));
+```
+
+Every `Limits` resource is finite; zero withholds that resource. Source bytes,
+compiler work, program nodes and construction slots are admitted before use.
+Matching bounds work, pending states and their live slots; replacement also
+bounds output bytes. `Error::Resource` carries the exact resource, requirement
+and ceiling, and `Error::Allocation` carries an actual storage failure. Neither
+is a syntax verdict or a negative match. Replacement retains the distinct
+`FORX0003` empty-match and `FORX0004` replacement-language failures.
+
+`PatternCache` retains one successful program by exact profile/source/flag
+identity. Cache reuse admits current source and program-storage limits; matching
+always receives current execution limits. Failed attempts preserve prior success.
+`compiled_shared` shares the admitted program when an owner needs concurrent
+matching, while `compiled` keeps the borrowed owned path. Unicode categories,
+blocks and full case variants come from the workspace's one Unicode generator.
+The JSON Schema ECMA-262 matcher remains its existing separate engine.
+
+## Part of PurRDF
+
+This crate is one member of the [PurRDF](https://github.com/Blackcat-Informatics/purrdf)
+workspace — an RDF 1.2 toolkit with native codecs, SPARQL, SHACL, ShEx,
+entailment, and the GTS graph transport, carried into Python, WebAssembly, and
+C (the GTS container itself reaches Python and C, not the wasm package). Most applications should depend on the umbrella
+[`purrdf`](https://crates.io/crates/purrdf) crate, which re-exports this kernel
+through `purrdf-rdf`; depend on `purrdf-core` directly only when you are
+building an engine or adapter over the IR itself.
+
+There are deliberately no Cargo feature flags anywhere in the workspace. MSRV
+follows the workspace `rust-version` (currently 1.98, stable toolchain only).
+
+## License
+
+Licensed under any one of the following, at your option:
+
+- [MIT license](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MIT)
+- [Apache License, Version 2.0](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-APACHE)
+- [Mulan Permissive Software License, Version 2 (MulanPSL-2.0)](https://github.com/Blackcat-Informatics/purrdf/blob/main/LICENSE-MULAN)

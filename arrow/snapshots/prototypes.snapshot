@@ -1,0 +1,19 @@
+# stardf-arrow F4 header-freeze snapshot — GENERATED; single source is ontology.ttl
+# (CabiExport targetSymbols). Hand edits FAIL the byte-freeze; regenerate instead:
+#   python3 scripts/verify.py --snapshot write
+# Court: python3 scripts/verify_header_freeze.py --court
+# Format: one symbol per line (sorted); '#' lines are comments; '# count:' pins arity.
+# count: 13
+stardf_arena_free
+stardf_arena_intern
+stardf_arena_new
+stardf_array_addr
+stardf_arrow_version
+stardf_avec_export_stream
+stardf_batch_append_quad
+stardf_batch_rows
+stardf_i32_batch
+stardf_last_error
+stardf_pending_tags
+stardf_release
+stardf_stream_free

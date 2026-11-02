@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics(R) Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+# Lane 9 vendor of purrdf rev 0da05783 `crates/columnar` (see PROVENANCE.md).
+name = "stardf-columnar"
+# Lane 07-publish-metadata (2026-10-31): v26.11.1 first-class closure —
+# description/keywords/categories/repository/homepage now workspace-inherited
+# (upstream per-crate description retired; unified closure metadata).
+description.workspace = true
+# Lane 08-dual-key (2026-10-31): closure version inherits the workspace 26.11.1.
+version.workspace = true
+edition = "2021"
+publish = true
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+repository.workspace = true
+homepage.workspace = true
+# Lane 06-msrv (2026-10-31): upstream 1.88 claim superseded by the
+# operator-ratified v26.11.1 deviation (workspace MSRV 1.98 = true member max).
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+crate-type = ["rlib"]
+path = "src/lib.rs"
+name = "stardf_columnar"
+
+[features]
+default = []
+# Preserved upstream test modules (writer/reader/column/parquet tests). They
+# require the purrdf substrate crates (purrdf-core/purrdf-testkit/
+# purrdf-alloc-probe/purrdf-stack), which are NOT available in this workspace,
+# so this feature is inert here; it exists so the gated code is a declared,
+# reviewable boundary rather than silent dead text.
+upstream-tests = []
+
+[dev-dependencies]
+# LANE-11 UNBLOCK (disclosed in tests/seam_courts.rs header): the seam courts
+# are an integration test of this crate over stardf-arrow-core's arena.
+# Lane H03 gate-closure (2026-10-31): dual-keyed per the G5 version+path law
+# (the 21:05 ladder receipt named this row).
+stardf-arrow-core = { version = "=26.11.1", path = "../stardf-arrow-core" }
+
+[dependencies]
+structured-zstd.workspace = true
+blake3 = { version = "1.8.7", default-features = false }
+
+[lints.rust]
+# Source parity diverged (lane 1, 2026-10-31): `deny` rather than `forbid` so
+# vendor/alloc_probe's real counting GlobalAlloc can exist; see src/lib.rs and
+# PROVENANCE.md.
+unsafe_code = "deny"

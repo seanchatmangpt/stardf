@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+[package]
+# (repair lane, 2026-10-31) package renamed stardf-arrow -> stardf-arrow-rs:
+# the plain stardf-arrow name is the FIRST-PARTY workspace-root package (the
+# anti-vacuity court package); upstream purrdf-arrow gets the same -rs suffix
+# treatment as the purrdf -> stardf-rs umbrella rename. Lib name purrdf_arrow
+# stays upstream-verbatim.
+name = "stardf-arrow-rs"
+# Lane 07-publish-metadata (2026-10-31): description/keywords/categories
+# normalized to workspace inheritance (v26.11.1 first-class closure);
+# documentation URL re-pointed at the renamed package (was docs.rs/stardf-arrow).
+description.workspace = true
+documentation = "https://docs.rs/stardf-arrow-rs"
+version.workspace = true
+edition.workspace = true
+publish = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+# Vendoring law: lib name upstream-verbatim (package renamed, lib unchanged).
+name = "purrdf_arrow"
+crate-type = ["rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+stardf-hash = { workspace = true }
+
+[dev-dependencies]
+stardf-testkit = { workspace = true }
+
+[[bench]]
+# End-to-end egress frame cost of the CanonArrow wire format over a seeded
+# 100k-row batch: payload digest + 128-byte header wire form + frame assembly
+# on encode, header parse + payload digest verification on decode, bytes per
+# second over the full frame. Report-only; no GB/s winner is asserted in-tree.
+name = "ipc_egress"
+harness = false
+
+[lints]
+workspace = true

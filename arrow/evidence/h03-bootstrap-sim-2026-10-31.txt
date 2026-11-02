@@ -1,0 +1,26 @@
+OK stardf-hash pkg=stardf-hash entries=54 bytes=145882 license_rows=4
+OK stardf-alloc-probe pkg=stardf-alloc-probe entries=12 bytes=34641 license_rows=4
+OK stardf-arrow-core pkg=stardf-arrow-core entries=16 bytes=40132 license_rows=4
+OK stardf-lex pkg=stardf-lex entries=98 bytes=542574 license_rows=5
+OK stardf-deflate pkg=stardf-deflate entries=31 bytes=79918 license_rows=4
+OK stardf-branchless pkg=stardf-branchless entries=50 bytes=167925 license_rows=4
+OK stardf-testkit pkg=stardf-testkit entries=72 bytes=161832 license_rows=5
+OK stardf-events pkg=stardf-events entries=14 bytes=31439 license_rows=4
+OK stardf-arrow-bench pkg=stardf-arrow-bench entries=12 bytes=24040 license_rows=4
+OK stardf-columnar pkg=stardf-columnar entries=52 bytes=135604 license_rows=4
+OK stardf-stack pkg=stardf-stack entries=15 bytes=41781 license_rows=4
+OK stardf-iri pkg=stardf-iri entries=45 bytes=533169 license_rows=5
+OK stardf-arrow-rs pkg=stardf-arrow-rs entries=19 bytes=33500 license_rows=4
+OK stardf-xsd pkg=stardf-xsd entries=93 bytes=558065 license_rows=4
+OK stardf-arrow-capi pkg=stardf-arrow-capi entries=20 bytes=50283 license_rows=4
+OK stardf-scan-duckdb pkg=stardf-scan-duckdb entries=13 bytes=56919 license_rows=4
+OK stardf-cdt pkg=stardf-cdt entries=36 bytes=152129 license_rows=4
+OK stardf-core pkg=stardf-core entries=318 bytes=2088586 license_rows=5
+OK stardf-sparql-algebra pkg=stardf-sparql-algebra entries=89 bytes=604163 license_rows=4
+OK stardf-sparql-results pkg=stardf-sparql-results entries=48 bytes=145559 license_rows=4
+FAIL stardf-rdf pkg=stardf-rdf exit=101 ::   no matching package named `stardf-ed25519` found
+FAIL stardf-sql pkg=stardf-sql exit=101 ::   no matching package named `stardf-rdf` found
+FAIL stardf-n3 pkg=stardf-n3 exit=101 ::   no matching package named `stardf-rdf` found
+FAIL stardf-toml pkg=stardf-toml exit=101 ::   no matching package named `stardf-rdf` found
+FAIL stardf-rs pkg=stardf-rs exit=101 ::   no matching package named `stardf-datalog` found
+SIM DONE

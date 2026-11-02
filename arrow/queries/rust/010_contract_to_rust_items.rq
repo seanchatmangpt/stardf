@@ -1,0 +1,75 @@
+# 010_contract_to_rust_items.rq — Lane 10 (v26.10.31 stardf finishing wave)
+# stardf-arrow -> rust: bridge. CONSTRUCT-only; applies in memory (rdflib).
+#
+# Maps stardf-arrow: individuals onto the rust-pack vocabulary
+# (urn:ggen:rust:#) so the 5 rust-pack gates
+# (ggen-marketplace/packs/rust-pack/gates/*.rq) bind on the bridged graph:
+#
+#   010_api_naming          : CabiExport -> rust:Function, snake_case itemName
+#                             (= targetSymbol from the ontology: stardf_arena_new
+#                             et al. — already snake_case on disk, gate-valid)
+#   020_unsafe_safety_proof : every extern "C" export is an unsafe boundary ->
+#                             rust:isUnsafe true + non-empty rust:safetyProof
+#   030_alignment_invariant : ArrowArrayStream -> rust:BufferSlot,
+#                             simdProfile != "None", byteAlignment exactly 64
+#                             (grounded: stardf-arrow-core Quad64 is
+#                             repr(C, align(64)) — 64-byte invariant)
+#   040_ffi_unwind_guard    : every export -> rust:FfiExport +
+#                             rust:unwindProtection (no panic unwinds into C)
+#   050_workspace_inheritance : stardf-arrow-capi -> avec-arrow is a
+#                             workspace-inherited dependency edge
+#                             (`avec-arrow = { workspace = true }` in the
+#                             capi manifest; single pin source is the root
+#                             [workspace.dependencies]) — no versionLiteral
+#
+# Every gate is a refusal query (a row = refusal), so the receipt is:
+#   coverage rows per gate >= 1 (GateVerify law: gates>=1 row, unbound=0 rows)
+#   violation rows per gate = 0 on the pristine bridge.
+
+PREFIX sa:   <https://ggen.io/ontology/stardf-arrow#>
+PREFIX rust: <urn:ggen:rust:#>
+
+CONSTRUCT {
+
+  # --- Gate 010 / 020 / 040: the 8 C ABI exports -> rust:Function+FfiExport
+  ?export a rust:Function, rust:FfiExport ;
+          rust:itemName ?symbol ;
+          rust:isUnsafe true ;
+          rust:safetyProof ?proof ;
+          rust:unwindProtection "catch_unwind" ;
+          rust:module "stardf_arrow_capi" .
+
+  # --- Gate 010: grounded interop-surface struct -> rust:Struct
+  sa:arrow-array-stream a rust:Struct ;
+          rust:itemName "ArrowArrayStream" .
+
+  # --- Gate 030: the stream surface is a 64-byte-aligned SIMD buffer slot
+  sa:arrow-array-stream a rust:BufferSlot ;
+          rust:simdProfile "Arrow-64B" ;
+          rust:byteAlignment 64 .
+
+  # --- Gate 050: workspace-inherited dependency edge (no versionLiteral)
+  <urn:stardf-arrow:crate:stardf-arrow> a rust:Workspace ;
+          rust:workspaceDependency <urn:stardf-arrow:dep:avec-arrow> ;
+          rust:itemName "stardf-arrow" .
+  <urn:stardf-arrow:dep:avec-arrow> a rust:Dependency ;
+          rust:itemName "avec-arrow" .
+  <urn:stardf-arrow:crate:capi> a rust:Module ;
+          rust:itemName "stardf_arrow_capi" ;
+          rust:dependsOn <urn:stardf-arrow:dep:avec-arrow> .
+}
+WHERE {
+  # 8 CabiExport individuals carry the export surface
+  ?export a sa:CabiExport ;
+          sa:targetSymbol ?symbol ;
+          sa:crate "capi" .
+
+  # safetyProof: grounded in the crate's own court surface, per export class
+  BIND(IF(CONTAINS(STR(?symbol), "stream"),
+          "Arrow C Data Interface boundary: stream fn pointers validated before call; release path checked by tests/stream_courts.rs",
+          "Arena/batch boundary: term-id arena validates pointers before intern/free; checked by tests/cross_allocator_court.rs")
+        AS ?proof)
+
+  # Anchor rows for the workspace/dependency/struct/slot section (1 row)
+  VALUES ?anchor { <urn:stardf-arrow:anchor> }
+}

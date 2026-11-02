@@ -1,0 +1,270 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "kind": "court-receipt",
+  "lane": "publish lane 5 (duckdb rehome court re-witness; owns ONLY this receipt file; NO git mutations)",
+  "date": "2026-10-31",
+  "branch": "fix/v26.9.29-ci-gates",
+  "purpose": "Close the receipt gap on the =2.0.4 two-arm rehome court: the prior PASS was coordinator-reported testimony with no on-disk receipt. This lane re-ran the court itself and writes the receipt from its own witnessed run. Court under test: bash scripts/verify_duckdb_rehome.sh (working-tree two-arm =2.0.4 version) — ARM A in-situ control (fork + cache present) vs ARM B rehome (real rename(2) of /Users/sac/frozen-duckdb and $HOME/.frozen-duckdb to a .REHOME-COURT suffix, witnessed absence before the build, byte-identical restore after). D13 datum: the =2.0.4 x3 registry triple resolves AND compiles cache-absent with zero machine-local paths.",
+  "subject": {
+    "court_script": {
+      "path": "/Users/sac/ggen-legacy/stardf/arrow/scripts/verify_duckdb_rehome.sh",
+      "sha256": "ea775795d4810528e5d8ac978c8165255c15efc87ef93f45579831b8c1637294",
+      "git_state": "working-tree version, modified vs the c3-landed version; last commit touching it: 6cbb5b7734b1872e0d845ed6dd333493f497a3f7 (c3). Script run as-found, NOT modified by this lane.",
+      "note": "script is NOT owned by this lane; it was run, not edited"
+    },
+    "repo_context": {
+      "head_at_receipt_time": "724d542540b497f2928a63b5aece9b37aef4019b",
+      "note": "context only; lane performed no git state changes"
+    },
+    "real_trees": {
+      "fork": "/Users/sac/frozen-duckdb",
+      "fork_file_count_pre_court": 6229,
+      "cache": "/Users/sac/.frozen-duckdb",
+      "cache_file_count_pre_court": 100
+    },
+    "court_log": {
+      "path": "/tmp/rehome-court-run-20261031T224754.log",
+      "sha256": "facf713a1f5ddde85a0df76be704f58051a43a4f134a9b97784b999edd159885",
+      "lines": 536,
+      "note": "VOLATILE storage (/tmp); the [rehome-court]-tagged narration is embedded verbatim in court_narration_verbatim[] so the receipt is self-contained"
+    },
+    "receipt_time_digest_anchors": {
+      "method": "sorted-content digest over every file (path + SHA-256 content), sorted before the outer hash to defeat the ordering nondeterminism of the court script's own unsorted variant (finding F1)",
+      "function": "find <tree> -type f -exec shasum -a 256 {} + 2>/dev/null | sort | shasum -a 256 | cut -d' ' -f1",
+      "fork_sorted": "67c4da41bec91c686c4915318baeaeed40c3b171057406c6c7bec4f2fef6a9a7",
+      "cache_sorted_post_restage": "53851e343d46d444bb427aa937fbc55c4cd2a5e219e8e0523de073b9e9c6ede9",
+      "computed": "23:04-23:06 PDT post-court, stable across two consecutive computations; the cache anchor is post-23:04:49 restage (finding F2)"
+    }
+  },
+  "court_run": {
+    "window_pdt": "2026-10-31 22:47:54 - 22:57:15 (9m21s)",
+    "exit": 0,
+    "verdict_line_verbatim": "COURT PASS: frozen-duckdb =2.0.4 x3 resolves + compiles from crates.io with zero machine-local paths, cache-absent (ARM B) and in-situ (ARM A), real trees restored byte-identical",
+    "sandbox": "/private/tmp/rehome-court.tpBl1a (removed by the court's own cleanup; exit-4 sandbox-cleanup-refused path not taken)",
+    "watchdogs": "neither bound fired (ARM A 900s, ARM B 3600s); the kill path itself was NOT exercised (see nonclaims)",
+    "arm_a_in_situ_control": {
+      "design": "fork + cache present; fresh sandbox with a registry-only =2.0.4 x3 manifest; cargo generate-lockfile + cargo check",
+      "rename_guard": "clean (no machine-local paths, no [patch.crates-io])",
+      "provenance": "3/3 per-crate: frozen-duckdb, frozen-duckdb-sys, frozen-duckdb-builder all source=registry.crates.io, version 2.0.4 == ratified pin",
+      "cargo_check": "exit 0, Finished `dev` profile in 21.62s; witnessed compile lines: Compiling frozen-duckdb v2.0.4, Checking frozen-duckdb-builder v2.0.4, Compiling frozen-duckdb-sys v2.0.4, Checking rehome-court-subject v0.1.0 (/private/tmp/rehome-court.tpBl1a/arm-a)",
+      "verdict": "PASS"
+    },
+    "arm_b_rehome": {
+      "design": "real rename(2) of BOTH real trees to <path>.REHOME-COURT on the same volume; witnessed absence ([ -e ] false on both real paths) BEFORE the build ran; identical =2.0.4 x3 sandbox build cache-absent",
+      "rename_guard": "clean (no machine-local paths, no [patch.crates-io])",
+      "provenance": "3/3 per-crate registry, ==2.0.4",
+      "cargo_check": "exit 0, Finished `dev` profile in 8m19s; witnessed lines: Checking frozen-duckdb-builder v2.0.4, Compiling frozen-duckdb-sys v2.0.4, Checking rehome-court-subject v0.1.0 (/private/tmp/rehome-court.tpBl1a/arm-b), Compiling frozen-duckdb v2.0.4",
+      "engine_restage_witness": {
+        "what": "a fresh $HOME/.frozen-duckdb was recreated during the ARM B window — ensure_binary re-staged the engine cache-absent; the court quarantined the recreated dir at restore (never deleted)",
+        "quarantined_at": "/Users/sac/.frozen-duckdb.REHOME-COURT-recreated-1793512623",
+        "contents": "cache/v2.0.0-arm64/{libduckdb_arm64.dylib (63,171,360 B, mtime 22:56:57, sha256 55b3d26c6ff25f538059b32913e8a30bcf717acdf5cafe7cdb83128a54963f95), ENGINE_VERSION=v2.0.0, libduckdb_arm64.dylib.size (=63171360), duckdb/duckdb.h, duckdb/duckdb.hpp} — 5 files, 61,988 KB",
+        "timing_inference": "the staged dylib mtime (22:56:57) is the END of the 8m19s arm: consistent with a LOCAL COMPILE fallback producing the engine over the arm's duration, not a seconds-long download; build-script stdout was not captured, so download-vs-compile is INFERENCE, not a witnessed mechanism",
+        "actor_attribution": "at least one ensure_binary invocation staged the engine cache-absent during the window; whether the actor was arm-b's own build script, the concurrent stardf-workspace build (a frozen-duckdb-sys build_script_build from the arrow workspace target dir was alive 22:54-23:04), or both, is NOT distinguished"
+      },
+      "verdict": "PASS"
+    }
+  },
+  "restore_proof": {
+    "digests": {
+      "PRE_FORK": "2fe7ff262f0d3d205ad4e037173e19771594f062d6f17ca9f9840226ba04f321",
+      "POST_FORK": "2fe7ff262f0d3d205ad4e037173e19771594f062d6f17ca9f9840226ba04f321",
+      "PRE_CACHE": "c5eae69f3b11228318877902be06043ce6ac56db0b1e5045eecbe91845f617c6",
+      "POST_CACHE": "c5eae69f3b11228318877902be06043ce6ac56db0b1e5045eecbe91845f617c6"
+    },
+    "gate": "script printed 'restore proven byte-identical: both real trees match PRE digests'; the exit-3 mismatch path was not taken",
+    "soundness_scope": "PRE==POST is a sound content+path identity proof for THIS court window. Because the court's digest function is order-unstable (F1), the digest VALUES are window-local anchors, not cross-run reproducible identities; the sorted receipt-time anchors in subject.receipt_time_digest_anchors are the reproducible form.",
+    "post_court_chain": "fork: 0 files with mtime after court end + sorted digest stable across two receipt-time computations => fork byte-identical to court-PRE at receipt time (PROVEN). cache: re-staged post-court by another actor (F2), so cache-content-vs-court-PRE is neither witnessed nor refuted (UNKNOWN)."
+  },
+  "post_court_findings": [
+    {
+      "id": "F1",
+      "severity": "defect in the court gate (determinism), never a spurious-pass for content changes",
+      "finding": "The court's tree_digest (find ... -exec shasum {} + | shasum) is order-nondeterministic: identical unchanged trees yield different digest values back-to-back. Witnessed: 4 distinct values for the unchanged cache tree across 4 computations (court POST c5eae69f..., receipt-time 1b89244f..., back-to-back bed28824... / 2337102c...); the SORTED per-file line-sets are identical in every case. Consequences: (a) unsorted digest values are not cross-run reproducible identity anchors; (b) the restore gate has a SPURIOUS-FAIL mode (a perfect restore can exit 3 on an ordering flip) — the content-fail direction is unaffected (any content delta changes the line multiset and flips the outer hash).",
+      "witness": "back-to-back tree_digest on unchanged /Users/sac/.frozen-duckdb: bed28824c2084e737c790666eb0213e1c22aa01c962806c5f6ced1e4ad5bcf51 vs 2337102ce864a2c6205d175ffb5143e1b7881d06c587282d2c06bb700136602b, seconds apart, sorted line-sets identical",
+      "proposed_fix": "one line, owner is the script's lane (NOT this lane; script unmodified): find \"$1\" -type f -exec shasum -a 256 {} + 2>/dev/null | sort | shasum -a 256 | cut -d' ' -f1",
+      "check_id": "tree-digest-determinism-defect",
+      "passed": false
+    },
+    {
+      "id": "F2",
+      "finding": "Post-court (23:04:49, ~7 min after restore), the real cache tree's cache/v2.0.0-arm64/{libduckdb_arm64.dylib, ENGINE_VERSION, libduckdb_arm64.dylib.size} were rewritten. Attributed to the concurrent stardf-workspace build (frozen-duckdb-sys build_script_build alive 22:54-23:04, exited by 23:06); attribution is correlational (process + mtime window + same ensure_binary mechanism), not directly witnessed. The fork checkout was untouched post-court (0 files with mtime after 22:57:15).",
+      "implication": "rehome scope: the cache is not load-bearing (ARM B proved compile cache-absent) while remaining an actively-written shared surface — both witnessed, not contradictory",
+      "dylib_bytes_after": "73e81df173544215338e8cd81fb017a36a4988e5b5392e1e3dc02f3c1220f36c, differs from ARM B's staged 55b3d26c... at the SAME 63,171,360-byte length (see F3); whether the 23:04 restage preserved court-PRE cache content is UNKNOWN (court's unsorted digest is not reproducible per F1)"
+    },
+    {
+      "id": "F3",
+      "finding": "Cross-staging engine dylib byte-nondeterminism: two stagings of cache/v2.0.0-arm64/libduckdb_arm64.dylib carry DIFFERENT sha256 at identical 63,171,360-byte length (22:56:57 staging 55b3d26c...; 23:04:49 staging 73e81df1...). Consistent with the local-compile staging path; mechanism not witnessed (build-script stdout not captured)."
+    }
+  ],
+  "checks": [
+    {
+      "id": "arm-a-in-situ-control",
+      "passed": true,
+      "count": 3,
+      "comment": "ARM A (fork + cache present): rename-guard clean; generate-lockfile ok; provenance 3/3 registry ==2.0.4; cargo check exit 0 (Finished 21.62s). Control arm green."
+    },
+    {
+      "id": "arm-b-witnessed-absence-before-build",
+      "passed": true,
+      "count": 2,
+      "comment": "Both real trees really renamed to .REHOME-COURT on the same volume; script asserted and printed 'witnessed absence' BEFORE the build ran. Anti-vacuity witness of the rehome arm held."
+    },
+    {
+      "id": "arm-b-cache-absent-compile",
+      "passed": true,
+      "count": 3,
+      "comment": "ARM B cache-absent: rename-guard clean; provenance 3/3 registry ==2.0.4; cargo check exit 0 (Finished 8m19s) with both real trees absent at their real paths. The D13 cache-absent compile datum, witnessed by this lane's own run."
+    },
+    {
+      "id": "arm-b-engine-restage-witnessed",
+      "passed": true,
+      "count": 5,
+      "comment": "A fresh $HOME/.frozen-duckdb was recreated during the ARM B window and quarantined (never deleted): cache/v2.0.0-arm64 with libduckdb_arm64.dylib 63,171,360 B (55b3d26c...), ENGINE_VERSION v2.0.0, .size, duckdb.h, duckdb.hpp. ensure_binary re-stages the engine cache-absent — the rehome mechanism witness."
+    },
+    {
+      "id": "provenance-registry-only-both-arms",
+      "passed": true,
+      "count": 6,
+      "comment": "6/6 provenance rows (3 crates x 2 arms): source registry.crates.io, version 2.0.4 == ratified pin, witnessed per-crate by the court's provenance_assert on both arms' Cargo.lock."
+    },
+    {
+      "id": "restore-byte-identical-at-court-time",
+      "passed": true,
+      "count": 2,
+      "comment": "PRE==POST for BOTH real trees (values in restore_proof.digests); the exit-3 mismatch path was not taken; 'restore proven byte-identical' printed. Soundness scoped per restore_proof.soundness_scope (F1)."
+    },
+    {
+      "id": "fork-untouched-post-court",
+      "passed": true,
+      "count": 0,
+      "comment": "0 files under /Users/sac/frozen-duckdb with mtime after court end (22:57:15); sorted digest stable across two receipt-time computations (67c4da41...). Chain: court PRE==POST + no post-court writes => fork byte-identical to court-PRE at receipt time."
+    },
+    {
+      "id": "tree-digest-determinism-defect",
+      "passed": false,
+      "count": 4,
+      "comment": "FAILED CHECK, kept honest per receipt law 2. The court's tree_digest is order-nondeterministic: 4 distinct digest values for the unchanged cache tree (court POST c5eae69f, receipt-time 1b89244f, back-to-back bed28824 / 2337102c); sorted line-sets identical every time. Window-local anchors only; spurious-FAIL (never spurious-PASS) mode for the restore gate. One-line fix (| sort) belongs to the script's owning lane; script unmodified by this lane."
+    },
+    {
+      "id": "cache-volatile-shared-surface",
+      "passed": true,
+      "count": 3,
+      "comment": "3 cache files rewritten post-court at 23:04:49 (libduckdb_arm64.dylib, ENGINE_VERSION, .size), attributed to the concurrent stardf-workspace build (see F2/F3). Cache not load-bearing (ARM B) while actively written (F2) — both witnessed."
+    }
+  ],
+  "errors": [],
+  "commands": [
+    {
+      "cmd": "bash scripts/verify_duckdb_rehome.sh (cwd /Users/sac/ggen-legacy/stardf/arrow; stdout+stderr > /tmp/rehome-court-run-20261031T224754.log)",
+      "exit": 0,
+      "comment": "the court itself; window 22:47:54-22:57:15 PDT"
+    },
+    {
+      "cmd": "shasum -a 256 scripts/verify_duckdb_rehome.sh",
+      "exit": 0,
+      "comment": "court script identity"
+    },
+    {
+      "cmd": "find /Users/sac/frozen-duckdb -type f -newermt '2026-10-31 22:57:15' | wc -l",
+      "exit": 0,
+      "comment": "post-court fork-write census -> 0"
+    },
+    {
+      "cmd": "find /Users/sac/frozen-duckdb /Users/sac/.frozen-duckdb -type f -newermt '2026-10-31 23:02:00'",
+      "exit": 0,
+      "comment": "post-court cache restage census -> exactly 3 files (dylib, ENGINE_VERSION, .size), mtime 23:04:49"
+    },
+    {
+      "cmd": "find <tree> -type f -exec shasum -a 256 {} + | sort | shasum -a 256 (x2 trees, x2 computations each)",
+      "exit": 0,
+      "comment": "receipt-time sorted anchors; stable across computations"
+    },
+    {
+      "cmd": "shasum -a 256 /tmp/rehome-court-run-20261031T224754.log",
+      "exit": 0,
+      "comment": "court log identity (volatile /tmp; narration embedded in this receipt)"
+    },
+    {
+      "cmd": "python3 -m json.tool <receipt> (post-write self-validation)",
+      "exit": 0,
+      "comment": "JSON validity check run after write; a failed validation would have been receipted, not silently retried"
+    }
+  ],
+  "context_git_reads": [
+    {
+      "cmd": "git status --porcelain scripts/verify_duckdb_rehome.sh (read-only, pre-court)",
+      "exit": 0,
+      "comment": "subject context: script is working-tree-modified vs the c3-landed version"
+    },
+    {
+      "cmd": "git log -1 -- scripts/verify_duckdb_rehome.sh ; git rev-parse HEAD (read-only, pre-court)",
+      "exit": 0,
+      "last_commit_touching_script": "6cbb5b7734b1872e0d845ed6dd333493f497a3f7",
+      "head_at_receipt_time": "724d542540b497f2928a63b5aece9b37aef4019b",
+      "comment": "context only; NO git mutations by this lane (coordinator owns git)"
+    }
+  ],
+  "quarantine_byproducts_left_in_place": {
+    "this_run": {
+      "path": "/Users/sac/.frozen-duckdb.REHOME-COURT-recreated-1793512623",
+      "files": 5,
+      "kb": 61988
+    },
+    "prior_coordinator_run": {
+      "path": "/Users/sac/.frozen-duckdb.REHOME-COURT-recreated-1793503255",
+      "from": "the prior (unreceipted) coordinator-reported court run",
+      "files": 5,
+      "kb": 61988
+    },
+    "policy": "left in place per court design (quarantined, NEVER deleted); cleanup is not this lane's authority (lane owns only the receipt file)"
+  },
+  "replay": {
+    "status": "NOT_RUN",
+    "comment": "A second consecutive court run (replay pair) was NOT executed: each run mints a ~60MB quarantined cache byproduct at $HOME (two already exist; accumulating more is not this lane's authority). The court's own restore gate (PRE==POST) is the designed per-run soundness mechanism and was witnessed. The verify.py byte-identical replay pair is not part of this court's gate and was not run."
+  },
+  "standing": "ALIVE",
+  "standing_scope": "frozen-duckdb =2.0.4 x3 registry-only resolve+compile is ALIVE cache-absent AND in-situ (court exit 0, this lane's own witnessed run, 2026-10-31 22:47:54-22:57:15 PDT): no [patch.crates-io], no fork path, no pre-existing cache required — ensure_binary re-stages the engine cache-absent (witnessed). Scoped by the nonclaims below (no linked-binary standing, staging mechanism inferred, unsorted digest anchors are window-local).",
+  "nonclaims": [
+    "linked-binary standing: NOT claimed — the court subject is a dependency-only cargo check; no linked subject binary exercised engine symbols (the script header scopes linking as D13 follow-up)",
+    "engine-staging mechanism (release-asset download vs local-compile fallback): NOT witnessed — timing/mtime inference only (F3); build-script stdout not captured",
+    "staging actor during ARM B (arm-b's own build script vs the concurrent workspace build, or both): NOT distinguished",
+    "watchdog kill path: NOT exercised (neither bound fired)",
+    "cross-run reproducibility of the court's unsorted tree_digest values: NOT claimed (F1 defect; sorted anchors supplied instead)",
+    "cache content-vs-court-PRE after the 23:04:49 post-court restage: neither witnessed nor refuted (UNKNOWN)",
+    "second consecutive court run (replay pair): NOT_RUN (byproduct-accumulation avoidance, disclosed in replay)",
+    "git mutations by this lane: NONE (three read-only git context reads disclosed in context_git_reads; coordinator owns git)",
+    "external production, CI, or live-publish standing: NOT claimed",
+    "byproduct cleanup authority: NOT claimed (two ~60MB quarantine dirs left in place per court design)"
+  ],
+  "court_narration_verbatim": [
+    "[rehome-court] PRE_FORK digest=2fe7ff262f0d3d205ad4e037173e19771594f062d6f17ca9f9840226ba04f321",
+    "[rehome-court] PRE_CACHE digest=c5eae69f3b11228318877902be06043ce6ac56db0b1e5045eecbe91845f617c6",
+    "[rehome-court] ARM A: in-situ control — fork + cache present, sandbox registry-only =2.0.4 x3",
+    "[rehome-court] rename-guard: clean (no local paths, no patch section)",
+    "[rehome-court] [arm-a] running cargo generate-lockfile (registry resolve of =2.0.4 x3)",
+    "[rehome-court] provenance frozen-duckdb: registry, 2.0.4 == ratified pin",
+    "[rehome-court] provenance frozen-duckdb-sys: registry, 2.0.4 == ratified pin",
+    "[rehome-court] provenance frozen-duckdb-builder: registry, 2.0.4 == ratified pin",
+    "[rehome-court] [arm-a] running cargo check (bound 900s)",
+    "[rehome-court] ARM A PASS",
+    "[rehome-court] ARM B: renaming fork + cache away (same-volume rename(2), .REHOME-COURT suffix)",
+    "[rehome-court] renamed: /Users/sac/frozen-duckdb -> /Users/sac/frozen-duckdb.REHOME-COURT ; /Users/sac/.frozen-duckdb -> /Users/sac/.frozen-duckdb.REHOME-COURT",
+    "[rehome-court] witnessed absence: /Users/sac/frozen-duckdb and /Users/sac/.frozen-duckdb are REALLY gone",
+    "[rehome-court] ARM B: cache-absent registry-only build of =2.0.4 x3",
+    "[rehome-court] rename-guard: clean (no local paths, no patch section)",
+    "[rehome-court] [arm-b] running cargo generate-lockfile (registry resolve of =2.0.4 x3)",
+    "[rehome-court] provenance frozen-duckdb: registry, 2.0.4 == ratified pin",
+    "[rehome-court] provenance frozen-duckdb-sys: registry, 2.0.4 == ratified pin",
+    "[rehome-court] provenance frozen-duckdb-builder: registry, 2.0.4 == ratified pin",
+    "[rehome-court] [arm-b] running cargo check (bound 3600s)",
+    "[rehome-court] ARM B PASS",
+    "[rehome-court] restoring real trees (quarantine-then-move-back)",
+    "[rehome-court] QUARANTINE: recreated dir moved to /Users/sac/.frozen-duckdb.REHOME-COURT-recreated-1793512623 (court-window byproduct, NOT deleted)",
+    "[rehome-court] state=restored",
+    "[rehome-court] POST_FORK digest=2fe7ff262f0d3d205ad4e037173e19771594f062d6f17ca9f9840226ba04f321",
+    "[rehome-court] POST_CACHE digest=c5eae69f3b11228318877902be06043ce6ac56db0b1e5045eecbe91845f617c6",
+    "[rehome-court] restore proven byte-identical: both real trees match PRE digests",
+    "[rehome-court] disclosures:",
+    "[rehome-court] COURT PASS: frozen-duckdb =2.0.4 x3 resolves + compiles from crates.io with zero machine-local paths, cache-absent (ARM B) and in-situ (ARM A), real trees restored byte-identical"
+  ]
+}

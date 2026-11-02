@@ -1,0 +1,155 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+# Vendoring lane w2-l06 (2026-10-31): copy-and-rename of purrdf rev
+# 0da0578306983da851a9073337d57e2e2c41ab3a `crates/slice` -> `stardf-slice`; lib name
+# `purrdf_slice` pinned explicitly (upstream declared none — implicit name preserved
+# verbatim; same posture as stardf-testkit, disclosed in VENDOR-PROVENANCE.md).
+# Only the package name, workspace-inherited scalars (materialized), first-party dep
+# keys (path deps) and external pin RHS values were touched. Upstream `workspace = true`
+# dep entries were resolved against the PURRDF workspace at the pin (values quoted in
+# the comments below are upstream's own). NOT yet a workspace member: its first-party
+# closure (stardf-rdf, stardf-core, stardf-gts) has not landed — registration is
+# deferred to integration so the shared `cargo metadata`/compile seam is never frozen.
+
+[package]
+name = "stardf-slice"
+description = "PurRDF native slice catalog: manifest-based discovery, typed artifact inventory, content-addressed IDs"
+version = "26.9.29"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+repository = "https://github.com/seanchatmangpt/ggen-legacy"
+homepage = "https://blackcatinformatics.ca/purrdf/"
+documentation = "https://docs.rs/purrdf-slice"
+rust-version = "1.98"
+keywords = ["rdf", "linked-data", "manifest", "slice", "provenance"]
+categories = ["data-structures"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+crate-type = ["rlib"]
+path = "src/lib.rs"
+# LIB NAME VERBATIM per the vendoring law (lib names unchanged; consumers `use
+# purrdf_slice::...` in the stardf tree). Upstream declared no [lib] name — the
+# implicit name `purrdf_slice` is pinned explicitly here (stardf-testkit posture).
+name = "purrdf_slice"
+
+[dependencies]
+# The slice catalog/emitters/linters parse via the native
+# `gts` text codecs (`parse_dataset`) into the `RdfDataset` IR and query it directly.
+# (upstream key purrdf-rdf; package NOT yet vendored — sibling copy-sweep lane lease;
+# resolves to package stardf-rdf, lib name stays purrdf_rdf.)
+stardf-rdf = { path = "../stardf-rdf" }
+# The ring-fenced kernel, named directly (not through the `purrdf` umbrella) for
+# `graph::tarjan_scc`: the workspace's ONE strongly-connected-components
+# implementation, which the link-unit linker runs over slice dependency edges.
+# It is a generic index-graph algorithm with no RDF surface, so it does not
+# belong on the umbrella's re-export list; a direct edge also states the real
+# dependency instead of laundering it. Already upstream of this crate in the
+# publish order, so the release lane is unchanged.
+# (upstream key purrdf-core; package NOT yet vendored — sibling copy-sweep lane lease;
+# resolves to package stardf-core, lib name stays purrdf_core.)
+stardf-core = { path = "../stardf-rdf-core" }
+# The one extension-to-media-type table (`purrdf_gts::files::media_type_for_path`),
+# behind the catalog's artifact media types and the RDF query loader's syntax
+# routing. Already upstream of this crate through `purrdf-rdf`.
+# (upstream key purrdf-gts; package NOT yet vendored — sibling copy-sweep lane lease;
+# resolves to package stardf-gts, lib name stays purrdf_gts.)
+stardf-gts = { path = "../stardf-gts" }
+# Native SPARQL parser — competency/verify queries are PARSED
+# (RFC §10), never text-searched, to extract referenced term IRIs.
+# RDF-1.2 quoted triple terms are first-class.
+# (upstream key purrdf-sparql-algebra; vendored this workspace, lib name stays
+# purrdf_sparql_algebra.)
+stardf-sparql-algebra = { path = "../stardf-sparql-algebra" }
+# The IRI value space. `BaseIri` validates the RFC-8089 `file://` retrieval IRI this
+# crate derives for every on-disk document it parses (RFC-3986 5.1.3) — the one
+# implementation of that step in the workspace, since `purrdf-slice` is the only
+# library crate here that opens files. Zero-dependency foundation crate.
+# (upstream key purrdf-iri; vendored this workspace, lib name stays purrdf_iri.)
+stardf-iri = { path = "../stardf-iri" }
+# The RDF 1.2 term syntax and literal escaper the analysis-graph Turtle writer
+# spells its literals and IRIs with.
+# (upstream key purrdf-lex; vendored this workspace, lib name stays purrdf_lex.)
+stardf-lex = { path = "../stardf-lex" }
+# Default features (std) re-enabled; the workspace-level entry is
+# default-features = false for the wasm-clean eval path.
+# (upstream: sha2 = { workspace = true, default-features = true } over the purrdf
+# workspace pin `sha2 = { version = "0.11", default-features = false }`; this
+# workspace carries no sha2 entry, so the use-site intent is materialized directly:
+# default features ON. Resolved 0.11.1 in Cargo.lock.)
+sha2 = "0.11"
+# Lowercase hex rendering of those SHA-256 digests.
+# (upstream key purrdf-hash; vendored this workspace, lib name stays purrdf_hash.)
+stardf-hash = { path = "../stardf-hash" }
+# The prefix-consistency lint scans authored `.ttl` / `.rq` sources for `@prefix` /
+# `PREFIX` declarations with a regex, to police registry-prefix shadowing. External
+# published crate (already in the workspace lockfile, used by purrdf-validate/purrdf-shapes),
+# so the S0.9 layering gate is unaffected.
+# (upstream workspace entry materialized verbatim; same posture as
+# stardf-sparql-algebra's dev-dep regex.)
+regex = { version = "1", default-features = false, features = ["std", "unicode", "perf-cache", "perf-dfa", "perf-onepass", "perf-backtrack", "perf-inline"] }
+# (upstream workspace entry materialized verbatim: `rayon = "1"`.)
+rayon = "1"
+
+[dev-dependencies]
+# Temporary slice trees under the target directory, for the tests and the bench.
+# (upstream key purrdf-testkit kept verbatim with `package = "stardf-testkit"` so the
+# vendored test/bench sources' `purrdf_testkit` paths stay byte-verbatim; vendored
+# this workspace, lib name stays purrdf_testkit.)
+purrdf-testkit = { package = "stardf-testkit", path = "../stardf-testkit" }
+
+[[bench]]
+name = "ownership"
+harness = false
+
+[[test]]
+name = "structured_errors"
+harness = false
+
+[lints.rust]
+# Upstream `[lints] workspace = true` inlined VERBATIM from the purrdf root
+# [workspace.lints.rust] at the vendored rev (stardf-xsd posture; this workspace
+# carries no [workspace.lints]).
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+# Underscore spelling, not `rust-2018-idioms`: cargo deprecated the dashed form
+# and will stop honouring it in a future edition, at which point the whole lint
+# GROUP would silently stop applying. Nightly cargo already warns about it.
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[lints.clippy]
+# Upstream [workspace.lints.clippy], verbatim including opt-outs.
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"     # purrdf_core::RdfDataset-style names are deliberate
+missing_errors_doc = "allow"          # error semantics live on the error types themselves
+missing_panics_doc = "allow"          # panics are programming errors, documented at the assert
+must_use_candidate = "allow"          # blanket #[must_use] adds noise; applied by hand where it guards bugs
+option_if_let_else = "allow"          # nursery: frequently less readable than the match it replaces
+redundant_pub_crate = "allow"         # nursery: conflicts with unreachable_pub on binary/test targets
+doc_markdown = "allow"                # 500+ backtick nits on spec terms (RDF/XML, JSON-LD); revisit with doc-valid-idents
+missing_const_for_fn = "allow"        # nursery: noisy and often wrong about intentionally non-const APIs
+too_long_first_doc_paragraph = "allow" # cosmetic doc layout only
+cast_possible_truncation = "allow"    # u32 id/offset space is asserted at construction; casts are deliberate
+cast_possible_wrap = "allow"          # ditto
+cast_sign_loss = "allow"              # ditto
+cast_precision_loss = "allow"         # XSD numeric promotion is spec-defined; losses are intentional
+unnecessary_wraps = "allow"           # Result-shaped codec seams are kept uniform even where infallible today
+unused_self = "allow"                 # method-shaped APIs kept uniform across backends
+many_single_char_names = "allow"      # s/p/o/g is the canonical RDF idiom
+similar_names = "allow"               # subject/predicate/object families trip this constantly
+too_many_lines = "allow"              # refactors are planned work, not lint chores
+single_match_else = "allow"           # stylistic; match reads better at codec branch points
+match_same_arms = "allow"             # duplicate arms often document distinct spec cases
+if_not_else = "allow"                 # stylistic
+items_after_statements = "allow"      # test-local helpers read better in place
+zero_sized_map_values = "allow"       # HashMap<K, ()> is used deliberately for entry-API patterns
+unnecessary_debug_formatting = "allow" # {:?} in diagnostics is deliberate; message text is golden-locked
+float_cmp = "allow"                   # XSD value-space equality is spec-exact by design

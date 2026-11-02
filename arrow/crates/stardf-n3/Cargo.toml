@@ -1,0 +1,167 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+# Vendoring lane (2026-10-31, copy sweep slice 8/20): copy-and-rename of purrdf rev
+# 0da0578306983da851a9073337d57e2e2c41ab3a `crates/n3` -> `stardf-n3`; lib name
+# `purrdf_n3` stays VERBATIM per the vendoring law (upstream declared no explicit
+# lib name — the implicit package-derived name pinned explicitly). Only the package
+# name, workspace-inherited scalars (version/edition/license/repository/
+# rust-version; homepage/documentation dropped per the stardf-cdt manifest
+# precedent), first-party dep keys (path deps), external pin RHS values, the
+# [lints] inlining and the standalone [workspace] block were touched. Residual
+# closure: crates/stardf-rdf is NOT yet vendored, so the stardf-rdf path dep
+# resolves against a not-yet-landed sibling; workspace membership is the
+# integration decision that lands with stardf-rdf (stardf-rdf-core-slice
+# precedent: crates/stardf-rdf-core-slice/Cargo.toml [workspace] block).
+
+[package]
+name = "stardf-n3"
+# Lane 07-publish-metadata (2026-10-31): v26.11.1 first-class closure —
+# description/keywords/categories/repository now workspace-inherited; homepage
+# restored as a workspace inherit (slice 8/20 vendoring posture dropped it for
+# the unpublished path-only crate; publishability restores it).
+description.workspace = true
+# Lane 08-dual-key (2026-10-31): closure version inherits the workspace 26.11.1.
+version.workspace = true
+edition = "2024"
+publish = true
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+repository.workspace = true
+homepage.workspace = true
+rust-version = "1.98"
+keywords.workspace = true
+categories.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+
+[lib]
+crate-type = ["rlib"]
+path = "src/lib.rs"
+# Upstream declared no explicit lib name: the implicit package-derived lib name
+# `purrdf_n3` pinned here VERBATIM per the vendoring law (source `use
+# purrdf_n3::...` paths resolve unedited).
+name = "purrdf_n3"
+
+[dependencies]
+# The N3 parser produces term and triple constructors over RDF 1.2's term
+# model; graph formulas, @forAll/@forSome quantification and log: payload
+# terms lower onto the same term identities the codecs mint.
+# Lane H03 gate-closure (2026-10-31): dual-keyed per the G5 version+path law
+# (the 21:05 ladder receipt named this row).
+stardf-rdf = { version = "=26.11.1", path = "../stardf-rdf" }
+# One spelling of IRI resolution for @base/@prefix expansion — the same
+# relative-reference resolution the other codecs use, not a second one.
+stardf-iri = { workspace = true }
+# The clause-term constructors that wrap a caller's text and the N3 tokenizer's
+# punctuation/keyword vocabulary share the lex crate's one spelling.
+stardf-lex = { workspace = true }
+# Fixed-key interning of formula-scoped terms and content-addressed proof node
+# identity hash with purrdf-hash's `FixedHasher`. Fixed-key (not RandomState)
+# because wasm32 has no entropy source and iteration order must never reach an
+# output path.
+stardf-hash = { workspace = true }
+# SWAR digit-run scan in the tokenizer (OPT-46/OPT-51): the lexer consumes
+# [0-9]{8k} whole words via purrdf_branchless::swar::byte_lane_in_range.
+stardf-branchless = { workspace = true }
+# Formula-scoped dictionaries and the backward prover's premise tables hash
+# with the same `FixedHasher` (declared above). Fixed-key (not RandomState)
+# for wasm32's absent entropy source and deterministic output paths.
+hashbrown = { version = "0.17", default-features = false }
+# The reasoner's list/math builtin families evaluate over arbitrary-precision
+# integers (num-bigint with num-traits' Signed/ToPrimitive) and match string
+# builtins with the workspace's one regex spelling (std+unicode+perf features).
+num-bigint = "0.4"
+num-traits = "0.2"
+regex = { version = "1", default-features = false, features = ["std", "unicode", "perf-cache", "perf-dfa", "perf-onepass", "perf-backtrack", "perf-inline"] }
+
+wasm-bindgen = { version = "=0.2.129", optional = true }
+
+[features]
+wasm = ["dep:wasm-bindgen"]
+
+[dev-dependencies]
+# Lane H03 gate-closure (2026-10-31): both dev-deps dual-keyed per the G5
+# version+path law (the 21:05 ladder receipt named these rows).
+stardf-testkit = { version = "=26.11.1", path = "../stardf-testkit" }
+stardf-alloc-probe = { version = "=26.11.1", path = "../stardf-alloc-probe" }
+
+# The same production parser, prover and proof assertions execute natively and
+# in Node through the workspace wasm runner; no libtest runtime is assumed on
+# wasm32.
+[[test]]
+name = "n3_parse"
+harness = false
+
+[[test]]
+name = "n3_reason"
+harness = false
+
+[[test]]
+name = "n3_proofs"
+harness = false
+
+[[test]]
+# The WP P01 forgery court: three forge classes, each with a legacy() flip
+# twin, against the hardened proof checker.
+name = "n3_forgery"
+harness = false
+
+[[bench]]
+# Backward-proof latency along the axes a proof's cost actually has: rule-body
+# depth, premise fan-out and the term count of the goal. Report-only.
+name = "reasoner"
+harness = false
+
+#
+# Upstream `[lints] workspace = true` inlined VERBATIM from purrdf root
+# [workspace.lints] at the vendored rev (same posture, zero drift).
+# [lints] workspace inheritance resolves only inside a workspace declaring
+# [workspace.lints]; stardf/arrow declares none, so the stardf-cdt posture is
+# followed: the upstream text is carried commented, inert.
+# [lints.rust]
+# missing_docs = "warn"
+# unsafe_op_in_unsafe_fn = "warn"
+# missing_debug_implementations = "warn"
+# unreachable_pub = "warn"
+# unused_qualifications = "warn"
+# # Underscore spelling, not `rust-2018-idioms`: cargo deprecated the dashed form
+# # and will stop honouring it in a future edition, at which point the whole lint
+# # GROUP would silently stop applying. Nightly cargo already warns about it.
+# rust_2018_idioms = { level = "warn", priority = -1 }
+#
+# [lints.clippy]
+# all = { level = "warn", priority = -1 }
+# pedantic = { level = "warn", priority = -1 }
+# nursery = { level = "warn", priority = -1 }
+# # Pedantic/nursery opt-outs, each with a reason. Keep this list short and
+# # justified; prefer fixing code over widening it.
+# module_name_repetitions = "allow"     # purrdf_core::RdfDataset-style names are deliberate
+# missing_errors_doc = "allow"          # error semantics live on the error types themselves
+# missing_panics_doc = "allow"          # panics are programming errors, documented at the assert
+# must_use_candidate = "allow"          # blanket #[must_use] adds noise; applied by hand where it guards bugs
+# option_if_let_else = "allow"          # nursery: frequently less readable than the match it replaces
+# redundant_pub_crate = "allow"         # nursery: conflicts with unreachable_pub on binary/test targets
+# doc_markdown = "allow"                # 500+ backtick nits on spec terms (RDF/XML, JSON-LD); revisit with doc-valid-idents
+# missing_const_for_fn = "allow"        # nursery: noisy and often wrong about intentionally non-const APIs
+# too_long_first_doc_paragraph = "allow" # cosmetic doc layout only
+# cast_possible_truncation = "allow"    # u32 id/offset space is asserted at construction; casts are deliberate
+# cast_possible_wrap = "allow"          # ditto
+# cast_sign_loss = "allow"              # ditto
+# cast_precision_loss = "allow"         # XSD numeric promotion is spec-defined; losses are intentional
+# unnecessary_wraps = "allow"           # Result-shaped codec seams are kept uniform even where infallible today
+# unused_self = "allow"                 # method-shaped APIs kept uniform across backends
+# many_single_char_names = "allow"      # s/p/o/g is the canonical RDF idiom
+# similar_names = "allow"               # subject/predicate/object families trip this constantly
+# too_many_lines = "allow"              # refactors are planned work, not lint chores
+# single_match_else = "allow"           # stylistic; match reads better at codec branch points
+# match_same_arms = "allow"             # duplicate arms often document distinct spec cases
+# if_not_else = "allow"                 # stylistic
+# items_after_statements = "allow"      # test-local helpers read better in place
+# zero_sized_map_values = "allow"       # HashMap<K, ()> is used deliberately for entry-API patterns
+# unnecessary_debug_formatting = "allow" # {:?} in diagnostics is deliberate; message text is golden-locked
+# float_cmp = "allow"                   # XSD value-space equality is spec-exact by design
+
+# (repair lane 2026-10-31) Standalone-root table REMOVED: the registered
+# premise ("stardf-rdf is not yet vendored") is closed by the 80/20 bulk copy,
+# and the coordinator-owned membership decision is executed by this repair
+# lane's green-loop lease (root members list carries the crate).

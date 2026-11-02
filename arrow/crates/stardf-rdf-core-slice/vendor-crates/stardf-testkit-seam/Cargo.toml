@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics(R) Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+# Seam: purrdf-testkit's `rng` surface needed by the xml_escape module's
+# vendored tests (SplitMix64 deterministic stream). rng.rs is VERBATIM from
+# purrdf rev 0da05783 (crates/testkit/src/rng.rs, sha256 receipt in
+# PROVENANCE.md when the crate-root lane lands it). The full vendored
+# stardf-testkit is not consumable standalone yet (its jsonschema metaschema
+# include_str! path surface references a not-yet-vendored crates/jsonschema
+# tree — 17 E0583-class include_str! failures witnessed 2026-10-31) — pending
+# replacement by the full W1-vendored stardf-testkit.
+[package]
+name = "stardf-testkit-seam"
+version = "26.9.29"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+# Lane 06-msrv (2026-10-31): 1.88 -> 1.98 literal (excluded non-member, so
+# `rust-version.workspace` cannot resolve); matches the five sibling seams
+# and the vendored upstream testkit's own MSRV.
+rust-version = "1.98"
+
+[lib]
+name = "purrdf_testkit"
+path = "src/lib.rs"
+
+[dependencies]
+purrdf_hash = { package = "stardf-hash", path = "../../../stardf-hash" }

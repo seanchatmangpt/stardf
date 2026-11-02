@@ -1,0 +1,522 @@
+{
+ "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+ "lane": "G07 tarball audit",
+ "date": "2026-10-31",
+ "subject": {
+  "head": "724d542540b497f2928a63b5aece9b37aef4019b",
+  "branch": "fix/v26.9.29-ci-gates",
+  "tree_digest": "e828f9b95cbebf026d5081b92505c09d08985aec9aec426902b5555d050b87f3",
+  "tree_digest_method": "house method prefix-relative inside stardf/arrow; lane build roots excluded",
+  "git_state": "WORKING TREE UNCOMMITTED (concurrent lanes; coordinator owns commits)",
+  "drift_note": "lane 08-dual-key dual-keyed internal deps mid-audit: class-1 eliminated, stardf-columnar moved to class-2"
+ },
+ "closure_crate_list": [
+  "stardf-arrow-core",
+  "stardf-arrow-capi",
+  "stardf-arrow-bench",
+  "stardf-columnar",
+  "stardf-sql",
+  "stardf-n3",
+  "stardf-scan-duckdb",
+  "stardf-duckdb",
+  "stardf-hash",
+  "stardf-branchless",
+  "stardf-lex",
+  "stardf-iri",
+  "stardf-xsd",
+  "stardf-cdt",
+  "stardf-events",
+  "stardf-deflate",
+  "stardf-stack",
+  "stardf-testkit",
+  "stardf-alloc-probe",
+  "stardf-toml",
+  "stardf-rs",
+  "stardf-core"
+ ],
+ "closure_dirs_note": "stardf-rs at crates/stardf-purrdf; stardf-core at crates/stardf-rdf-core; others name==dir",
+ "checks": [
+  {
+   "id": "list-gate-22-exit-0",
+   "passed": true,
+   "count": 22,
+   "comment": "cargo package --list re-run fresh: 22/22 exit 0"
+  },
+  {
+   "id": "license-carriage-every-list",
+   "passed": true,
+   "count": 22,
+   "comment": ">=3 LICENSE + NOTICE + PROVENANCE rows in every list; lex/iri/testkit/core carry a 4th license row"
+  },
+  {
+   "id": "license-shas-canonical-in-tarballs",
+   "passed": true,
+   "count": 9,
+   "comment": "9/9 LICENSE files inside the 3 tarballs sha256-identical to canonical trio cfc7749b/958c0e61/eb7a1d71"
+  },
+  {
+   "id": "tarballs-under-10mb",
+   "passed": true,
+   "count": 3,
+   "comment": "3/3 real tarballs under 10MB; largest 145882 B; sizes+sha256 computed from artifacts at receipt time"
+  },
+  {
+   "id": "tarball-census-clean",
+   "passed": true,
+   "count": 3,
+   "comment": "tar -tzf census: file counts equal list row counts (16/54/12); zero data-corpora rows inside"
+  },
+  {
+   "id": "replay-byte-identical",
+   "passed": true,
+   "count": 3,
+   "comment": "re-run of 3 leaves hash-identical; sha256s also stable vs the lane first-run and vs lane11 leaf sizes"
+  },
+  {
+   "id": "no-corpora-in-any-list",
+   "passed": true,
+   "count": 22,
+   "comment": "zero data-corpus rows in 22 fresh lists; only hits are source files named vectors (stardf-testkit)"
+  },
+  {
+   "id": "exclude-tables-correct-no-fix-needed",
+   "passed": true,
+   "count": 6,
+   "comment": "6 exclude rows cover exactly the on-disk bulk (xsd 34.4MB, iri 12.9MB, lex 6.4MB, toml 3.8MB, branchless 1.9MB dirs); no drift on exclude rows"
+  },
+  {
+   "id": "excluded-vectors-not-load-bearing",
+   "passed": true,
+   "count": 5,
+   "comment": "include_str!/include_bytes! of excluded files live only under tests/disabled/ (cargo auto-discovers only tests/*.rs); toml+branchless reference none"
+  },
+  {
+   "id": "class-1-eliminated-mid-lane-by-lane08",
+   "passed": true,
+   "count": 4,
+   "comment": "lane 08-dual-key dual-keyed internal deps mid-audit: sql/n3/rs/core moved class-1 to class-2; class-1 count now zero"
+  },
+  {
+   "id": "publish-blockers-re-witnessed",
+   "passed": false,
+   "count": 19,
+   "comment": "19 refused full packaging (exit 101), uniformly class-2 registry-unresolved until leaf-first crates.io bootstrap"
+  },
+  {
+   "id": "publish-flag-drift-observed-not-actuated",
+   "passed": false,
+   "count": 2,
+   "comment": "duckdb+core publish=false; core version 26.9.29 literal vs workspace 26.11.1; lane07/08 keys, disclosed only"
+  },
+  {
+   "id": "receipt-write-corruption-disclosed",
+   "passed": false,
+   "count": 1,
+   "comment": "first freehand Write pass of this receipt repeat-loop corrupted mid-write (self-witnessed); landed file is a mechanical rewrite; register of truth = /tmp/g07 lists+logs"
+  }
+ ],
+ "per_crate": [
+  {
+   "crate": "stardf-arrow-core",
+   "dir": "stardf-arrow-core",
+   "list_exit": 0,
+   "files": 16,
+   "listed_bytes": 135458,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": null,
+   "real_tarball": {
+    "bytes": 40132,
+    "sha256": "cc5402bb500279f40fe1264d07ad39645c58599912442ab9ae8b73e847b4ff8c",
+    "under_10mb": true,
+    "replay": "byte-identical (re-run witnessed)",
+    "lic_inside": "canonical (9/9 witnessed)"
+   }
+  },
+  {
+   "crate": "stardf-arrow-capi",
+   "dir": "stardf-arrow-capi",
+   "list_exit": 0,
+   "files": 20,
+   "listed_bytes": 162418,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-arrow-core` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-arrow-bench",
+   "dir": "stardf-arrow-bench",
+   "list_exit": 0,
+   "files": 12,
+   "listed_bytes": 69684,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-arrow-core` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-columnar",
+   "dir": "stardf-columnar",
+   "list_exit": 0,
+   "files": 52,
+   "listed_bytes": 578487,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-arrow-core` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-sql",
+   "dir": "stardf-sql",
+   "list_exit": 0,
+   "files": 19,
+   "listed_bytes": 383775,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-core` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-n3",
+   "dir": "stardf-n3",
+   "list_exit": 0,
+   "files": 31,
+   "listed_bytes": 896378,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-branchless` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-scan-duckdb",
+   "dir": "stardf-scan-duckdb",
+   "list_exit": 0,
+   "files": 13,
+   "listed_bytes": 119188,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-arrow-core` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-duckdb",
+   "dir": "stardf-duckdb",
+   "list_exit": 0,
+   "files": 24,
+   "listed_bytes": 223896,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-columnar` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-hash",
+   "dir": "stardf-hash",
+   "list_exit": 0,
+   "files": 54,
+   "listed_bytes": 526601,
+   "lic": 3,
+   "notice": 1,
+   "prov": 2,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": null,
+   "real_tarball": {
+    "bytes": 145882,
+    "sha256": "2536b055586b59435a9d002694daec23f422a2b2b954de025f3407fa6fd32c85",
+    "under_10mb": true,
+    "replay": "byte-identical (re-run witnessed)",
+    "lic_inside": "canonical (9/9 witnessed)"
+   }
+  },
+  {
+   "crate": "stardf-branchless",
+   "dir": "stardf-branchless",
+   "list_exit": 0,
+   "files": 50,
+   "listed_bytes": 627363,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-hash` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-lex",
+   "dir": "stardf-lex",
+   "list_exit": 0,
+   "files": 98,
+   "listed_bytes": 2581543,
+   "lic": 4,
+   "notice": 1,
+   "prov": 3,
+   "third_party": 4,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-hash` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-iri",
+   "dir": "stardf-iri",
+   "list_exit": 0,
+   "files": 45,
+   "listed_bytes": 2080130,
+   "lic": 4,
+   "notice": 1,
+   "prov": 3,
+   "third_party": 1,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-hash` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-xsd",
+   "dir": "stardf-xsd",
+   "list_exit": 0,
+   "files": 93,
+   "listed_bytes": 2449387,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-hash` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-cdt",
+   "dir": "stardf-cdt",
+   "list_exit": 0,
+   "files": 36,
+   "listed_bytes": 606582,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-events` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-events",
+   "dir": "stardf-events",
+   "list_exit": 0,
+   "files": 14,
+   "listed_bytes": 96530,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-hash` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-deflate",
+   "dir": "stardf-deflate",
+   "list_exit": 0,
+   "files": 31,
+   "listed_bytes": 288534,
+   "lic": 3,
+   "notice": 1,
+   "prov": 2,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-hash` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-stack",
+   "dir": "stardf-stack",
+   "list_exit": 0,
+   "files": 15,
+   "listed_bytes": 129428,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-hash` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-testkit",
+   "dir": "stardf-testkit",
+   "list_exit": 0,
+   "files": 72,
+   "listed_bytes": 595049,
+   "lic": 4,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-hash` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-alloc-probe",
+   "dir": "stardf-alloc-probe",
+   "list_exit": 0,
+   "files": 12,
+   "listed_bytes": 107472,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": null,
+   "real_tarball": {
+    "bytes": 34641,
+    "sha256": "32926952dd3de9b04c53acae339bf301af7c7e898e7b54a2240f1f882877b1f1",
+    "under_10mb": true,
+    "replay": "byte-identical (re-run witnessed)",
+    "lic_inside": "canonical (9/9 witnessed)"
+   }
+  },
+  {
+   "crate": "stardf-toml",
+   "dir": "stardf-toml",
+   "list_exit": 0,
+   "files": 21,
+   "listed_bytes": 143070,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 1,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-core` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-rs",
+   "dir": "stardf-purrdf",
+   "list_exit": 0,
+   "files": 34,
+   "listed_bytes": 477129,
+   "lic": 3,
+   "notice": 1,
+   "prov": 1,
+   "third_party": 0,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-arrow-rs` =26.11.1 not on crates.io"
+  },
+  {
+   "crate": "stardf-core",
+   "dir": "stardf-rdf-core",
+   "list_exit": 0,
+   "files": 319,
+   "listed_bytes": 10748822,
+   "lic": 4,
+   "notice": 1,
+   "prov": 2,
+   "third_party": 1,
+   "data_corpora_rows": 0,
+   "rs_named_vectors": 0,
+   "blocker": "class-2 registry-unresolved: `stardf-branchless` =26.11.1 not on crates.io"
+  }
+ ],
+ "disclosed_exception": {
+  "subject": "stardf-core (crates/stardf-rdf-core) tests/csv_differential_vectors.txt",
+  "size_bytes": 1504576,
+  "classification": "testdata-shaped, load-bearing, KEPT",
+  "evidence": "tests/csv_differential.rs:75 include_str!(\"csv_differential_vectors.txt\")",
+  "decision": "KEEP + disclose; excluding would break published-crate test compilation"
+ },
+ "commands": [
+  {
+   "cmd": "cargo package --list --allow-dirty -p <22 specs>, first run + fresh re-run",
+   "exit": 0,
+   "comment": "lists /tmp/g07/lists/<pkg>.txt"
+  },
+  {
+   "cmd": "cargo package --no-verify --allow-dirty --offline -p <22 specs>",
+   "exit": "0 x3 / 101 x19 fresh; 0 x4 / 101 x18 first-run",
+   "comment": "logs /tmp/g07/logs/<pkg>.pkg.log"
+  },
+  {
+   "cmd": "replay re-run of the 3 leaves",
+   "exit": 0,
+   "comment": "hash outputs byte-identical before/after"
+  },
+  {
+   "cmd": "tar -tzf + tar -xzf + shasum licenses inside 3 tarballs",
+   "exit": 0,
+   "comment": "census 16/54/12; 9/9 canonical license shas"
+  },
+  {
+   "cmd": "shasum -a 256 target-lane07/package/*.crate",
+   "exit": 0,
+   "comment": "sha256s at receipt time from artifacts"
+  },
+  {
+   "cmd": "git rev-parse HEAD (read-only identity)",
+   "exit": 0,
+   "comment": "724d5425 constant across the lane"
+  },
+  {
+   "cmd": "house tree digest minus lane build roots",
+   "exit": 0,
+   "comment": "value in subject.tree_digest"
+  }
+ ],
+ "errors": [
+  {
+   "code": "FULL_PACKAGE_REFUSED_19",
+   "message": "19 refused full packaging, uniformly class-2 registry-unresolved (=26.11.1 dual-keyed deps absent from crates.io until leaf-first bootstrap); logs /tmp/g07/logs/*.pkg.log"
+  },
+  {
+   "code": "G07_RECEIPT_TRANSCRIPTION_DRIFT",
+   "message": "first freehand Write pass repeat-loop corrupted mid-write (self-witnessed); landed file is a mechanical rewrite; register of truth = commands[] exits + /tmp/g07 lists/logs"
+  },
+  {
+   "code": "LANE_LEASE_DELETE_DENIED",
+   "message": "rm -rf target-lane07 refused by the session permission gate; lease left in place per no-laundering; coordinator cleanup item (gate artifacts inside, sha256s recorded in receipt)"
+  }
+ ],
+ "replay": {
+  "status": "WITNESSED",
+  "comment": "3-leaf re-run hash-identical; sha256s stable across lane runs and equal lane11 leaf sizes; list gate 22/22 exit 0 both runs; 9/9 canonical license shas"
+ },
+ "standing": "PARTIAL_ALIVE",
+ "nonclaims": [
+  "no live publish; registry untouched (all runs --offline; publish receipts all dry-run/BLOCKED so 26.11.1 provably absent from crates.io)",
+  "no exclude-table edits needed: the 6 existing rows verified correct (bulk exactly under rows; nothing load-bearing excluded)",
+  "stardf-core 1.5MB csv fixture is a disclosed KEPT exception (include_str! at tests/csv_differential.rs:75), not an oversight",
+  "class-1 elimination + columnar flip are lane 08-dual-key actuation observed mid-lane; G07 made zero manifest edits",
+  "duckdb+core publish=false and core version 26.9.29 literal: lane07/08-key drift, disclosed only",
+  "carriage for the 19 refused crates is list-level; stardf-core 10.25MB listed raw is pre-compression, unwitnessable as tarball until bootstrap",
+  "tarballs are gate artifacts in the target-lane07 lease; lease deletion attempted at close but DENIED by the session permission gate (rm -rf refused); coordinator should delete target-lane07; sha256s recorded make replay checkable",
+  "no git state-changing commands (read-only rev-parse); coordinator owns commits"
+ ]
+}

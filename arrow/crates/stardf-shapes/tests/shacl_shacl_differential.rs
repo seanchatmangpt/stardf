@@ -1,0 +1,676 @@
+// SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+// SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+
+//! THE SHACL-SHACL DIFFERENTIAL ORACLE: PurRDF refuses a shapes graph exactly when
+//! the W3C's own shapes graph for shapes graphs says it is ill-formed.
+//!
+//! The W3C publishes `shacl-shacl.ttl` — "a SHACL shapes graph to validate SHACL
+//! shapes graphs" — vendored at `crates/shapes/spec/shacl-shacl.ttl`. It is an
+//! independent statement of SHACL's syntax rules, written by the Working Group
+//! rather than by this engine. So it is an oracle for the loader's refusals:
+//!
+//! * every shapes graph of the three corpora (the first-party corpus, the W3C
+//!   SHACL 1.0 suite and the W3C SHACL 1.2 suite's `sht:Validate` entries), and
+//! * generated MUTANTS of every one both sides accept — a literal where an IRI is
+//!   required, a non-integer count, a SHACL list where a single value is
+//!   required, a non-boolean flag, and a misspelled `sh:` predicate —
+//!
+//! is loaded by PurRDF's parser AND validated, as DATA, against `shacl-shacl.ttl`
+//! as SHAPES; PurRDF must refuse it if and only if that validation reports a
+//! `sh:Violation`.
+//!
+//! # The two ledgers, and which one must be empty
+//!
+//! [`STRICTER_THAN_SHACL_SHACL`] names each rule by which PurRDF refuses a graph
+//! `shacl-shacl.ttl` cannot flag — a syntax rule it does not express (an unknown
+//! term), or a feature this engine does not evaluate and therefore refuses rather
+//! than silently skipping — with the exact number of inputs it covers.
+//!
+//! [`SHACL_SHACL_BEHIND_THE_SPEC`] is the other direction — `shacl-shacl.ttl`
+//! flags a graph PurRDF accepts — and every such difference is an under-refusal
+//! bug unless the vendored `shacl-shacl.ttl` itself lags the SHACL 1.2 Core text.
+//! Each such rule is a row of the library's own
+//! [`purrdf_shapes::lint::SHACL_SHACL_SUPERSEDED`], which quotes the specification
+//! sentence that makes the graph well-formed.
+//! Nothing else may appear there.
+
+use purrdf_shapes::shacl_corpora;
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use purrdf_rdf::{RdfDataset, SerializeGraph, serialize_dataset};
+use purrdf_shapes::ShapesImports;
+use purrdf_shapes::lint::SHACL_SHACL_SUPERSEDED;
+use purrdf_shapes::model::BoxRoleVocab;
+use purrdf_shapes::shapes::from_dataset_with_base;
+use purrdf_shapes::text_ingest::parse_turtle_document;
+
+use shacl_corpora::shacl12::{Body, shacl12_cases};
+use shacl_corpora::{file_iri, first_party_box_role_vocab, first_party_cases, w3c_cases};
+
+use purrdf_iri::vocab::rdf::NS as RDF;
+use purrdf_iri::vocab::sh::NS as SH;
+use purrdf_xsd::datatype::XSD_INTEGER;
+
+// ── The ledgers ───────────────────────────────────────────────────────────────
+
+/// A rule by which PurRDF refuses what `shacl-shacl.ttl` cannot flag:
+/// `(name, what the refusal message contains, inputs it covers, why)`.
+type Stricter = (&'static str, &'static str, usize, &'static str);
+
+const STRICTER_THAN_SHACL_SHACL: &[Stricter] = &[
+    (
+        "unknown-term",
+        "which is not a term of SHACL 1.2, SHACL Advanced Features",
+        259,
+        "shacl-shacl.ttl checks the terms it knows and ignores the rest, so a misspelled \
+         parameter (sh:minCont) passes it; PurRDF refuses a sh:/shnex: predicate the census \
+         does not classify, because an unread parameter checks nothing",
+    ),
+    (
+        "root-class-value",
+        "rootClass> on shape",
+        2,
+        "SHACL 1.2 Core §7.9.4: \"The values of sh:rootClass in a shape are either IRIs or \
+         blank nodes that are well-formed SHACL lists where all members are IRIs.\" — \
+         shacl-shacl.ttl states no rule for sh:rootClass",
+    ),
+    (
+        "reifier-annotation-value",
+        "on the reifiers of shape",
+        2,
+        "a per-constraint reifier annotation's value has the rule its shape-level form has — \
+         SHACL 1.2 Core: \"In SHACL Core, the only valid values for sh:deactivated are the \
+         constant literal node expressions true and false\", \"Each value of sh:severity is an \
+         IRI\" — and PurRDF refuses a reifier {| sh:deactivated \"yes\" |} or \
+         {| sh:severity \"not an IRI\" |} as it refuses the same value on a shape; \
+         shacl-shacl.ttl never looks at reifiers, so the mutants that rewrite the W3C suite's \
+         own annotated cases (deactivated-003, severity-003) pass it",
+    ),
+    (
+        "reification-required-datatype",
+        "reificationRequired> on shape",
+        6,
+        "SHACL 1.2 Core: \"The values of sh:reificationRequired in a shape are literals with \
+         datatype xsd:boolean\"; shacl-shacl.ttl states no rule for sh:reificationRequired",
+    ),
+    (
+        "sparql-pre-binding",
+        "Pre-binding of Variables in SPARQL Queries",
+        13,
+        "the pre-binding restrictions of SHACL 1.2 SPARQL Extensions, Appendix A (no MINUS, \
+         VALUES or SERVICE, no assignment to a pre-bound variable, subqueries project it) are \
+         rules about SPARQL text, which shacl-shacl.ttl does not parse",
+    ),
+    (
+        "sparql-constraint-severity",
+        "sh:severity on <",
+        4,
+        "a SPARQL-based constraint's sh:severity names a severity, an IRI, exactly as a shape's \
+         does (SHACL 1.2 Core §3.6.2.4); shacl-shacl.ttl checks sh:severity on shapes only, and \
+         the object of sh:sparql is not one",
+    ),
+    (
+        "sparql-constraint-deactivated",
+        "sh:deactivated on <",
+        1,
+        "a SPARQL-based constraint's sh:deactivated is read by the engine under the rule its \
+         profile gives: a node expression whose only output node is true or false, \"as for \
+         shapes\" (SHACL 1.2 SPARQL Extensions in the editor's draft), or, under the working \
+         draft, a value that \"is either true or false\" (Syntax of SPARQL-based Constraints); \
+         shacl-shacl.ttl checks sh:deactivated on shapes only, and the object of sh:sparql is \
+         not one",
+    ),
+    (
+        "sparql-query-text",
+        "has an unparsable sh:select query",
+        1,
+        "the text of a SPARQL-based constraint is SPARQL, which shacl-shacl.ttl does not \
+         parse: a query that does not parse (sparql-syntax-error-001) is refused at load",
+    ),
+];
+
+/// A graph `shacl-shacl.ttl` flags that SHACL 1.2 Core makes well-formed. The rules
+/// themselves — the results each covers and the SHACL 1.2 Core sentence that makes the
+/// graph well-formed — are the library's own table,
+/// [`purrdf_shapes::lint::SHACL_SHACL_SUPERSEDED`], which `purrdf shapes lint` reads to
+/// keep from reporting a valid shapes graph as a finding; there is no second list. This
+/// ledger pins how many inputs each rule covers, `(name, inputs)`.
+///
+/// * `list-valued-node-kind`: two inputs.
+/// * `path-valued-property-pair`: the W3C suite's own equals-002, disjoint-002,
+///   lessThan-003 and lessThanOrEquals-002.
+/// * `node-expression-target-node`: a blank-node sh:targetNode that is the subject of
+///   no triple, and targetNode-select-001, whose structured sh:targetNode PurRDF
+///   evaluates.
+/// * `node-expression-deactivated`: sparql/node/deactivated-select-001, whose
+///   `sh:deactivated` is a SPARQL node expression.
+/// * `sequence-path-with-other-values`: core/path/path-strange-002, whose sequence-path
+///   node also carries sh:inversePath; the exact count keeps this pattern from absorbing
+///   any other input.
+const SHACL_SHACL_BEHIND_THE_SPEC: &[(&str, usize)] = &[
+    ("list-valued-node-kind", 2),
+    ("path-valued-property-pair", 4),
+    ("node-expression-target-node", 2),
+    ("node-expression-deactivated", 1),
+    ("sequence-path-with-other-values", 1),
+];
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+
+/// One shapes graph under test.
+struct Input {
+    id: String,
+    dataset: Arc<RdfDataset>,
+    prefixes: Vec<(String, String)>,
+    box_vocab: Option<BoxRoleVocab>,
+    graph_iri: Option<String>,
+}
+
+fn parse(path: &Path) -> (Arc<RdfDataset>, Vec<(String, String)>) {
+    let text = fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let document = parse_turtle_document(&text, Some(&file_iri(path)))
+        .unwrap_or_else(|e| panic!("{} does not parse: {e:?}", path.display()));
+    (document.dataset, document.prefixes)
+}
+
+/// Every shapes graph of the three corpora, once per distinct file.
+fn inputs() -> Vec<Input> {
+    let mut out: Vec<Input> = Vec::new();
+    for case in first_party_cases() {
+        let (dataset, prefixes) = parse(&case.shapes_path);
+        out.push(Input {
+            id: format!("corpus/{}", case.name),
+            dataset,
+            prefixes,
+            box_vocab: Some(first_party_box_role_vocab()),
+            graph_iri: None,
+        });
+    }
+    let mut seen: BTreeSet<PathBuf> = BTreeSet::new();
+    for case in w3c_cases() {
+        if seen.insert(case.shapes_path.clone()) {
+            let (dataset, prefixes) = parse(&case.shapes_path);
+            out.push(Input {
+                id: format!("w3c/{}", case.id),
+                dataset,
+                prefixes,
+                box_vocab: None,
+                graph_iri: case.shapes_graph_iri,
+            });
+        }
+    }
+    for case in shacl12_cases() {
+        if let Body::Validate(validate) = &case.body
+            && seen.insert(validate.shapes_path.clone())
+        {
+            let (dataset, prefixes) = parse(&validate.shapes_path);
+            out.push(Input {
+                id: format!("w3c12/{}", case.id),
+                dataset,
+                prefixes,
+                box_vocab: None,
+                graph_iri: validate.shapes_graph_iri.clone(),
+            });
+        }
+    }
+    out
+}
+
+// ── The two judges ────────────────────────────────────────────────────────────
+
+/// PurRDF's parser: `Err` is a refusal, with its message.
+///
+/// Deliberately the compatibility law, not a case's `profile`. This lane asks whether the
+/// parser refuses exactly the STRUCTURALLY invalid shapes graphs `shacl-shacl.ttl` flags,
+/// once per distinct shapes FILE (a file can serve cases graded under different laws). A
+/// dated law adds refusals the structural oracle cannot see, such as the pre-binding
+/// restrictions on a `sh:sparql` body, and would make every such graph a false
+/// disagreement; the compatibility law is the one whose parse-time refusals are the
+/// structural ones. Which law accepts a graph is graded by the report lanes instead.
+fn purrdf_refusal(input: &Input) -> Option<String> {
+    from_dataset_with_base(
+        &input.dataset,
+        None,
+        &input.prefixes,
+        input.box_vocab.clone(),
+        input.graph_iri.clone(),
+        &ShapesImports::new(),
+    )
+    .err()
+    .map(|error| error.to_string())
+}
+
+/// One `sh:Violation` result of `shacl-shacl.ttl`: `(component, result path, source
+/// shape)`, the latter two empty when absent or a blank node.
+type Violation = (String, String, String);
+
+/// `shacl-shacl.ttl`'s verdict on `dataset` as data: every `sh:Violation` result,
+/// sorted.
+fn shacl_shacl_violations(input: &Input) -> Vec<Violation> {
+    // The production lint entry point owns the bundled structural meta-schema's
+    // bounded admission; caller-authored recursive graphs remain refused.
+    let report = purrdf_shapes::lint::lint(
+        &input.dataset,
+        &input.prefixes,
+        input.box_vocab.clone(),
+        input.graph_iri.clone(),
+        &ShapesImports::new(),
+    )
+    .unwrap_or_else(|e| panic!("shacl-shacl.ttl failed to validate a shapes graph: {e}"));
+    let named = |term: &purrdf_shapes::term::Term| match term {
+        purrdf_shapes::term::Term::NamedNode(_) => term.to_string(),
+        _ => String::new(),
+    };
+    let mut out: Vec<Violation> = report
+        .shacl_shacl()
+        .iter()
+        .filter(|result| result.severity == purrdf_iri::vocab::sh::VIOLATION)
+        .map(|result| {
+            (
+                result.component.clone(),
+                result.path.as_ref().map_or_else(String::new, named),
+                named(&result.source_shape),
+            )
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+// ── Mutants ───────────────────────────────────────────────────────────────────
+
+/// One `N-Triples` statement of a shapes graph, split into its three terms.
+struct Statement {
+    subject: String,
+    predicate: String,
+    object: String,
+}
+
+fn statements(dataset: &RdfDataset) -> Vec<Statement> {
+    let bytes = serialize_dataset(dataset, "application/n-quads", SerializeGraph::DefaultGraph)
+        .expect("a shapes graph serializes as N-Triples");
+    let text = String::from_utf8(bytes).expect("N-Triples is UTF-8");
+    let mut out: Vec<Statement> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            let line = line.trim_end();
+            let body = line
+                .strip_suffix('.')
+                .expect("an N-Triples line ends in '.'")
+                .trim_end();
+            let (subject, rest) = body.split_once(' ').expect("a subject");
+            let (predicate, object) = rest.split_once(' ').expect("a predicate");
+            Statement {
+                subject: subject.to_owned(),
+                predicate: predicate.to_owned(),
+                object: object.to_owned(),
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        (&a.subject, &a.predicate, &a.object).cmp(&(&b.subject, &b.predicate, &b.object))
+    });
+    out
+}
+
+fn sh(local: &str) -> String {
+    format!("<{SH}{local}>")
+}
+
+/// A mutation: its name, which predicates it applies to, and how it rewrites the
+/// first matching statement (the replacement object, plus any statements to add).
+struct Mutation {
+    name: &'static str,
+    predicates: &'static [&'static str],
+    rewrite: fn(&Statement) -> (String, Vec<String>),
+}
+
+const MUTATIONS: &[Mutation] = &[
+    Mutation {
+        name: "literal-where-an-IRI-is-required",
+        predicates: &[
+            "class",
+            "targetClass",
+            "targetSubjectsOf",
+            "targetObjectsOf",
+            "equals",
+            "disjoint",
+            "lessThan",
+            "lessThanOrEquals",
+            "severity",
+            "rootClass",
+        ],
+        rewrite: |_| ("\"not an IRI\"".to_owned(), Vec::new()),
+    },
+    Mutation {
+        name: "non-integer-count",
+        predicates: &[
+            "minCount",
+            "maxCount",
+            "minLength",
+            "maxLength",
+            "qualifiedMinCount",
+            "qualifiedMaxCount",
+        ],
+        rewrite: |_| ("\"many\"".to_owned(), Vec::new()),
+    },
+    Mutation {
+        name: "list-where-a-single-value-is-required",
+        predicates: &[
+            "minCount",
+            "maxCount",
+            "minLength",
+            "maxLength",
+            "pattern",
+            "flags",
+            "datatype",
+            "singleLine",
+        ],
+        rewrite: |_| {
+            (
+                "_:purrdfMutantList".to_owned(),
+                vec![
+                    format!("_:purrdfMutantList <{RDF}first> \"1\"^^<{XSD_INTEGER}> ."),
+                    format!("_:purrdfMutantList <{RDF}rest> <{RDF}nil> ."),
+                ],
+            )
+        },
+    },
+    Mutation {
+        name: "non-boolean-flag",
+        predicates: &[
+            "closed",
+            "uniqueLang",
+            "deactivated",
+            "qualifiedValueShapesDisjoint",
+            "reificationRequired",
+            "uniqueMembers",
+            "singleLine",
+        ],
+        rewrite: |_| ("\"yes\"".to_owned(), Vec::new()),
+    },
+];
+
+/// The misspelled-parameter mutant: a property shape gains `sh:minCont 1`.
+const UNKNOWN_TERM: &str = "unknown-sh-predicate";
+
+/// Every mutant of `base`, as `(mutation name, N-Triples text)`.
+fn mutants(base: &RdfDataset) -> Vec<(&'static str, String)> {
+    let all = statements(base);
+    let render = |replace: Option<(usize, &str)>, extra: &[String]| -> String {
+        let mut text = String::new();
+        for (index, statement) in all.iter().enumerate() {
+            let object = match replace {
+                Some((at, object)) if at == index => object,
+                _ => statement.object.as_str(),
+            };
+            writeln!(
+                text,
+                "{} {} {} .",
+                statement.subject, statement.predicate, object
+            )
+            .expect("writing to a String cannot fail");
+        }
+        for line in extra {
+            text.push_str(line);
+            text.push('\n');
+        }
+        text
+    };
+    let mut out = Vec::new();
+    for mutation in MUTATIONS {
+        let wanted: Vec<String> = mutation.predicates.iter().map(|local| sh(local)).collect();
+        if let Some((index, statement)) = all
+            .iter()
+            .enumerate()
+            .find(|(_, statement)| wanted.contains(&statement.predicate))
+        {
+            let (object, extra) = (mutation.rewrite)(statement);
+            out.push((mutation.name, render(Some((index, &object)), &extra)));
+        }
+    }
+    if let Some(statement) = all
+        .iter()
+        .find(|statement| statement.predicate == sh("path"))
+    {
+        let extra = vec![format!(
+            "{} {} \"1\"^^<{XSD_INTEGER}> .",
+            statement.subject,
+            sh("minCont")
+        )];
+        out.push((UNKNOWN_TERM, render(None, &extra)));
+    }
+    out
+}
+
+// ── The oracle ────────────────────────────────────────────────────────────────
+
+/// How one input came out.
+#[derive(Debug)]
+enum Outcome {
+    /// Both accept, or both refuse.
+    Agree,
+    /// PurRDF refuses what shacl-shacl accepts, under the named stricter rule.
+    Stricter(&'static str),
+    /// shacl-shacl flags what PurRDF accepts, every violation under a named spec
+    /// entry.
+    BehindTheSpec(BTreeSet<&'static str>),
+    /// A disagreement no ledger entry explains.
+    Unexplained(String),
+}
+
+fn judge(id: &str, refusal: Option<&str>, violations: &[Violation]) -> Outcome {
+    match (refusal, violations.is_empty()) {
+        (Some(_), false) | (None, true) => Outcome::Agree,
+        (Some(message), true) => STRICTER_THAN_SHACL_SHACL
+            .iter()
+            .find(|(_, needle, _, _)| message.contains(needle))
+            .map_or_else(
+                || {
+                    Outcome::Unexplained(format!(
+                        "[{id}] PurRDF refuses and shacl-shacl.ttl accepts: {message}"
+                    ))
+                },
+                |(name, ..)| Outcome::Stricter(name),
+            ),
+        (None, false) => {
+            let mut names: BTreeSet<&'static str> = BTreeSet::new();
+            for (component, path, shape) in violations {
+                let entry = SHACL_SHACL_SUPERSEDED
+                    .iter()
+                    .find(|rule| rule.covers_rendered(component, path, shape));
+                match entry {
+                    Some(rule) => {
+                        names.insert(rule.name);
+                    }
+                    None => {
+                        return Outcome::Unexplained(format!(
+                            "[{id}] shacl-shacl.ttl flags and PurRDF accepts (an \
+                             under-refusal): {violations:?}"
+                        ));
+                    }
+                }
+            }
+            Outcome::BehindTheSpec(names)
+        }
+    }
+}
+
+/// The exact number of shapes graphs the three corpora contribute: 73 first-party
+/// cases, 129 W3C SHACL 1.0 cases and 213 W3C SHACL 1.2 `sht:Validate` entries, each
+/// with its own shapes file.
+const BASE_INPUTS: usize = 415;
+
+/// The exact number of mutants generated from the bases both sides accept (one per
+/// mutation kind that finds a statement to rewrite): 207 literal-for-IRI, 116
+/// non-integer counts, 176 lists-for-single-values, 41 non-boolean flags and 259
+/// misspelled predicates.
+///
+/// # What some bases contribute
+///
+/// * `singleLine-001`, `rootClass-001` and `someValue-001` each gain a misspelled
+///   predicate (3). The literal-for-IRI kind, which also rewrites `sh:rootClass`,
+///   rewrites `rootClass-001`'s root class and the `sh:class` inside
+///   `someValue-001`'s `sh:someValue` shape (2). The list-for-single-value kind
+///   rewrites `singleLine-001`'s `sh:datatype` (1), and the non-boolean-flag kind,
+///   which also rewrites `sh:singleLine`, rewrites its `sh:singleLine` (1).
+/// * `subsetOf-001` and `subsetOf-002` each gain a misspelled predicate (2); no other
+///   kind finds a statement to rewrite in either.
+/// * `uniqueValuesFor-001` to `-005`: the literal-for-IRI kind rewrites each one's
+///   `sh:targetClass` or `sh:targetSubjectsOf`, the first matching statement in
+///   canonical order (5). None has a property shape, so none gains a misspelled
+///   predicate.
+/// * `deactivated-003`, whose property shape carries `sh:minCount`, gains a
+///   non-integer count, a list-for-single-value, a non-boolean flag (its reifier
+///   `sh:deactivated`, refused under `reifier-annotation-value`) and a misspelled
+///   predicate (4); `severity-003`, `-004` and `-005` each gain a literal-for-IRI
+///   (for `severity-003` its reifier `sh:severity`, refused under
+///   `reifier-annotation-value`) and a list-for-single-value (6); `message-002`
+///   gains a list-for-single-value (1).
+/// * `targetWhere-001` gains a literal-for-IRI (its first `sh:class`), a non-integer
+///   count and a list-for-single-value (its first `sh:minCount`) and a misspelled
+///   predicate (4); `targetClassImplicit-002`, whose one shape is a `sh:ShapeClass`
+///   carrying only `sh:in`, has no statement any mutation rewrites.
+/// * `property-select-001` and `property-sparqlExpr-001`: the list-for-single-value
+///   kind rewrites each one's `sh:datatype` (2), the literal-for-IRI kind
+///   `property-select-001`'s `sh:targetClass` (1), and each property shape gains a
+///   misspelled predicate (2); `property-sparqlExpr-001` targets by
+///   `sh:targetNode`, which no kind rewrites.
+/// * `sparql/functions/instanceCount-example`: the literal-for-IRI kind rewrites its
+///   SPARQL constraint's `sh:severity` (1, refused under
+///   `sparql-constraint-severity`), and its shape gains a misspelled predicate (1,
+///   refused under `unknown-term`).
+/// * `73-expr-if-list-true`: the literal-for-IRI kind rewrites its `sh:targetClass`
+///   (1). Its one shape is a node shape with no property shape, so it gains no
+///   misspelled predicate.
+/// * `inference-rules/rules-entailment-validation`: the literal-for-IRI kind
+///   rewrites its `sh:targetClass` (1), the non-integer-count and
+///   list-for-single-value kinds its property shape's `sh:minCount` (2), and the
+///   property shape gains a misspelled predicate (1, refused under `unknown-term`).
+/// * `inference-rules/rules-entailment-ruleset-{and-all,includes,multiple,validation}`:
+///   each is rewritten once per kind: a literal-for-IRI `sh:targetClass`, a
+///   non-integer count, a list-for-single-value and a misspelled predicate (refused
+///   under `unknown-term`): 16 in all.
+///
+/// * `sparql/component/validator-001`, once in each vendored suite, loads with an
+///   empty import table, its `owl:imports` being data: the list-for-single-value kind
+///   rewrites a parameter declaration's `sh:datatype` (1 each) and its shape gains a
+///   misspelled predicate (1 each, refused under `unknown-term`).
+///
+/// Some bases are not mutated because they are not a base both sides accept:
+/// `equals-002`, `disjoint-002`, `lessThan-003` and `lessThanOrEquals-002` (see
+/// `path-valued-property-pair`) and `targetNode-select-001` (see
+/// `node-expression-target-node`), which PurRDF loads and `shacl-shacl.ttl` flags.
+const MUTANT_INPUTS: usize = 799;
+
+#[test]
+fn purrdf_refuses_exactly_what_shacl_shacl_flags() {
+    let mut unexplained: Vec<String> = Vec::new();
+    let mut stricter: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut behind: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut tally = |outcome: Outcome| match outcome {
+        Outcome::Agree => {}
+        Outcome::Stricter(name) => *stricter.entry(name).or_insert(0) += 1,
+        Outcome::BehindTheSpec(names) => {
+            for name in names {
+                *behind.entry(name).or_insert(0) += 1;
+            }
+        }
+        Outcome::Unexplained(why) => unexplained.push(why),
+    };
+
+    let bases = inputs();
+    let mut mutant_count = 0usize;
+    // Every mutation makes the graph ill-formed, so a mutant PurRDF ACCEPTS is an
+    // under-refusal whatever shacl-shacl.ttl says about it.
+    let mut accepted_mutants: Vec<String> = Vec::new();
+    let mut mutants_by_kind: BTreeMap<&str, usize> = BTreeMap::new();
+    for input in &bases {
+        let refusal = purrdf_refusal(input);
+        let violations = shacl_shacl_violations(input);
+        let clean = refusal.is_none() && violations.is_empty();
+        tally(judge(&input.id, refusal.as_deref(), &violations));
+        if !clean {
+            continue;
+        }
+        for (kind, text) in mutants(&input.dataset) {
+            mutant_count += 1;
+            *mutants_by_kind.entry(kind).or_insert(0) += 1;
+            let dataset = purrdf_rdf::parse_dataset(text.as_bytes(), "application/n-quads", None)
+                .unwrap_or_else(|e| panic!("[{}] mutant {kind} does not parse: {e}", input.id));
+            let mutant = Input {
+                id: format!("{} + {kind}", input.id),
+                dataset,
+                prefixes: input.prefixes.clone(),
+                box_vocab: input.box_vocab.clone(),
+                graph_iri: input.graph_iri.clone(),
+            };
+            let refusal = purrdf_refusal(&mutant);
+            if refusal.is_none() {
+                accepted_mutants.push(mutant.id.clone());
+            }
+            let violations = shacl_shacl_violations(&mutant);
+            tally(judge(&mutant.id, refusal.as_deref(), &violations));
+        }
+    }
+
+    println!(
+        "SHACL-SHACL DIFFERENTIAL: {} bases, {mutant_count} mutants {mutants_by_kind:?}; \
+         stricter {stricter:?}; behind the spec {behind:?}",
+        bases.len()
+    );
+    assert!(
+        accepted_mutants.is_empty(),
+        "PurRDF accepts {} ill-formed mutant(s): {accepted_mutants:?}",
+        accepted_mutants.len()
+    );
+    assert!(
+        unexplained.is_empty(),
+        "{} disagreement(s) no ledger explains:\n{}",
+        unexplained.len(),
+        unexplained.join("\n")
+    );
+    for (name, _, expected, _) in STRICTER_THAN_SHACL_SHACL {
+        assert_eq!(
+            stricter.get(name).copied().unwrap_or(0),
+            *expected,
+            "STRICTER_THAN_SHACL_SHACL[{name}] covers a different number of inputs"
+        );
+    }
+    assert_eq!(
+        SHACL_SHACL_BEHIND_THE_SPEC
+            .iter()
+            .map(|(name, _)| *name)
+            .collect::<Vec<_>>(),
+        SHACL_SHACL_SUPERSEDED
+            .iter()
+            .map(|rule| rule.name)
+            .collect::<Vec<_>>(),
+        "every supersession rule has a pinned input count, and only those do"
+    );
+    for (name, expected) in SHACL_SHACL_BEHIND_THE_SPEC {
+        assert_eq!(
+            behind.get(name).copied().unwrap_or(0),
+            *expected,
+            "SHACL_SHACL_BEHIND_THE_SPEC[{name}] covers a different number of inputs"
+        );
+    }
+    assert_eq!(bases.len(), BASE_INPUTS, "base shapes-graph count");
+    assert_eq!(mutant_count, MUTANT_INPUTS, "mutant count");
+    let expected_by_kind: BTreeMap<&str, usize> = [
+        ("literal-where-an-IRI-is-required", 207),
+        ("non-integer-count", 116),
+        ("list-where-a-single-value-is-required", 176),
+        ("non-boolean-flag", 41),
+        (UNKNOWN_TERM, 259),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(mutants_by_kind, expected_by_kind, "mutants per kind");
+}

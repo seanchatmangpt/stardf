@@ -1,0 +1,142 @@
+{
+  "schema": "ggen.legacy.stardf.arrow.receipt.v1",
+  "kind": "lane-receipt",
+  "lane": "PUBLISH LANE 2 (scan-courts receipt conversion: log-standing -> receipted)",
+  "date": "2026-10-31",
+  "branch": "fix/v26.9.29-ci-gates (cited from the session harness git snapshot; no git commands run by this lane)",
+  "subject": {
+    "method": "per-file sha256 over the exact scan surface + workspace manifests, computed at receipt time (after the fresh run); NO git commands run by this lane (coordinator owns git), so no head SHA is cited",
+    "digests_at_receipt_time": {
+      "Cargo.lock": "437987dc3be10d6cce4a2c46b3f688810e1a2597611fda8cdf60d3e24164f37b",
+      "Cargo.toml": "3fc0e4c5063c7049838d2aaf0b2d5f30caef5c92f4ac0d75c41a99f86ec782e3",
+      "crates/stardf-scan-duckdb/Cargo.toml": "3c2873dd57fbbe14ac03654b8d294889e50f06ceb41f58f1cbd8a86a52b41737",
+      "crates/stardf-scan-duckdb/src/lib.rs": "1ea646744475b64b871cc96a7d46ff8e3cf68a996c832c260a6f79a31efbc271",
+      "crates/stardf-scan-duckdb/tests/scan_courts.rs": "cb15512b9263c2a8dcc7412caaae0999cd92e8e3f22372ad093a7983ab313a19"
+    },
+    "drift_vs_g10": {
+      "code_surface": "crates/stardf-scan-duckdb/src/lib.rs (1ea64674...) and crates/stardf-scan-duckdb/tests/scan_courts.rs (cb15512b...) are BYTE-IDENTICAL to the digests g10 cited before-and-after its two runs - the courted code is the same subject g10 witnessed",
+      "changed_before_this_lane_ran": [
+        "Cargo.toml (root): g10-cited 992ab0bd... -> 3fc0e4c5... (mtimes 21:48:55, then 22:52:14/22:53:57 during the lane-09 cgap-arrow churn, all before this lane's gate ran)",
+        "crates/stardf-scan-duckdb/Cargo.toml: g10-cited 62ff74f2... -> 3c2873dd... (mtime 22:43:42, before this lane's gate ran)"
+      ],
+      "changed_during_this_lane_run_window": [
+        "Cargo.lock: 6d96fbf6... (this lane's pre-run probe, identical to g10's cited digest) -> 437987dc... (post-run); this lane's command is --locked and cannot write the lock, so the change is concurrent-lane activity observed-not-actuated (lane-09 cgap-arrow churn window)"
+      ]
+    }
+  },
+  "purpose": "Convert the stardf-scan-duckdb scan courts from log-standing to receipted standing: the six courts of docs/SCAN-COMPLETION.md section 5, landed in crates/stardf-duckdb sibling crates/stardf-scan-duckdb/tests/scan_courts.rs, previously held by (a) g10's two in-workspace runs inside its own receipt and (b) G15's log-standing /tmp runs. This receipt is the owed evidence/ file. A fresh same-session witness run was executed by this lane per the receipt law (real gate output, this session).",
+  "witnessed_runs_of_record": {
+    "g10_in_workspace": "evidence/g10-scan-courts-rewitness-2026-10-31.json (21:46 PDT window): run 1 cargo test -p stardf-scan-duckdb --locked exit 0 (6 lib + 6 courts C1-C6 + 0 doc-tests, 0 failed); run 2 --test scan_courts -- --nocapture exit 0 (2nd witness + C3 [SKIP] / C5 error-text stderr capture); per-file digests byte-identical before/after; plus just columnar-oracle exit 0 with counts 1030,400,108,108,9",
+    "g15_log_standing_superseded": "G15's first runs were /tmp logs (docs/RECEIPTS.md G15 row: /tmp/g15-scan-courts.log @21:42, 6 passed / 0 failed in 0.23s; /tmp/g15-anti-vacuity.log 3/0; /tmp/g15-oracle-shim.log), flagged LOG-STANDING-ONLY by manufacturing-receipt check duckdb-courts (passed_is_scoped) and marked superseded-as-receipt-standing by g10 (docs/RECEIPTS.md:82) - this receipt completes the conversion: the court suite now holds receipt standing via g10 + this file's fresh same-session run",
+    "g15_flip_rows": "manufacturing-receipt check duckdb-courts: C6 drop-one-row mutant refused (parity() returns Err on the pinned-count leg; 6/0 in 0.23s witnessed); oracle through stardf_scan() at counts 1030,400,108,108,9 (also g10 check columnar-oracle-gate: scan == read_parquet == generator projection, engine == generator projection, types terms(id)=BIGINT / terms(lex)=VARCHAR / blobs(bytes)=BLOB, integrity all-quads-reference-terms + blob-digests-unique)"
+  },
+  "checks": [
+    {
+      "id": "fresh-run-same-session-witness",
+      "passed": true,
+      "count": 12,
+      "comment": "cargo test -p stardf-scan-duckdb --locked -> exit 0, THIS SESSION, on the post-settle tree (run started 22:54 PDT after the lane-09 cgap-arrow resolution settled 22:54:22; frozen-duckdb-sys v2.0.4 rebuilt from the churn so the run executed in background ~11 min). Witnessed lines in /tmp/lane2-scan-courts-fresh.log: lib tests 6 passed / 0 failed / 0 ignored in 0.05s (pushdown_stays_disabled_per_f05, missing_files_are_a_typed_refusal, absent_table_parameter_is_a_typed_refusal, unknown_table_is_a_typed_refusal, terms_rows_carry_the_dense_ids_kinds_and_named_graph_flags, five_table_counts_and_values_match_the_canonical_projection); integration courts tests/scan_courts.rs 6 passed / 0 failed / 0 ignored in 0.21s (C1-C6 individually ok, cited below); doc-tests 0. Lock honored (--locked)."
+    },
+    {
+      "id": "c1-count-parity",
+      "passed": true,
+      "count": 5,
+      "count_basis": "5 tables (terms, quads, reifiers, annotations, blobs)",
+      "comment": "c1_count_parity_across_all_five_tables (tests/scan_courts.rs:396) ok in this lane's fresh run: SELECT count(*) through stardf_scan() == read_parquet == stream-side pinned count across all five tables; stream-side slab arithmetic ceil(400/64)=7 witnessed (scan_courts.rs:415-419); the pinned quads leg is asserted to be the 400-row loop, not an accidental zero (scan_courts.rs:403-406)."
+    },
+    {
+      "id": "c2-value-parity-order-by-pinned",
+      "passed": true,
+      "count": 5,
+      "count_basis": "5 terms columns pinned per-column (id, kind, lex, datatype, lang) + ordered quad rows + SQL-level type-map pins",
+      "comment": "c2_value_parity_pinned_by_order_by (tests/scan_courts.rs:428) ok in the fresh run: SELECT * row-set equality scan vs parquet oracle, ORDER BY the full column tuple; per-column legs for id/kind/lex/datatype/lang (scan_courts.rs:544-568); closed type map pinned at SQL level (quads BIGINT,BIGINT; blobs VARCHAR,BLOB, scan_courts.rs:570-599). Known upstream C2 engine defect (mixed-type multi-column fetch SIGBUS/Utf8Error during lane-02's landing window) owned by lane 02/SDK; worked around by the deterministic ORDER BY harness (shared serialized engine, scan_courts.rs:296-301) and witnessed closed on the landed tree (provenance witness retained at scan_courts.rs:464-474)."
+    },
+    {
+      "id": "c3-pushdown-loud-skip-divergence",
+      "passed": true,
+      "count": 1,
+      "count_basis": "1 court, loud-SKIP branch taken",
+      "comment": "c3_pushdown_flip_loud_skip_until_enabled (tests/scan_courts.rs:607) ok = LOUD SKIP with stated reason, the landed design (SCAN-COMPLETION 5 C3: a skip is loud, never a faked pass). The court re-derives the pushdown state at run time through the VTab trait (scan_courts.rs:613-614; no hardcoded test-side constant), so landing W2e flips it to the real filtered-row-set + mutant-catch court with no test edit. Skip text (scan_courts.rs:615-621): '[SKIP] c3 pushdown flip: supports_pushdown() = false (the landed W2e divergence: the frozen-duckdb 2.0.4 SDK exposes no complex-filter pushdown surface, lib.rs F05 note) - the filtered-row-set + mutant-catch legs run only when this flips true'. Text witness: g10 run 2 (--nocapture); THIS lane's fresh run shows the court green in default capture mode, so the [SKIP] line is NOT in /tmp/lane2-scan-courts-fresh.log (grep SKIP = 0 matches) - disclosed; the green result line itself is witnessed in this lane's log."
+    },
+    {
+      "id": "c4-empty-input",
+      "passed": true,
+      "count": 6,
+      "count_basis": "5 zero-row table legs + 1 typed unknown-table refusal leg on the empty world",
+      "comment": "c4_empty_input_yields_zero_rows_clean (tests/scan_courts.rs:670) ok in the fresh run: zero-quad fixture -> zero rows through stardf_scan() for every table, clean exit, no error across the FFI boundary; the typed parameter surface stays lawful on the empty world (unknown-table refusal enumerates the closed five-table set, scan_courts.rs:702-712)."
+    },
+    {
+      "id": "c5-typed-bind-error",
+      "passed": true,
+      "count": 3,
+      "count_basis": "3 typed-refusal legs: dataset-io / profile / table-required",
+      "comment": "c5_typed_bind_error_not_panic (tests/scan_courts.rs:720) ok, three typed-refusal legs: dataset-io ('Binder Error: stardf_scan bind.files: reading terms.parquet failed'), profile ('bind.profile: profile validation refused: columnar terms.lex is malformed: row 288 is not valid UTF-8'), table-required ('the required named parameter `table` is absent; one of terms, quads, reifiers, annotations, blobs'). Typed BindInfo::set_error texts, no panic across the C ABI (a bind panic would abort the test process, so the court passing is itself the no-panic witness, scan_courts.rs:33-37). Error-text witness: g10 run 2 (--nocapture); this lane's fresh run witnesses green (texts capture-hidden in default mode, disclosed)."
+    },
+    {
+      "id": "c6-mutant-flip-status",
+      "passed": true,
+      "count": 1,
+      "comment": "c6_drop_one_row_mutant_is_caught (tests/scan_courts.rs:791) ok = FLIP WITNESSED IN-RUN (this lane's fresh run + g10's two runs). The court is self-witnessing by design (scan_courts.rs:829-840): it materializes the full world (pinned expectation) and a mutant world via the Mutant::DropOneRow knob (scan_courts.rs:226-236: the final quad push is dropped, so the materialized quads table genuinely carries one fewer real Parquet row), asserts mutant_pinned[1] == pinned[1] - 1 (scan_courts.rs:800-804), proves the scan tracks the mutant world faithfully (scan == parquet on the mutant root, scan_courts.rs:806-828), then asserts THE FLIP: parity() against the pinned expectation MUST return Err (a pass would be VACUOUS GATE = FAIL, scan_courts.rs:832-835) and the error must be the pinned-count leg (scan_courts.rs:836-840). All legs held. G15's first-run log row ('C6 refused mutant') is the log-standing echo of this same flip. External shim-court of the C6 court source itself: NOT RUN (nonclaim)."
+    },
+    {
+      "id": "columnar-oracle-gate",
+      "passed": true,
+      "count": 5,
+      "count_basis": "5 tables at counts 1030,400,108,108,9",
+      "comment": "just columnar-oracle -> exit 0, cited from g10's check columnar-oracle-gate (this lane did NOT re-run the oracle; disclosed as citation, not re-execution): Tier-3 in-process registration mode; fixture counts (generator projection) terms,quads,reifiers,annotations,blobs = 1030,400,108,108,9; counts parity OK engine == generator projection; types OK terms(id)=BIGINT, terms(lex)=VARCHAR, blobs(bytes)=BLOB; integrity OK (all quads s/p/o/g reference the terms dictionary, blob digests unique); scan parity OK stardf_scan() == read_parquet() == generator projection at 1030,400,108,108,9."
+    },
+    {
+      "id": "allocation-identity-not-zero-delta",
+      "passed": true,
+      "count": 1,
+      "comment": "SCOPING NOTE carried per dispatch: the scan courts assert ALLOCATION IDENTITY per the ledger errata (released pointers were minted by the allocator that owns the release path) - NOT a {0,0} zero-delta constant. The {0,0} delta is the avec ops_scan precedent and must not be imported as a stardf claim (docs/SCAN-COMPLETION.md:57-61, errata #4 to 13-v26111-target-ledger; Allocation-identity rider at docs/SCAN-COMPLETION.md:184-188). Consequently no zero-allocation/delta claim is made anywhere in this receipt."
+    },
+    {
+      "id": "compile-freeze-sla-event-disclosed",
+      "passed": true,
+      "count": 2,
+      "count_basis": "2 break windows, both settled by the owning lane inside the SLA; this lane actuated nothing",
+      "comment": "Concurrent-lane churn observed-not-actuated by this lane (no manifest edit, no git by this lane): (1) crates/stardf-process/Cargo.toml edit 22:43:42 added cgap-arrow.workspace = true with no matching workspace.dependencies key -> workspace load broken at this lane's first cargo attempt (exit 101 'dependency.cgap-arrow was not found in workspace.dependencies'); bounded poll (cargo metadata observable, 20s interval) -> SETTLED 22:52:29 (owner-lane fix inside the ~10-min SLA). (2) Second break: root Cargo.toml 22:52:14 added a cgap-arrow git dep (rev 67c0ec1) -> this lane's cargo test exit 101 'no matching package named cgap-arrow found'; bounded poll (cargo tree --locked observable, 25s interval) -> RESOLVES 22:54:22 (owner-lane fix 22:53:57). Gate run only after settlement; interim failures recorded honestly in commands[] + errors[]."
+    }
+  ],
+  "errors": [
+    {
+      "code": "WORKSPACE_RESOLUTION_UNSETTLED",
+      "message": "two interim cargo invocations this session exited 101 during the concurrent lane-09 cgap-arrow churn (workspace key absent 22:43:42-22:52:29; git dep unresolved 22:52:45-22:54:22); both settled by the owning lane before this lane's gate ran; the gate itself (post-settle) exited 0 - disclosed per receipt law (honest failures stay in); NOT a court failure"
+    }
+  ],
+  "commands": [
+    {
+      "cmd": "cargo test -p stardf-scan-duckdb --locked",
+      "exit": 101,
+      "comment": "22:52:45 window, first attempt inside the lane-09 churn: 'no matching package named cgap-arrow found' (git rev 67c0ec1) - concurrent-lane churn, not a court failure; re-run post-settle below"
+    },
+    {
+      "cmd": "cargo test -p stardf-scan-duckdb --locked",
+      "exit": 0,
+      "comment": "FRESH SAME-SESSION WITNESS (this receipt's own gate), started 22:54 PDT on the post-settle tree: 6 lib + 6 courts C1-C6 + 0 doc-tests, 0 failed (log /tmp/lane2-scan-courts-fresh.log: lib 0.05s, courts 0.21s)"
+    },
+    {
+      "cmd": "shasum -a 256 Cargo.lock Cargo.toml crates/stardf-scan-duckdb/Cargo.toml crates/stardf-scan-duckdb/src/lib.rs crates/stardf-scan-duckdb/tests/scan_courts.rs",
+      "exit": 0,
+      "comment": "subject digests pre-run (22:46: lock 6d96fbf6..., root 3fc0e4c5..., crate 3c2873dd..., lib 1ea64674..., courts cb15512b...) and at receipt time post-run (subject.digests_at_receipt_time)"
+    }
+  ],
+  "replay": {
+    "status": "NOT_RUN",
+    "comment": "the court suite itself is now witnessed green on three independent runs (g10 run 1, g10 run 2, this lane's fresh run) with the code surface byte-identical across all three; the verify.py byte-identical replay pair is not part of this lane's gate"
+  },
+  "standing": "ALIVE",
+  "nonclaims": [
+    "C3 filtered-row-set + mutant-catch legs ALIVE (loud-SKIP by landed design until W2e flips supports_pushdown() true; the frozen-duckdb 2.0.4 SDK exposes no complex-filter pushdown surface, lib.rs F05 note)",
+    "a {0,0} zero-delta allocation constant for the stardf scan (allocation-identity only, per SCAN-COMPLETION errata #4 + the section 5 rider; the {0,0} delta is the avec ops_scan precedent)",
+    "external shim-court non-vacuity of the C6 court source (the in-court flip assert is the designed mechanism and was witnessed in-run; no external mutation of the court file was performed)",
+    "the C3 [SKIP] text and C5 error texts as witnessed by THIS lane's fresh run (default capture hides stderr on pass; those texts stand on g10 run 2 --nocapture + the court source lines cited)",
+    "the verify.py replay pair (byte-identical double run) - replay.status NOT_RUN this lane",
+    "just columnar-oracle re-execution (cited from g10's receipt, not re-run by this lane)",
+    "workspace-green ladder standing for the whole tree (fmt/clippy/check/verify.py - G03's gate, not this lane's)",
+    "publish/portable-receipt standing (B3-gated, W5)",
+    "stardf-duckdb chicago_* court suite and stardf-sql sql_golden runs (other lanes' standing: H01/lane-15 per docs/RECEIPTS.md rows)",
+    "any git operation by this lane (none run; branch name cited from the session harness git snapshot, no head SHA cited)"
+  ]
+}
