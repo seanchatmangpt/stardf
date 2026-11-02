@@ -1,0 +1,33 @@
+# Rust build outputs
+/target/
+**/target/
+**/target-*/
+debug/
+**/*.rs.bk
+*.pdb
+**/mutants.out*/
+rust_out
+**/rust_out
+Cargo.lock.bak
+**/Cargo.lock.bak
+
+# Generated projections and local ggen cache
+.ggen*
+**/.ggen*
+.ggen-packs/
+
+# Python cache and virtualenvs
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+**/.pytest_cache/
+.venv*/
+**/.venv*/
+
+# OS, editor, and secrets
+.DS_Store
+**/.DS_Store
+*.swp
+signing.key
+**/signing.key
