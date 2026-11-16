@@ -21,7 +21,7 @@
  * that cap; waves are sequential barriers, lanes concurrent.
  *
  * Launch (main session, Workflow tool):
- *   Workflow({ scriptPath: "/Users/sac/ggen-legacy/stardf/workflows/v26.11.1-full-parity.workflow.js",
+ *   Workflow({ scriptPath: "/Users/sac/stardf/workflows/v26.11.1-full-parity.workflow.js",
  *              args: { run: "<label>", operatorFork: "vendor" | "exclude" | undefined,
  *                      force: false } })
  * Resume: relaunch with the same {scriptPath, args} + resumeFromRunId — the longest
@@ -53,13 +53,13 @@ export const meta = {
 
 // ---------------------------------------------------------------- constants
 
-const REPO = '/Users/sac/ggen-legacy'
+const REPO = '/Users/sac/stardf'
 const RUN = args && args.run ? String(args.run) : 'unlabeled-run'
 const FORK = args && args.operatorFork ? String(args.operatorFork) : null
 const FORCE = !!(args && args.force)
-const CAMPAIGN_DOC = REPO + '/stardf/docs/jira/v26.10.31/12-full-parity-campaign.md'
-const DOC_DIR = REPO + '/stardf/docs/jira/v26.10.31/'
-const ARROW_DOCS = REPO + '/stardf/arrow/docs/'
+const CAMPAIGN_DOC = REPO + '/docs/jira/v26.10.31/12-full-parity-campaign.md'
+const DOC_DIR = REPO + '/docs/jira/v26.10.31/'
+const ARROW_DOCS = REPO + '/arrow/docs/'
 
 const CONTRACT = [
   'LANE CONTRACT (stardf v26.11.1 completion+validation; ' + REPO + '/):',

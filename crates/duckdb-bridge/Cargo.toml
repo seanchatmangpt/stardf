@@ -1,0 +1,51 @@
+# SPDX-FileCopyrightText: 2026 Blackcat Informatics® Inc. <paudley@blackcatinformatics.ca>
+# SPDX-License-Identifier: MIT OR Apache-2.0 OR MulanPSL-2.0
+# Lane RDF-8 (2026-11-01): native `stardf_bridge_scan()` DuckDB table function
+# over the closed five-table columnar profile WITH PROJECTION PUSHDOWN.
+#
+# Sibling relationship (read-only consumption, disclosed): stardf-scan-duckdb
+# registers `stardf_scan()` with supports_pushdown() = false (its W2e
+# divergence), meaning DuckDB always receives every column of the bound table.
+# This crate is the projection-pushdown half of the same contract: bind
+# declares the full closed-schema relation, init reads DuckDB's projected
+# column list through InitInfo::get_column_indices (populated only because
+# supports_pushdown() = true, which registers
+# duckdb_table_function_supports_projection_pushdown), and func writes ONLY
+# the requested columns into the chunk. A global cell counter
+# (bridge_cells_written) makes the pruning observable: a single-column
+# projection writes N cells for N rows; SELECT * writes N x columns.
+#
+# Deps: frozen-duckdb (VTab trait + in-process registration, feature `vtab`)
+# and stardf-columnar (the receipted validated reader). The decode surfaces
+# consumed are stardf_columnar::{read, ParquetFiles, Table, schema} — read
+# only; nothing in stardf-duckdb or stardf-scan-duckdb is modified.
+
+[package]
+name = "stardf-duckdb-bridge"
+description.workspace = true
+version.workspace = true
+edition.workspace = true
+publish = false
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+name = "stardf_duckdb_bridge"
+crate-type = ["rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+# VTab trait, BindInfo/InitInfo/DataChunkHandle, InitInfo::get_column_indices,
+# and Connection::register_table_function (feature `vtab`). Same `=2.0.3`
+# family pin as stardf-scan-duckdb via the workspace.
+frozen-duckdb = { workspace = true, features = ["vtab"] }
+# The validated five-table profile reader: `stardf_columnar::read` is the
+# receipted decode path (full physical + semantic validation, fail-closed).
+stardf-columnar = { workspace = true }
+
+[lints]
+workspace = true

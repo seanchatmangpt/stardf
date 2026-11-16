@@ -1,0 +1,15 @@
+[package]
+name = "stardf-star"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+description = "RDF 1.2 quoted triples as content-addressed first-class slots"
+
+[dependencies]
+stardf-hash = { path = "../hash" }
+
+[[test]]
+name = "quoted_courts"
+
+[lints]
+workspace = true

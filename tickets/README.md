@@ -6,17 +6,23 @@ neither ticket. Statuses are as-of disk reads dated below. Lanes owning
 tickets edit the ticket files; this index is updated to match, never the
 reverse authority.
 
-- Read: 2026-10-31/11-01 (lane E, docs-only)
+- Read: 2026-10-31/11-01 (lane E, docs-only); re-pointed 2026-11-01
+  (lane S-6, post-move governing-docs repair)
 - No git operations performed by this lane
 
 ## Index
+
+Post-move (repo root `~/stardf`, baseline `fe935f7`): GL-STARDF-001 is the
+in-tree recovered copy at `tickets/GL-STARDF-001.md` (S-3's copy — the
+parent `ggen-legacy/tickets/` copy is empty/historical). GL-STARDF-002
+remains at `arrow/tickets/`.
 
 | Ticket | File | Status |
 |---|---|---|
 | GL-STARDF-001 | [`GL-STARDF-001.md`][t1] | scope closed |
 | GL-STARDF-002 | [`GL-STARDF-002-freeze-expansion.md`][t2] | Tier A (D9); ABI-v2 pending (D18) |
 
-[t1]: ../../tickets/GL-STARDF-001.md
+[t1]: GL-STARDF-001.md
 [t2]: ../arrow/tickets/GL-STARDF-002-freeze-expansion.md
 
 ## GL-STARDF-001 — scope closed
@@ -66,7 +72,7 @@ ABI freeze expansion: the query/SQL export surface beyond the frozen
 
 ## Admission rule for new tickets
 
-Ticket-gated admission, per [`../../AGENTS.md`](../../AGENTS.md):
+Ticket-gated admission, per [`../AGENTS.md`](../AGENTS.md):
 executable source is admitted only by a deterministic ticket naming
 authority, exact dependencies, observable behavior, witnesses, falsifiers,
 verification, receipts, replay, and exclusions.
@@ -131,4 +137,4 @@ All receipts verified to exist on disk under
 - [`../arrow/docs/OPERATOR-DECISIONS.md`](../arrow/docs/OPERATOR-DECISIONS.md) — D9/D18 sign-off
 - [`../arrow/docs/COMMIT-PLAN.md`](../arrow/docs/COMMIT-PLAN.md) — commit chain incl. c2
 - [`../arrow/docs/ABI-FREEZE.md`](../arrow/docs/ABI-FREEZE.md) — frozen v1 13-export surface
-- [`../../AGENTS.md`](../../AGENTS.md) — ticket-gated admission authority
+- [`../AGENTS.md`](../AGENTS.md) — ticket-gated admission authority

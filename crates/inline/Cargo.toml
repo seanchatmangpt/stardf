@@ -1,0 +1,16 @@
+[package]
+name = "stardf-inline"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0 OR MulanPSL-2.0"
+description = "Bit-63 structural folding of quoted triples: discriminator word + 63-bit fingerprint + arena payload with collision trap"
+
+[dependencies]
+stardf-hash = { path = "../hash" }
+stardf-star = { path = "../star" }
+
+[[test]]
+name = "inline_courts"
+
+[lints]
+workspace = true

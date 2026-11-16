@@ -1,0 +1,11 @@
+[package]
+name = "stardf-incremental"
+version = "0.1.0"
+edition = "2021"
+description = "Page-generation invalidation incremental maintenance over immutable footer-sequenced pages"
+license = "Apache-2.0"
+
+[dependencies]
+
+[lints]
+workspace = true

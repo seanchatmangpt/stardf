@@ -1,0 +1,801 @@
+{
+  "$schema": "stardf.license-compat/v1",
+  "description": "StarDF license-compatibility register (P0-18 / P0-19 R1). dependency_licenses entries carry OBSERVED license strings only (read from the named source path at entry time); compatibility_receipts are legal-compatibility receipts and are NOT fabricated by this lane — absent receipts surface as gate FAIL rows, never silent passes. 2026-10-31 lane-11 closure state: the stardf/arrow workspace DIRECT external surface is registered - every dependency the R1 gate walks (root [workspace.dependencies] + the member manifests it covers) plus clap as the one in-lock transitive explicitly assigned to this lane; transitive consumer attribution comes from the lock's dependency edges. The one-package sweep's frozen-duckdb transitive closure (syn 2.0.119, getrandom 0.2.17/0.3.4, and the wider anyhow/chrono/reqwest/tokio closure) remains UNREGISTERED - gate-invisible (the gate walks direct manifest edges, not the lock), disclosed for a follow-up lane.",
+  "dependency_licenses": [
+    {
+      "name": "blake3",
+      "version": "1.8.7",
+      "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/blake3-1.8.7/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Re-observed 2026-10-31 at lock-resolved 1.8.7 (prior observation 1.8.5; the license expression is IDENTICAL at both versions — both registry src paths re-read this date). The manifest req is \"1.8.5\" (a ^1.8.5 semver req) in crates/stardf-arrow-core/Cargo.toml:15 and crates/stardf-columnar/Cargo.toml:36; stardf/arrow/Cargo.lock resolves 1.8.7. The Apache-2.0 arm places blake3 in the gated MIT/Apache/MulanPSL class under R1."
+    },
+    {
+      "license": null,
+      "classification": "sovereign-fork-posture",
+      "name": "avec-arrow",
+      "note": "No license field declared in crates/avec-arrow/Cargo.toml at pinned rev 67c0ec1 (observed 2026-10-31). Fork posture per stardf/arrow/Cargo.toml [workspace.dependencies] comment: git-rev pinned, never published. Sovereign-to-sovereign, not a gated edge."
+    },
+    {
+      "name": "structured-zstd",
+      "version": "0.0.49",
+      "license": "Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/structured-zstd-0.0.49/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 (landed with the columnar wave's structured-zstd workspace pin); re-observed unchanged at the same path during the 2026-10-31 closure census. Apache-2.0, gated class under R1; admission same Apache-arm basis as blake3."
+    },
+    {
+      "name": "arrayvec",
+      "version": "0.7.8",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/arrayvec-0.7.8/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Closure census 2026-10-31: blake3 1.8.7 transitive (stardf/arrow/Cargo.lock edge blake3 -> arrayvec), reaching the build through the registered stardf-arrow-core / stardf-columnar -> blake3 edges. Gated class (MIT and Apache-2.0 arms) under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "cc",
+      "version": "1.10.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cc-1.10.0/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Closure census 2026-10-31: blake3 1.8.7 build-dependency (lock edge blake3 -> cc). Gated class (MIT and Apache-2.0 arms) under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "cfg-if",
+      "version": "1.0.5",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cfg-if-1.0.5/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Closure census 2026-10-31: blake3 1.8.7 transitive (lock edge blake3 -> cfg-if). Gated class (MIT and Apache-2.0 arms) under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "constant_time_eq",
+      "version": "0.4.2",
+      "license": "CC0-1.0 OR MIT-0 OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/constant_time_eq-0.4.2/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Closure census 2026-10-31: blake3 1.8.7 transitive (lock edge blake3 -> constant_time_eq). Gated class via the Apache-2.0 arm (the CC0-1.0 and MIT-0 arms alone would be sovereign-class, zero notice obligations) — same disjunctive posture as blake3. Admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "cpufeatures",
+      "version": "0.3.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cpufeatures-0.3.1/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Closure census 2026-10-31: blake3 1.8.7 transitive (lock edge blake3 -> cpufeatures). Gated class (MIT and Apache-2.0 arms) under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "find-msvc-tools",
+      "version": "0.1.15",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.15/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Closure census 2026-10-31: cc 1.10.0 transitive (lock edge cc -> find-msvc-tools). Gated class (MIT and Apache-2.0 arms) under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "libc",
+      "version": "0.2.191",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.191/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Closure census 2026-10-31: cpufeatures 0.3.1 transitive (lock edge cpufeatures -> libc). Gated class (MIT and Apache-2.0 arms) under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "shlex",
+      "version": "2.0.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shlex-2.0.1/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Closure census 2026-10-31: cc 1.10.0 transitive (lock edge cc -> shlex). Gated class (MIT and Apache-2.0 arms) under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "twox-hash",
+      "version": "2.1.5",
+      "license": "MIT",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/twox-hash-2.1.5/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Closure census 2026-10-31: structured-zstd 0.0.49 transitive (lock edge structured-zstd -> twox-hash), reaching the build through the registered stardf-arrow / stardf-columnar -> structured-zstd receipts. Pure MIT, gated class under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "windows-sys",
+      "version": "0.61.2",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/windows-sys-0.61.2/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 (sparql-algebra vendoring lane: landed with the leaf-closure vendor of purrdf rev 0da05783). MIT OR Apache-2.0, gated class under R1; admission on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "sha2",
+      "version": "0.11.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha2-0.11.1/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 (sparql-algebra vendoring lane: landed with the leaf-closure vendor of purrdf rev 0da05783). MIT OR Apache-2.0, gated class under R1; admission on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "regex-syntax",
+      "version": "0.8.11",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/regex-syntax-0.8.11/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 (sparql-algebra vendoring lane: landed with the leaf-closure vendor of purrdf rev 0da05783). MIT OR Apache-2.0, gated class under R1; admission on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "wasm-bindgen",
+      "version": "0.2.129",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wasm-bindgen-0.2.129/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 (sparql-algebra vendoring lane: landed with the leaf-closure vendor of purrdf rev 0da05783). MIT OR Apache-2.0, gated class under R1; admission on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "regex",
+      "version": "1.13.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/regex-1.13.1/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 (sparql-algebra vendoring lane: landed with the leaf-closure vendor of purrdf rev 0da05783). MIT OR Apache-2.0, gated class under R1; admission on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "rayon",
+      "version": "1.12.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 by copy-sweep lane w2-l06 (stardf-slice vendoring of purrdf rev 0da0578306983da851a9073337d57e2e2c41ab3a `crates/slice`, whose manifest declares `rayon = { workspace = true }` over the upstream workspace pin `rayon = \"1\"`). Version 1.12.0 is the locally observed registry src (rayon-1.12.0; not yet in stardf/arrow/Cargo.lock — the lock pins at first resolution, after the stardf-slice closure lands and the crate is registered as a workspace member). Transitive rayon-core 1.13.0 also observed locally: MIT OR Apache-2.0, same registry index. MIT OR Apache-2.0, gated class under R1; admission on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "hashbrown",
+      "version": "0.17.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashbrown-0.17.1/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 (stardf-n3 vendoring lane, copy sweep slice 8/20: introduced by the purrdf rev 0da05783 crates/n3 copy). Manifest req \"0.17\" default-features=false per the upstream root pin, inlined in crates/stardf-n3/Cargo.toml. Observed at the highest hashbrown version present in the local registry cache; the Cargo.lock resolution lands with the stardf-n3 build gate (blocked on stardf-rdf at observation time). MIT OR Apache-2.0, gated class under R1."
+    },
+    {
+      "name": "num-bigint",
+      "version": "0.4.8",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-bigint-0.4.8/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 (stardf-n3 vendoring lane, copy sweep slice 8/20: introduced by the purrdf rev 0da05783 crates/n3 copy). Manifest req \"0.4\" per the upstream root pin. Observed at the highest num-bigint version present in the local registry cache; the Cargo.lock resolution lands with the stardf-n3 build gate (blocked on stardf-rdf at observation time). MIT OR Apache-2.0, gated class under R1."
+    },
+    {
+      "name": "num-traits",
+      "version": "0.2.19",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-traits-0.2.19/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 (stardf-n3 vendoring license-inventory.toml closure census, copy sweep slice 8/20: introduced by the purrdf rev 0da05783 crates/n3 copy). Manifest req \"0.2\" per the upstream root pin. Observed at the highest num-traits version present in the local registry cache; the Cargo.lock resolution lands with the stardf-n3 build gate (blocked on stardf-rdf at observation time). MIT OR Apache-2.0, gated class under R1."
+    },
+    {
+      "name": "aes-gcm",
+      "version": "0.11.1",
+      "license": "Apache-2.0 OR MIT",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/aes-gcm-0.11.1/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Observed 2026-10-31 (lane w2-l16 determinism sweep: stardf/arrow/Cargo.toml [workspace.dependencies] pin aes-gcm = { version = \"0.11\", ... } at line 242, Cargo.lock resolves 0.11.1). Apache-2.0 OR MIT, gated class under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "fastrand",
+      "version": "2.5.0",
+      "license": "Apache-2.0 OR MIT",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.5.0/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Observed 2026-10-31 (lane w2-l16 determinism sweep: stardf/arrow/Cargo.toml [workspace.dependencies] pin fastrand = \"2\" at line 243, Cargo.lock resolves 2.5.0). Apache-2.0 OR MIT, gated class under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "frozen-duckdb",
+      "version": "2.0.4",
+      "license": "MIT",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/frozen-duckdb-2.0.4/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive",
+      "note": "Observed 2026-10-31 (lane w2-l16 determinism sweep: stardf/arrow/Cargo.toml [workspace.dependencies] pin frozen-duckdb = { version = \"2.0.3\" } at line 244, Cargo.lock resolves 2.0.4 from the registry (checksum c07cdd9731e688e5528d9a4cd9a2271c548ebb8f80b3d7d9e9b1f37b825c2be7); not a git fork despite the name. MIT, gated class under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31. Carriage disclosure (lane 11 re-observation, same date): the registry src dir carries ONLY LICENSE-DUCKDB.md - a vendored-headers notice (DuckDB C-API headers, pin d54cbbe3, v2.0-cyanoptera, redistributed unmodified under DuckDB MIT); the MIT grant text itself is NOT present in the registry dir (grep 'Permission is hereby granted' = 0 hits), so MIT carriage rests on the manifest expression plus that notice."
+    },
+    {
+      "name": "getrandom",
+      "version": "0.4.3",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.4.3/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Observed 2026-10-31 (lane w2-l16 determinism sweep: stardf/arrow/Cargo.toml [workspace.dependencies] pin getrandom = \"0.4\" at line 245, Cargo.lock resolves 0.4.3; the lock also holds getrandom 0.2.17 and 0.3.4 for other consumers). MIT OR Apache-2.0, gated class under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "proc-macro2",
+      "version": "1.0.107",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.107/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Observed 2026-10-31 (lane w2-l16 determinism sweep: stardf/arrow/Cargo.toml [workspace.dependencies] pin proc-macro2 = { version = \"1\", features = [\"span-locations\"] } at 247, Cargo.lock resolves 1.0.107). MIT OR Apache-2.0, gated class under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "syn",
+      "version": "3.0.9",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/syn-3.0.9/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Observed 2026-10-31 (lane w2-l16 determinism sweep: stardf/arrow/Cargo.toml [workspace.dependencies] pin syn = { version = \"3\", features = [\"full\", \"visit\"] } at line 251, Cargo.lock resolves 3.0.9; the lock also holds syn 2.0.119 for other consumers). MIT OR Apache-2.0, gated class under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "visual-hashing",
+      "version": "1.0.0",
+      "license": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/visual-hashing-1.0.0/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Observed 2026-10-31 (lane w2-l16 determinism sweep: stardf/arrow/Cargo.toml [workspace.dependencies] pin visual-hashing = \"1.0.0\" at line 252, Cargo.lock resolves 1.0.0). MIT OR Apache-2.0 OR MulanPSL-2.0 — all three arms are R1 gated tokens; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    },
+    {
+      "name": "clap",
+      "version": "4.6.7",
+      "license": "MIT OR Apache-2.0",
+      "source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.6.7/Cargo.toml",
+      "observed": "2026-10-31",
+      "classification": "permissive-disjunctive",
+      "note": "Observed 2026-10-31 (lane 11, one-package-sweep externals register). Not a workspace pin and not referenced by any stardf/arrow member manifest - TRANSITIVE in stardf/arrow/Cargo.lock (edges frozen-duckdb -> clap and cucumber -> clap; stardf-duckdb -> frozen-duckdb is the member-reachable path). MIT OR Apache-2.0, gated class under R1; admitted Apache/MIT-arm basis, operator blanket sign-off 2026-10-31."
+    }
+  ],
+  "compatibility_receipts": [
+    {
+      "consumer": "stardf-arrow-core",
+      "dependency": "blake3",
+      "dependency_version": "1.8.7",
+      "license_expression": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/blake3-1.8.7/Cargo.toml [package].license, re-observed by this lane 2026-10-31 at lock-resolved 1.8.7 (the identical expression was also re-read at blake3-1.8.5/Cargo.toml; matches the prior dependency_licenses observation at both versions)",
+      "permissive_classification_rationale": "The expression is a disjunction with an Apache-2.0 arm; under license-token-containment (the R1 gate's own classifier) any arm landing in the gated MIT/Apache/MulanPSL class gates the edge. Apache-2.0 is a widely-deemed permissive license (OSI-approved, FSF free, GPL-compatible, no copyleft transmission on aggregation) — the same class the R1 gate already permits with a registered receipt. The CC0-1.0 arm alone would be sovereign-class (no attribution/notice requirement); the LLVM-exception arm is Apache-2.0 with an additional permission, strictly no more restrictive. Selecting the Apache-2.0 arm of the disjunction is lawful for a downstream consumer, so blake3 is consumable by P28-SIL on permissive terms.",
+      "notice_carriage_obligations": {
+        "mechanism": "Selecting the Apache-2.0 arm of the OR-expression carries Apache-2.0 §4 notice obligations: retain (a) the license text and (b) all copyright/patent/trademark attribution notices from the work's source.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/blake3-1.8.7/LICENSE_A2 (Apache-2.0 full text, verified present 2026-10-31)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/blake3-1.8.7/LICENSE_A2LLVM (Apache-2.0 with 'LLVM Exceptions to the Apache 2.0 License' addendum, verified present 2026-10-31)"
+        ],
+        "cargo_notice": "Cargo/vendored crates carry the LICENSE_A2/LICENSE_A2LLVM/LICENSE_CC0 files inside blake3-1.8.7/ automatically under standard vendoring; a shipped-binary redistribution must include the Apache-2.0 license text and blake3's copyright notices (LICENSE_A2 + LICENSE_A2LLVM; LICENSE_CC0 optional if the Apache arm is selected).",
+        "open_note_for_operator": "The CC0-1.0 arm of the disjunction imposes zero notice obligations; if the operator prefers, the receipt could instead cite CC0 selection, which would reclassify the edge sovereign-class — that is a legal-strategy decision above lane authority."
+      },
+      "verification_receipt": {
+        "observed": "2026-10-31",
+        "commands": [
+          "grep -m1 '^license' ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/blake3-1.8.7/Cargo.toml",
+          "grep -m1 '^license' ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/blake3-1.8.5/Cargo.toml (prior version, expression identical)",
+          "ls of blake3-1.8.7/ confirming LICENSE_A2, LICENSE_A2LLVM, LICENSE_CC0 present",
+          "python3 stardf/arrow/scripts/verify_stardf_licenses.py (pre-edit baseline: PASS exit 0)"
+        ],
+        "gate_run_pre_draft": "verify_stardf_licenses.py exit 0 (baseline before this census edit; edge stardf-arrow-core -> blake3 already REGISTERED from the prior receipt — the original gate-fail witness remains in the receipt history below)",
+        "version_movement": "Original receipt was written against blake3 1.8.5 (its gate_run_pre_draft cites the 1.8.5 fail). The lock now resolves 1.8.7 (manifest req \"1.8.5\" = ^1.8.5); license expression re-observed IDENTICAL at 1.8.7; required_files re-cited at the 1.8.7 registry paths. The rationale and admission stand unchanged."
+      },
+      "status": "ADMITTED — Apache-2.0 arm selected (operator sign-off 2026-10-31, OPERATOR-DECISIONS.md completion-wave block); re-observed at 1.8.7 2026-10-31",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-columnar",
+      "dependency": "blake3",
+      "dependency_version": "1.8.7",
+      "license_expression": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/blake3-1.8.7/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Same disjunctive Apache-2.0-arm selection as the stardf-arrow-core -> blake3 receipt. Edge observed directly in stardf/arrow/Cargo.lock (crates/stardf-columnar/Cargo.toml:36 declares blake3 = { version = \"1.8.5\", default-features = false }, lock-resolved 1.8.7). The gate script's MANIFESTS list does not walk crates/stardf-columnar/Cargo.toml, so this row is receipt-carrying register completeness, not a gate-enforced row.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 arm selection carries Apache-2.0 §4 notice obligations.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/blake3-1.8.7/LICENSE_A2 (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/blake3-1.8.7/LICENSE_A2LLVM (verified present)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "blake3",
+      "dependency": "arrayvec",
+      "dependency_version": "0.7.8",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/arrayvec-0.7.8/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge blake3 -> arrayvec (blake3 is itself carried by the registered stardf-arrow-core / stardf-columnar -> blake3 receipts).",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage; standard cargo vendoring carries the LICENSE-APACHE/LICENSE-MIT files inside arrayvec-0.7.8/ automatically.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/arrayvec-0.7.8/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/arrayvec-0.7.8/LICENSE-MIT (verified present; 'Copyright (c) Ulrik Sverdrup \"bluss\" 2015-2023')"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "blake3",
+      "dependency": "cc",
+      "dependency_version": "1.10.0",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cc-1.10.0/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "MIT OR Apache-2.0: both arms gated-class, admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge blake3 -> cc (blake3's C-implementation build path).",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cc-1.10.0/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cc-1.10.0/LICENSE-MIT (verified present)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "blake3",
+      "dependency": "cfg-if",
+      "dependency_version": "1.0.5",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cfg-if-1.0.5/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "MIT OR Apache-2.0: both arms gated-class, admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge blake3 -> cfg-if.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cfg-if-1.0.5/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cfg-if-1.0.5/LICENSE-MIT (verified present)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "blake3",
+      "dependency": "constant_time_eq",
+      "dependency_version": "0.4.2",
+      "license_expression": "CC0-1.0 OR MIT-0 OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/constant_time_eq-0.4.2/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Disjunction with an Apache-2.0 arm (and an MIT-0 arm); selecting the Apache-2.0 arm is lawful for a downstream consumer, so the edge admits on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge blake3 -> constant_time_eq.",
+      "notice_carriage_obligations": {
+        "mechanism": "Selecting the Apache-2.0 arm carries Apache-2.0 §4; the MIT-0 and CC0-1.0 arms carry zero notice obligations (arm selection is the operator's legal-strategy choice, above lane authority).",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/constant_time_eq-0.4.2/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/constant_time_eq-0.4.2/LICENSE-CC0 (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/constant_time_eq-0.4.2/LICENSE-MIT0 (verified present)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "blake3",
+      "dependency": "cpufeatures",
+      "dependency_version": "0.3.1",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cpufeatures-0.3.1/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "MIT OR Apache-2.0: both arms gated-class, admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge blake3 -> cpufeatures.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cpufeatures-0.3.1/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/cpufeatures-0.3.1/LICENSE-MIT (verified present; 'Copyright (c) 2020-2026 The RustCrypto Project Developers')"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "cpufeatures",
+      "dependency": "libc",
+      "dependency_version": "0.2.191",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.191/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "MIT OR Apache-2.0: both arms gated-class, admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge cpufeatures -> libc.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.191/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.191/LICENSE-MIT (verified present)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "cc",
+      "dependency": "find-msvc-tools",
+      "dependency_version": "0.1.15",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.15/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "MIT OR Apache-2.0: both arms gated-class, admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge cc -> find-msvc-tools.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.15/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/find-msvc-tools-0.1.15/LICENSE-MIT (verified present)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "cc",
+      "dependency": "shlex",
+      "dependency_version": "2.0.1",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shlex-2.0.1/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "MIT OR Apache-2.0: both arms gated-class, admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge cc -> shlex.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shlex-2.0.1/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/shlex-2.0.1/LICENSE-MIT (verified present; 'Copyright 2015 Nicholas Allegra (comex).')"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "structured-zstd",
+      "dependency": "twox-hash",
+      "dependency_version": "2.1.5",
+      "license_expression": "MIT",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/twox-hash-2.1.5/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Pure MIT: gated class, admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge structured-zstd -> twox-hash (structured-zstd is itself carried by the registered stardf-arrow / stardf-columnar -> structured-zstd receipts).",
+      "notice_carriage_obligations": {
+        "mechanism": "MIT notice carriage: license text + copyright line in all copies.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/twox-hash-2.1.5/LICENSE.txt (verified present, 'The MIT License (MIT)')"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "structured-zstd",
+      "dependency_version": "0.0.49",
+      "license_expression": "Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/structured-zstd-0.0.49/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Apache-2.0 exactly — the same permissive class the R1 gate permits with a registered receipt. NOTICE file carriage per Apache-2.0 §4 (registry LICENSE file).",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4: retain license text + attribution notices.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/structured-zstd-0.0.49/LICENSE"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (same Apache-arm basis as the blake3 receipt)",
+      "admitted": "2026-10-31",
+      "note": "Duplicate admission for the root-package edge (the workspace pin lives in stardf/arrow/Cargo.toml; the gate keys receipts by exact (consumer, dependency)). Re-cited unchanged during the 2026-10-31 closure census."
+    },
+    {
+      "consumer": "stardf-columnar",
+      "dependency": "structured-zstd",
+      "dependency_version": "0.0.49",
+      "license_expression": "Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/structured-zstd-0.0.49/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Apache-2.0 exactly — the same permissive class the R1 gate permits with a registered receipt. NOTICE file carriage per Apache-2.0 §4 (registry LICENSE file).",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4: retain license text + attribution notices.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/structured-zstd-0.0.49/LICENSE"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (same Apache-arm basis as the blake3 receipt)",
+      "admitted": "2026-10-31",
+      "note": "Re-cited unchanged during the 2026-10-31 closure census."
+    },
+    {
+      "consumer": "stardf-stack",
+      "dependency": "libc",
+      "dependency_version": "0.2.191",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libc-0.2.191/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge stardf-stack -> libc."
+    },
+    {
+      "consumer": "stardf-stack",
+      "dependency": "windows-sys",
+      "dependency_version": "0.61.2",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/windows-sys-0.61.2/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge stardf-stack -> windows-sys."
+    },
+    {
+      "consumer": "stardf-testkit",
+      "dependency": "sha2",
+      "dependency_version": "0.11.1",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha2-0.11.1/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge stardf-testkit -> sha2."
+    },
+    {
+      "consumer": "stardf-testkit",
+      "dependency": "regex-syntax",
+      "dependency_version": "0.8.11",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/regex-syntax-0.8.11/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge stardf-testkit -> regex-syntax."
+    },
+    {
+      "consumer": "stardf-testkit",
+      "dependency": "wasm-bindgen",
+      "dependency_version": "0.2.129",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wasm-bindgen-0.2.129/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge stardf-testkit -> wasm-bindgen."
+    },
+    {
+      "consumer": "stardf-sparql-algebra",
+      "dependency": "regex",
+      "dependency_version": "1.13.1",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/regex-1.13.1/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock edge stardf-sparql-algebra -> regex."
+    },
+    {
+      "consumer": "stardf-slice",
+      "dependency": "rayon",
+      "dependency_version": "1.12.0",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/crates/stardf-slice/Cargo.toml [dependencies] `rayon = \"1\"` (vendored purrdf rev 0da0578306983da851a9073337d57e2e2c41ab3a crates/slice; not yet a Cargo.lock edge — crate lands as an unregistered copy, member registration follows the closure).",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage; standard cargo vendoring carries the LICENSE-APACHE/LICENSE-MIT files inside rayon-1.12.0/ automatically.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/LICENSE-MIT (verified present; 'Copyright (c) 2010 The Rust Project Developers')"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-n3",
+      "dependency": "hashbrown",
+      "dependency_version": "0.17.1",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashbrown-0.17.1/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: crates/stardf-n3/Cargo.toml dependency key (no Cargo.lock edge exists yet — stardf-n3 is a standalone-crate copy, not a stardf/arrow workspace member, pending stardf-rdf; the lock edge is recorded by the integration lane when membership lands)."
+    },
+    {
+      "consumer": "stardf-n3",
+      "dependency": "num-bigint",
+      "dependency_version": "0.4.8",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-bigint-0.4.8/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: crates/stardf-n3/Cargo.toml dependency key (no Cargo.lock edge exists yet — stardf-n3 is a standalone-crate copy, not a stardf/arrow workspace member, pending stardf-rdf; the lock edge is recorded by the integration lane when membership lands)."
+    },
+    {
+      "consumer": "stardf-n3",
+      "dependency": "num-traits",
+      "dependency_version": "0.2.19",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/num-traits-0.2.19/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: crates/stardf-n3/Cargo.toml dependency key (no Cargo.lock edge exists yet — stardf-n3 is a standalone-crate copy, not a stardf/arrow workspace member, pending stardf-rdf; the lock edge is recorded by the integration lane when membership lands)."
+    },
+    {
+      "consumer": "stardf-datalog",
+      "dependency": "hashbrown",
+      "dependency_version": "0.17.1",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashbrown-0.17.1/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: crates/stardf-datalog/Cargo.toml [dependencies] `hashbrown = { version = \"0.17\", default-features = false }` (vendored purrdf rev 0da0578306983da851a9073337d57e2e2c41ab3a crates/datalog; upstream workspace pin restated inline — standalone-crate copy, not a stardf/arrow workspace member, pending stardf-core; no Cargo.lock edge exists yet, the lock edge is recorded by the integration lane when membership lands).",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage; standard cargo vendoring carries the LICENSE-APACHE/LICENSE-MIT files inside hashbrown-0.17.1/ automatically.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashbrown-0.17.1/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashbrown-0.17.1/LICENSE-MIT (verified present; 'Copyright (c) 2016 Amanieu d'Antras')"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-datalog",
+      "dependency": "rayon",
+      "dependency_version": "1.12.0",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: crates/stardf-datalog/Cargo.toml [dependencies] `rayon = \"1\"` (vendored purrdf rev 0da0578306983da851a9073337d57e2e2c41ab3a crates/datalog; upstream workspace pin restated inline — standalone-crate copy, not a stardf/arrow workspace member, pending stardf-core; no Cargo.lock edge exists yet, the lock edge is recorded by the integration lane when membership lands) Transitive rayon-core 1.13.0: MIT OR Apache-2.0 (observed this lane, same registry index); carried on this row and the stardf-slice lane's rayon dependency_licenses note.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage; standard cargo vendoring carries the LICENSE-APACHE/LICENSE-MIT files inside rayon-1.12.0/ automatically.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/LICENSE-APACHE (verified present)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/LICENSE-MIT (verified present; 'Copyright (c) 2010 The Rust Project Developers')"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "hashbrown",
+      "dependency_version": "0.17.1",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/hashbrown-0.17.1/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: the R1 gate's manifest walk attributes the stardf/arrow/Cargo.toml [workspace.dependencies] pin hashbrown = { version = \"0.17\", default-features = false } (line 246) to the root package stardf-arrow; Cargo.lock resolves 0.17.1."
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "rayon",
+      "dependency_version": "1.12.0",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rayon-1.12.0/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: the R1 gate's manifest walk attributes the stardf/arrow/Cargo.toml [workspace.dependencies] pin rayon = \"1\" (line 248) to the root package stardf-arrow; Cargo.lock resolves 1.12.0."
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "regex",
+      "dependency_version": "1.13.1",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/regex-1.13.1/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: the R1 gate's manifest walk attributes the stardf/arrow/Cargo.toml [workspace.dependencies] pin regex = { version = \"1\", default-features = false, features = [...] } (line 249) to the root package stardf-arrow; Cargo.lock resolves 1.13.1."
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "sha2",
+      "dependency_version": "0.11.1",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sha2-0.11.1/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: the R1 gate's manifest walk attributes the stardf/arrow/Cargo.toml [workspace.dependencies] pin sha2 = { version = \"0.11\", default-features = false } (line 250) to the root package stardf-arrow; Cargo.lock resolves 0.11.1."
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "wasm-bindgen",
+      "dependency_version": "0.2.129",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/wasm-bindgen-0.2.129/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-compat token containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: the R1 gate's manifest walk attributes the stardf/arrow/Cargo.toml [workspace.dependencies] pin wasm-bindgen = \"=0.2.129\" (line 253) to the root package stardf-arrow; Cargo.lock resolves 0.2.129."
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "aes-gcm",
+      "dependency_version": "0.11.1",
+      "license_expression": "Apache-2.0 OR MIT",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/aes-gcm-0.11.1/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (Apache-2.0, MIT) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.toml [workspace.dependencies] pin aes-gcm = { version = \"0.11\", default-features = false, features = [\"aes\", \"alloc\"] } (line 242), attributed to root package stardf-arrow by the gate's manifest walk; Cargo.lock resolves 0.11.1.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/aes-gcm-0.11.1/LICENSE-APACHE (verified present 2026-10-31)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/aes-gcm-0.11.1/LICENSE-MIT (verified present 2026-10-31)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "fastrand",
+      "dependency_version": "2.5.0",
+      "license_expression": "Apache-2.0 OR MIT",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.5.0/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (Apache-2.0, MIT) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.toml [workspace.dependencies] pin fastrand = \"2\" (line 243), attributed to root package stardf-arrow by the gate's manifest walk; Cargo.lock resolves 2.5.0.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.5.0/LICENSE-APACHE (verified present 2026-10-31)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fastrand-2.5.0/LICENSE-MIT (verified present 2026-10-31)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "frozen-duckdb",
+      "dependency_version": "2.0.4",
+      "license_expression": "MIT",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/frozen-duckdb-2.0.4/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Pure MIT: gated class, admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.toml [workspace.dependencies] pin frozen-duckdb = { version = \"2.0.3\" } (line 244), attributed to root package stardf-arrow by the gate's manifest walk; Cargo.lock resolves 2.0.4 from the registry (checksum c07cdd9731e688e5528d9a4cd9a2271c548ebb8f80b3d7d9e9b1f37b825c2be7).",
+      "notice_carriage_obligations": {
+        "mechanism": "MIT notice carriage: license text + copyright line in all copies.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/frozen-duckdb-2.0.4/LICENSE-DUCKDB.md (verified present 2026-10-31)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "getrandom",
+      "dependency_version": "0.4.3",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.4.3/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.toml [workspace.dependencies] pin getrandom = \"0.4\" (line 245), attributed to root package stardf-arrow by the gate's manifest walk; Cargo.lock resolves 0.4.3 (the lock also holds 0.2.17/0.3.4 for other consumers).",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.4.3/LICENSE-APACHE (verified present 2026-10-31)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.4.3/LICENSE-MIT (verified present 2026-10-31)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "proc-macro2",
+      "dependency_version": "1.0.107",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.107/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.toml [workspace.dependencies] pin proc-macro2 = { version = \"1\", features = [\"span-locations\"] } (line 247), attributed to root package stardf-arrow by the gate's manifest walk; Cargo.lock resolves 1.0.107.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.107/LICENSE-APACHE (verified present 2026-10-31)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.107/LICENSE-MIT (verified present 2026-10-31)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "syn",
+      "dependency_version": "3.0.9",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/syn-3.0.9/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.toml [workspace.dependencies] pin syn = { version = \"3\", features = [\"full\", \"visit\"] } (line 251), attributed to root package stardf-arrow by the gate's manifest walk; Cargo.lock resolves 3.0.9 (the lock also holds syn 2.0.119 for other consumers).",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/syn-3.0.9/LICENSE-APACHE (verified present 2026-10-31)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/syn-3.0.9/LICENSE-MIT (verified present 2026-10-31)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "stardf-arrow",
+      "dependency": "visual-hashing",
+      "dependency_version": "1.0.0",
+      "license_expression": "MIT OR Apache-2.0 OR MulanPSL-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/visual-hashing-1.0.0/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "All three arms of the disjunction (MIT, Apache-2.0, MulanPSL-2.0) are R1 gated tokens; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.toml [workspace.dependencies] pin visual-hashing = \"1.0.0\" (line 252), attributed to root package stardf-arrow by the gate's manifest walk; Cargo.lock resolves 1.0.0.",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT / MulanPSL-2.0) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/visual-hashing-1.0.0/LICENSE-APACHE (verified present 2026-10-31)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/visual-hashing-1.0.0/LICENSE-MIT (verified present 2026-10-31)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/visual-hashing-1.0.0/LICENSE-MULAN (verified present 2026-10-31)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    },
+    {
+      "consumer": "frozen-duckdb",
+      "dependency": "clap",
+      "dependency_version": "4.6.7",
+      "license_expression": "MIT OR Apache-2.0",
+      "license_expression_source": "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.6.7/Cargo.toml [package].license, observed 2026-10-31",
+      "permissive_classification_rationale": "Every arm of the disjunction (MIT, Apache-2.0) lands in the gated permissive class; under license-token-containment the edge gates and is admitted on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Consumer attribution: stardf/arrow/Cargo.lock transitive edges frozen-duckdb -> clap and cucumber -> clap (frozen-duckdb itself is carried by the registered stardf-arrow -> frozen-duckdb receipt; stardf-duckdb -> frozen-duckdb is the member-reachable path).",
+      "notice_carriage_obligations": {
+        "mechanism": "Apache-2.0 §4 (or MIT) notice carriage.",
+        "required_files": [
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.6.7/LICENSE-APACHE (verified present 2026-10-31)",
+          "~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.6.7/LICENSE-MIT (verified present 2026-10-31)"
+        ]
+      },
+      "status": "ADMITTED — operator blanket sign-off 2026-10-31 (Apache/MIT-arm basis)",
+      "admitted": "2026-10-31"
+    }
+  ],
+  "compatibility_receipts_note": "blake3 receipt ADMITTED 2026-10-31 by operator sign-off (Apache-2.0 arm of the disjunction; notice carriage LICENSE_A2 + LICENSE_A2LLVM). Admission moved the W1-5 draft out of draft_receipts_pending_operator. 2026-10-31 lane-11 finish: the one-package sweep's direct externals are registered — 20 external dependency_licenses entries (19 crates + avec-arrow fork posture; blake3 re-observed at lock-resolved 1.8.7), and receipts now key every gate-walked gated edge: 12 root-package stardf-arrow edges (the gate's manifest walk attributes the [workspace.dependencies] pins to the root package) + the transitive frozen-duckdb -> clap edge. Every gated edge admits on the Apache/MIT-arm basis of the operator blanket sign-off 2026-10-31. Remaining loudly-unregistered: the frozen-duckdb transitive closure beyond clap (syn 2.0.119, getrandom 0.2.17/0.3.4, anyhow/chrono/reqwest/tokio etc.) — gate-invisible, follow-up-lane scope.",
+  "draft_receipts_pending_operator": []
+}

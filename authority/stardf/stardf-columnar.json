@@ -1,0 +1,307 @@
+{
+ "columns_count": 26,
+ "counts": {
+  "api_items": 10,
+  "api_reexports": 22,
+  "columns": 26,
+  "tables": 5
+ },
+ "dictionary_seam": {
+  "BOTTOM": 0,
+  "DICTIONARY_CAP": 4294967293,
+  "WILDCARD": 4294967295,
+  "id_width": "u32",
+  "law": "BOTTOM=0 reserved, never minted; WILDCARD=u32::MAX refused as mintable; dictionary cap=u32::MAX-2 (D4) so no mintable id collides with either sentinel.",
+  "sources": {
+   "arena_rs": {
+    "BOTTOM_ID": "0",
+    "WILDCARD_ID": "u32::MAX"
+   },
+   "layout_rs": {
+    "BOTTOM_TERM_ID": "0x0000_0000",
+    "WILDCARD_TERM_ID": "0xFFFF_FFFF"
+   }
+  }
+ },
+ "equation": "A = mu(O*)",
+ "generated_at": "2026-10-31T20:23:54+00:00",
+ "generated_from": {
+  "arena_rs": "/Users/sac/ggen-legacy/stardf/arrow/crates/stardf-arrow-core/src/arena.rs",
+  "extractor": "scripts/extract_stardf_columnar.py",
+  "files_rs": "/Users/sac/purrdf/crates/columnar/src/files.rs",
+  "layout_rs": "/Users/sac/ggen-legacy/stardf/arrow/crates/stardf-arrow-core/src/layout.rs",
+  "lib_rs": "/Users/sac/purrdf/crates/columnar/src/lib.rs",
+  "note": "Predecessor census: the port target stardf/arrow/crates/columnar/ does not exist yet; when it lands, re-point the source paths at the ported crate and regenerate. The census refuses to run against a missing source (loud FAIL above).",
+  "parquet_rs": "/Users/sac/purrdf/crates/columnar/src/parquet.rs",
+  "projection_rs": "/Users/sac/purrdf/crates/columnar/src/projection.rs",
+  "reader_rs": "/Users/sac/purrdf/crates/columnar/src/reader.rs",
+  "schema_rs": "/Users/sac/purrdf/crates/columnar/src/schema.rs",
+  "schema_rs_sha256": "863cfa37148578ff83e704024a7e5b881037b59ab674c11b699540c79195c388",
+  "writer_rs": "/Users/sac/purrdf/crates/columnar/src/writer.rs"
+ },
+ "public_api": {
+  "items": [
+   {
+    "kind": "struct",
+    "name": "ParquetFiles",
+    "source_file": "crates/columnar/src/files.rs"
+   },
+   {
+    "kind": "enum",
+    "name": "Compression",
+    "source_file": "crates/columnar/src/parquet.rs"
+   },
+   {
+    "kind": "enum",
+    "name": "ProjectionCell",
+    "source_file": "crates/columnar/src/projection.rs"
+   },
+   {
+    "kind": "struct",
+    "name": "ColumnarProjection",
+    "source_file": "crates/columnar/src/projection.rs"
+   },
+   {
+    "kind": "struct",
+    "name": "ProjectionRows",
+    "source_file": "crates/columnar/src/projection.rs"
+   },
+   {
+    "kind": "struct",
+    "name": "ColumnarRead",
+    "source_file": "crates/columnar/src/reader.rs"
+   },
+   {
+    "kind": "fn",
+    "name": "read",
+    "source_file": "crates/columnar/src/reader.rs"
+   },
+   {
+    "kind": "struct",
+    "name": "ColumnarWrite",
+    "source_file": "crates/columnar/src/writer.rs"
+   },
+   {
+    "kind": "fn",
+    "name": "write",
+    "source_file": "crates/columnar/src/writer.rs"
+   },
+   {
+    "kind": "fn",
+    "name": "project",
+    "source_file": "crates/columnar/src/writer.rs"
+   }
+  ],
+  "reexports": [
+   "ColumnSchema",
+   "ColumnarError",
+   "ColumnarProjection",
+   "ColumnarRead",
+   "ColumnarWrite",
+   "ColumnarWriteError",
+   "CompactReason",
+   "ConstructionReason",
+   "MetadataReason",
+   "PageBodyReason",
+   "PhysicalType",
+   "ProjectionCell",
+   "ProjectionReason",
+   "ProjectionRows",
+   "ReaderReason",
+   "Repetition",
+   "Table",
+   "TableSchema",
+   "ValueBodyReason",
+   "project",
+   "read",
+   "write"
+  ]
+ },
+ "release": "v26.10.31",
+ "schema": "urn:chatman:ggen-legacy:stardf-columnar-census:v26.10.31",
+ "standing": "PARTIAL_ALIVE",
+ "tables": {
+  "annotations": {
+   "columns": [
+    {
+     "name": "reifier",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "predicate",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "value",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "g",
+     "physical_type": "Int64",
+     "repetition": "Optional",
+     "utf8": false
+    }
+   ],
+   "file_name": "annotations.parquet"
+  },
+  "blobs": {
+   "columns": [
+    {
+     "name": "digest",
+     "physical_type": "ByteArray",
+     "repetition": "Required",
+     "utf8": true
+    },
+    {
+     "name": "bytes",
+     "physical_type": "ByteArray",
+     "repetition": "Required",
+     "utf8": false
+    }
+   ],
+   "file_name": "blobs.parquet"
+  },
+  "quads": {
+   "columns": [
+    {
+     "name": "s",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "p",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "o",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "g",
+     "physical_type": "Int64",
+     "repetition": "Optional",
+     "utf8": false
+    }
+   ],
+   "file_name": "quads.parquet"
+  },
+  "reifiers": {
+   "columns": [
+    {
+     "name": "reifier",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "s",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "p",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "o",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "g",
+     "physical_type": "Int64",
+     "repetition": "Optional",
+     "utf8": false
+    }
+   ],
+   "file_name": "reifiers.parquet"
+  },
+  "terms": {
+   "columns": [
+    {
+     "name": "id",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "kind",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    },
+    {
+     "name": "lex",
+     "physical_type": "ByteArray",
+     "repetition": "Optional",
+     "utf8": true
+    },
+    {
+     "name": "datatype",
+     "physical_type": "Int64",
+     "repetition": "Optional",
+     "utf8": false
+    },
+    {
+     "name": "lang",
+     "physical_type": "ByteArray",
+     "repetition": "Optional",
+     "utf8": true
+    },
+    {
+     "name": "direction",
+     "physical_type": "Int64",
+     "repetition": "Optional",
+     "utf8": false
+    },
+    {
+     "name": "scope",
+     "physical_type": "Int64",
+     "repetition": "Optional",
+     "utf8": false
+    },
+    {
+     "name": "triple_s",
+     "physical_type": "Int64",
+     "repetition": "Optional",
+     "utf8": false
+    },
+    {
+     "name": "triple_p",
+     "physical_type": "Int64",
+     "repetition": "Optional",
+     "utf8": false
+    },
+    {
+     "name": "triple_o",
+     "physical_type": "Int64",
+     "repetition": "Optional",
+     "utf8": false
+    },
+    {
+     "name": "named_graph",
+     "physical_type": "Int64",
+     "repetition": "Required",
+     "utf8": false
+    }
+   ],
+   "file_name": "terms.parquet"
+  }
+ },
+ "tables_count": 5
+}

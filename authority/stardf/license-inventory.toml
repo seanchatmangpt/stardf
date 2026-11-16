@@ -1,0 +1,119 @@
+# SPDX-FileCopyrightText: 2026 Sean Chatman
+# SPDX-License-Identifier: CC-BY-4.0
+
+# StarDF license-inventory — conjunct-notice carriage census (W1 lane 6;
+# carriage re-census 2026-10-31, license-closure lane).
+#
+# Ported from ~/purrdf/license-inventory.toml (upstream rev
+# 0da0578306983da851a9073337d57e2e2c41ab3a) per
+# stardf/docs/jira/v26.10.31/08-vendoring-plan.md checklist item 5: the
+# AND-conjunction licenses (Unicode-3.0, BSD-3-Clause) travel with the
+# specific files that carry them.
+#
+# 2026-10-31 re-census, then single-site reconciliation (wave-2 lane w2-l12):
+# the duplicate top-level stardf/crates/ stub site was deleted 2026-10-31 and
+# stardf/arrow/crates/ is the single vendored root. Four of seven rows are
+# CARRIED and verified BYTE-EQUAL to the upstream archive at the pinned rev
+# at the surviving site (re-witnessed at deletion time); the
+# three xsd_regex rows remain PLANNED — purrdf's rdf-core xsd_regex module
+# is not vendored into any stardf crate (observed absence under stardf/,
+# 2026-10-31). A PLANNED row is a loudly-missing row, never a silent pass.
+# Path segments: upstream purrdf crate layout in `file`; `stardf_path`
+# gives the vendored locations (directory renames crates/lex ->
+# crates/stardf-lex etc. applied at copy time, license expressions and
+# pins unchanged).
+
+[vendor_pin]
+upstream = "purrdf"
+rev = "0da0578306983da851a9073337d57e2e2c41ab3a"
+verified = "git -C /Users/sac/purrdf rev-parse HEAD (2026-10-31, per 08-vendoring-plan.md); HEAD equaled the pinned rev at census time"
+
+# Unicode-3.0 per-file tables (purrdf [header_offers] rows under the nine
+# vendored crates; first-party grant beside Unicode-3.0).
+[[row]]
+file = "crates/lex/src/unicode_tables.rs"
+stardf_path = [
+    "stardf/arrow/crates/stardf-lex/src/unicode_tables.rs",
+]
+license = "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0"
+upstream_source = "https://www.unicode.org/Public/17.0.0/ucd/ (UCD 17.0.0, generated tables) at purrdf rev 0da05783"
+carriage_status = "CARRIED"
+carriage_receipt = "2026-10-31: present at the single vendored root (stardf/arrow/crates/); byte-equal (cmp) to the `git -C /Users/sac/purrdf archive 0da0578306983da851a9073337d57e2e2c41ab3a -- crates/lex/src/unicode_tables.rs` extraction (re-witnessed at the 2026-10-31 stub-site deletion, lane w2-l12)"
+
+[[row]]
+file = "crates/lex/src/unicode/case_tables.rs"
+stardf_path = [
+    "stardf/arrow/crates/stardf-lex/src/unicode/case_tables.rs",
+]
+license = "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0"
+upstream_source = "https://www.unicode.org/Public/17.0.0/ucd/ at purrdf rev 0da05783"
+carriage_status = "CARRIED"
+carriage_receipt = "2026-10-31: present at the single vendored root (stardf/arrow/crates/); byte-equal (cmp) to the purrdf rev 0da05783 archive extraction (re-witnessed at the 2026-10-31 stub-site deletion, lane w2-l12)"
+
+[[row]]
+file = "crates/iri/src/idna_tables.rs"
+stardf_path = [
+    "stardf/arrow/crates/stardf-iri/src/idna_tables.rs",
+]
+license = "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0"
+upstream_source = "https://www.unicode.org/Public/17.0.0/ucd/ at purrdf rev 0da05783"
+carriage_status = "CARRIED"
+carriage_receipt = "2026-10-31: present at the single vendored root (stardf/arrow/crates/); byte-equal (cmp) to the purrdf rev 0da05783 archive extraction (re-witnessed at the 2026-10-31 stub-site deletion, lane w2-l12)"
+
+# BSD-3-Clause WHATWG named character-reference data, carried by the
+# generated entities source. WHATWG html-build input is SHA-256-pinned in
+# upstream provenance; the pin below is the upstream commit pin transcribed
+# from 08-vendoring-plan.md item 5 and purrdf license-inventory.toml.
+[[row]]
+file = "crates/lex/src/html/entities.rs"
+stardf_path = [
+    "stardf/arrow/crates/stardf-lex/src/html/entities.rs",
+]
+license = "BSD-3-Clause"
+upstream_source = "https://github.com/whatwg/html-build/tree/283a3531a61106d07d9a7d9fb3e6f3b9bfd33d70/entities/out (commit pin 283a3531a61106d07d9a7d9fb3e6f3b9bfd33d70; 145,897 bytes per 08-vendoring-plan.md item 5) at purrdf rev 0da05783"
+carriage_status = "CARRIED"
+carriage_receipt = "2026-10-31: present at the single vendored root (stardf/arrow/crates/); byte-equal (cmp) to the purrdf rev 0da05783 archive extraction (re-witnessed at the 2026-10-31 stub-site deletion, lane w2-l12)"
+notice_files = [
+    "crates/lex/data/html/LICENSE-WHATWG",
+    "crates/lex/licenses/third-party/whatwg-html-references/0-LICENSE-WHATWG",
+]
+notice_files_receipt = "2026-10-31: both notice files present at the single vendored root (stardf/arrow/crates/stardf-lex/...) and byte-equal (cmp) to the purrdf rev 0da05783 archive extraction (re-witnessed at the 2026-10-31 stub-site deletion, lane w2-l12)"
+
+# ---- PLANNED (loudly-missing) rows: purrdf rdf-core xsd_regex is not vendored yet ----
+
+[[row]]
+file = "crates/rdf-core/src/xsd_regex/blocks.rs"
+license = "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0"
+upstream_source = "https://www.unicode.org/Public/17.0.0/ucd/ at purrdf rev 0da05783"
+carriage_status = "PLANNED"
+planned_note = "purrdf crates/rdf-core xsd_regex module is not vendored into any stardf crate (find over stardf/ returns zero xsd_regex paths, 2026-10-31); row stays loudly-PLANNED until the rdf-core vendor lands."
+
+[[row]]
+file = "crates/rdf-core/src/xsd_regex/xpath/unicode_tables.rs"
+license = "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0"
+upstream_source = "https://www.unicode.org/Public/17.0.0/ucd/ at purrdf rev 0da05783"
+carriage_status = "PLANNED"
+planned_note = "purrdf crates/rdf-core xsd_regex module is not vendored into any stardf crate (find over stardf/ returns zero xsd_regex paths, 2026-10-31); row stays loudly-PLANNED until the rdf-core vendor lands."
+
+[[row]]
+file = "crates/rdf-core/src/xsd_regex/xpath/compatibility_tables.rs"
+license = "(MIT OR Apache-2.0 OR MulanPSL-2.0) AND Unicode-3.0"
+upstream_source = "https://www.unicode.org/Public/17.0.0/ucd/ at purrdf rev 0da05783"
+carriage_status = "PLANNED"
+planned_note = "purrdf crates/rdf-core xsd_regex module is not vendored into any stardf crate (find over stardf/ returns zero xsd_regex paths, 2026-10-31); row stays loudly-PLANNED until the rdf-core vendor lands."
+
+# ---- jsonschema metaschemas: excluded-crate fixture carriage (wave-2 lane w2-l15) ----
+
+[[row]]
+file = "crates/jsonschema/tests/metaschemas/"
+stardf_path = [
+    "stardf/arrow/crates/jsonschema/tests/metaschemas/",
+]
+license = "BSD-3-Clause"
+upstream_source = "https://github.com/json-schema-org/json-schema-spec (draft2020-12 branch commit 601a66c8b0f25246bf0e1fb488c5b5f030a79b72; draft2019-09 + draft-07 branches content-pinned) at purrdf rev 0da05783"
+carriage_status = "CARRIED"
+carriage_receipt = "2026-10-31 (lane w2-l15): 17 JSON metaschemas byte-equal (cmp) to the `git -C /Users/sac/purrdf archive 0da0578306983da851a9073337d57e2e2c41ab3a -- crates/jsonschema/tests/metaschemas/` extraction; REUSE.toml + LICENSES/BSD-3-Clause.txt copied byte-verbatim from the same extraction (missing before this lane); frozen manifest jsonschema-metaschemas.sha256 (upstream scripts/conformance-frozen copy) checks OK in place, exit 0, and its positive control flips (byte-mutated temp copy: exit 1, 1 FAILED). Disposition receipt: stardf/arrow/crates/jsonschema/DISPOSITION.md. Consumer: crates/stardf-testkit/src/jsonschema_metaschemas.rs:19 include_str! (17/17 paths resolve). The crate itself is EXCLUDED loudly (12-full-parity-campaign.md line 105); data-only carriage, not a workspace member."
+notice_files = [
+    "crates/jsonschema/tests/metaschemas/LICENSES/BSD-3-Clause.txt",
+]
+notice_files_receipt = "2026-10-31 (lane w2-l15): notice file present and byte-equal (cmp) to the purrdf rev 0da05783 archive extraction; REUSE.toml carried beside it, byte-verbatim"

@@ -2,17 +2,30 @@
 
 ## Authority and exact subject
 
-This file governs `stardf/` inside `seanchatmangpt/ggen-legacy`. Every path in
-this file is relative to `stardf/` (this file's directory). Parent-repo
-artifacts carry a `../` prefix. The repo-level `../AGENTS.md` is the standing
-authority; this file scopes it to stardf and never relaxes it.
+This file governs the standalone `~/stardf` repository (moved out of
+`seanchatmangpt/ggen-legacy` on 2026-10-31; git baseline commit `fe935f7`,
+"baseline: stardf tree as-moved from ggen-legacy"). Every path in this file is
+relative to the repo root (`~/stardf`). The historical parent-repo authority
+(`ggen-legacy` `AGENTS.md` at the move commit) governed stardf through the
+move and is cited as historical basis only — it no longer scopes this tree.
 
-- governing repo authority: `../AGENTS.md`
-- active executable ticket: `../tickets/GL-STARDF-001.md` (ontology contract)
-- concurrent executable ticket: `arrow/tickets/GL-STARDF-002-freeze-expansion.md`
-- operator decision register: `arrow/docs/OPERATOR-DECISIONS.md` (D1–D21)
+- governing authority: this file (repo root, `~/stardf`); historical basis:
+  the `ggen-legacy` repo `AGENTS.md` as of the move (frozen evidence,
+  outside this tree)
+- active executable ticket: `tickets/GL-STARDF-001.md` (ontology contract;
+  recovered in-tree post-move)
+- concurrent executable ticket: `tickets/GL-STARDF-002-freeze-expansion.md`
+- operator decision register: `docs/OPERATOR-DECISIONS.md` (D1–D21)
 - operator spec of record: `docs/jira/v26.10.31/14-definition-of-done.md`
-- authority contract: `../authority/stardf/stardf_contract.ttl`
+- authority contract: `authority/stardf/stardf_contract.ttl`
+  (in-tree snapshot). **Re-homing required:** the remainder of the authority
+  register (`license-compat.json`, `license-inventory.toml`,
+  `stardf-contract.json`, `stardf-columnar.json`, `marketplace_packs.json`,
+  `rust-pack/`) still lives at `/Users/sac/ggen-legacy/authority/stardf/` —
+  the planned copy-in (move package P1, `README-MOVE-NOTE.md` §2a) was NOT
+  executed. Until it is re-homed to a top-level `authority/stardf/` here,
+  `scripts/verify_stardf_licenses.py` (`REPO = parents[3]`) and
+  `build_receipt.py` resolve the register at `/Users/sac` — dangling.
 - upstream vendored from: `~/purrdf` at rev
   `0da0578306983da851a9073337d57e2e2c41ab3a` (cited "0da05783")
 - publication boundary: draft pull request unless merge is explicitly
@@ -86,7 +99,7 @@ Upstream is `~/purrdf` at rev `0da05783`, materialized by `git archive <rev>`
 module tree, symbols, file contents, and every license/notice surface stay
 byte-verbatim (SPDX headers included, per-crate `licenses/` dirs, and the
 AND-conjunction notices that travel with the files carrying them). Per-crate
-`git archive` sha256 receipts live in `arrow/crates/PROVENANCE-entries.md`
+`git archive` sha256 receipts live in `crates/PROVENANCE-entries.md`
 plus per-crate `VENDOR-PROVENANCE.md` files.
 
 **Falsifier:** any source file inside a vendored crate requiring a non-rename
@@ -98,7 +111,7 @@ forward silently. (D17 ladder repairs below are disclosed, not silent.)
 The frozen C ABI is enforced, not descriptive. The built dylib's enforced
 contract is the **v1 13-symbol surface** (13 `stardf_*` exports; the
 transitive `_blake3_compress_in_place_portable` is a declared hygiene item).
-The v26.11.1 v2 table in `arrow/docs/ABI-FREEZE.md` is the operator spec of
+The v26.11.1 v2 table in `docs/ABI-FREEZE.md` is the operator spec of
 record but is **PENDING-OPERATOR (D18)** — not adopted this campaign; arrow
 stays landed as-is.
 
@@ -110,7 +123,7 @@ stays landed as-is.
   GovernorEvidence / RowCursor). These land as C exports ONLY through the
   GL-STARDF-002 §5/§6 process: pre-landing gate + `nm -gU` diff receipt.
   Until one lands through that process, no query/UPDATE/serialize
-  `#[no_mangle]` may appear in `arrow/crates/stardf-arrow-capi/src/**`.
+  `#[no_mangle]` may appear in `crates/rdf-capi/src/**`.
 - **The freeze law:** any change to the export surface — adding, removing,
   renaming, or re-signaturing any enforced export, or any change to struct
   layouts or status-code values — requires a new ticket. No drive-by edits to
@@ -120,13 +133,13 @@ stays landed as-is.
 
 ### Provenance is append-only
 
-`arrow/crates/PROVENANCE-entries.md`, per-crate `VENDOR-PROVENANCE.md`
-files, and everything under `arrow/evidence/` are receipts of record. Append;
+`crates/PROVENANCE-entries.md`, per-crate `VENDOR-PROVENANCE.md`
+files, and everything under `evidence/` are receipts of record. Append;
 never rewrite to make a claim read clean.
 
 ### Generated projections are not hand-edited
 
-`stardf-arrow`'s ggen route (`arrow/ggen.toml`) is admitted planning only —
+`stardf-arrow`'s ggen route (`ggen.toml`) is admitted planning only —
 no mutating `ggen sync run` has been executed against this tree (D4: dry-run
 only until the `stardf:` → `rust:` bridge query lands and its gate non-vacuously
 sees rows). Until then the workspace is hand-maintained; do not hand-promote
@@ -143,22 +156,24 @@ is stale by default.
 
 ## Authority precedence
 
-1. `../AGENTS.md` (repo authority)
-2. this file
-3. admitted tickets (`../tickets/GL-STARDF-001.md`,
-   `arrow/tickets/GL-STARDF-002-freeze-expansion.md`)
-4. operator decisions and spec of record
-   (`arrow/docs/OPERATOR-DECISIONS.md`,
+1. this file (repo-root authority of the standalone `~/stardf` tree;
+   historical basis: the `ggen-legacy` repo `AGENTS.md` at the move commit)
+2. admitted tickets (`tickets/GL-STARDF-001.md`,
+   `tickets/GL-STARDF-002-freeze-expansion.md`)
+3. operator decisions and spec of record
+   (`docs/OPERATOR-DECISIONS.md`,
    `docs/jira/v26.10.31/14-definition-of-done.md`)
-5. authority contract (`../authority/stardf/stardf_contract.ttl`) and
-   verifiers (`../scripts/verify_stardf_ontology.py`)
-6. the ABI freeze doc (`arrow/docs/ABI-FREEZE.md`) as the enforced C-ABI
+4. authority contract (`authority/stardf/stardf_contract.ttl`; full
+   register pending re-homing — see the authority block above) and
+   verifiers (`scripts/verify_stardf_ontology.py` — copied in-tree pending,
+   NOT yet landed; parent copy at `ggen-legacy/scripts/` is historical)
+5. the ABI freeze doc (`docs/ABI-FREEZE.md`) as the enforced C-ABI
    contract
-7. executable source and fixtures
-8. PRD/ARD (`arrow/docs/PRD.md`, `arrow/docs/ARD.md`) and the planning pack
+6. executable source and fixtures
+7. PRD/ARD (`docs/PRD.md`, `docs/ARD.md`) and the planning pack
    (`docs/jira/v26.10.31/`)
-9. explanatory documentation and generated reports
-10. assumptions
+8. explanatory documentation and generated reports
+9. assumptions
 
 Contradiction returns `BLOCKED:AUTHORITY_CONTRADICTION`; resolve by reading
 both sides, never by destructive heuristics.
@@ -177,47 +192,47 @@ observables or structural sync. Production sleeps are scheduling only.
 
 A loud `[SKIP]` with its reason is lawful; a faked pass is not. A gate that
 cannot exit 1 is VACUOUS and fails the court. Mutation flips prove
-non-vacuity: `python3 arrow/scripts/verify.py --mutate drop-export` must exit
+non-vacuity: `python3 scripts/verify.py --mutate drop-export` must exit
 1 (witnessed), and the scan court's mutant flip is part of its pass.
 
 Standing courts on this tree (paths verified):
 
-- `arrow/crates/stardf-arrow/tests/anti_vacuity.rs` — fixture courts
-- `arrow/crates/stardf-arrow-capi/tests/stream_courts.rs` — C stream ABI
-- `arrow/crates/stardf-scan-duckdb` — scan courts C1–C6 (C3 loud SKIP by
+- `crates/tests/anti_vacuity.rs` — fixture courts
+- `crates/rdf-capi/tests/stream_courts.rs` — C stream ABI
+- `crates/scan-duckdb` — scan courts C1–C6 (C3 loud SKIP by
   design)
-- `arrow/crates/stardf-sql/tests/sql_golden.rs` — 4 golden courts + doctest
-- `arrow/crates/stardf-n3` — forgery courts + N3 conformance corpus
-  (`arrow/corpora/n3/`)
-- `arrow/crates/stardf-columnar/tests/golden_bytes.rs` — pinned digests
-- `arrow/scripts/verify.py` (+ `--mutate`), `arrow/scripts/verify_header_freeze.py`,
-  `arrow/scripts/verify_stardf_licenses.py`,
-  `arrow/scripts/verify_blake3_identity.sh`,
-  `arrow/scripts/verify_duckdb_rehome.sh` (two-arm cache-absent),
-  `arrow/scripts/check-columnar-oracle.sh` (loud skip, exit 3, when duckdb
+- `crates/sql/tests/sql_golden.rs` — 4 golden courts + doctest
+- `crates/n3` — forgery courts + N3 conformance corpus
+  (`corpora/n3/`)
+- `crates/columnar/tests/golden_bytes.rs` — pinned digests
+- `scripts/verify.py` (+ `--mutate`), `scripts/verify_header_freeze.py`,
+  `scripts/verify_stardf_licenses.py`,
+  `scripts/verify_blake3_identity.sh`,
+  `scripts/verify_duckdb_rehome.sh` (two-arm cache-absent),
+  `scripts/check-columnar-oracle.sh` (loud skip, exit 3, when duckdb
   is absent)
 
 ## Verification ladder
 
 ```text
 just ci-all                        (fmt → clippy → check → test, workspace)
-→ python3 arrow/scripts/verify.py  (13==13==13 export parity; --mutate flips)
-→ python3 arrow/scripts/verify_header_freeze.py
-→ python3 arrow/scripts/verify_stardf_licenses.py
-→ bash arrow/scripts/verify_blake3_identity.sh
+→ python3 scripts/verify.py  (13==13==13 export parity; --mutate flips)
+→ python3 scripts/verify_header_freeze.py
+→ python3 scripts/verify_stardf_licenses.py
+→ bash scripts/verify_blake3_identity.sh
 → per-target courts (anti_vacuity, stream_courts, scan_courts,
    sql_golden, n3 forgery, columnar golden_bytes)
 → publish ladder dry-run (below)
 ```
 
 Hosted CI is not a substitute for local execution.
-`arrow/ci/stardf-arrow-reconstitution.yml` is a DRAFT that has never been
+`ci/stardf-arrow-reconstitution.yml` is a DRAFT that has never been
 executed (D2 placement PENDING-OPERATOR); a workflow file is not a run.
 
 ## Publish law
 
 Footprint is **first-class closure only** (D17): everything outside the
-closure stays internal path-only. The ladder is `arrow/scripts/publish_stardf.py`
+closure stays internal path-only. The ladder is `scripts/publish_stardf.py`
 (gates G1–G9 + R1), dry-run by default (`cargo package --list`).
 
 - Live publish requires BOTH `--publish` AND
@@ -232,7 +247,7 @@ closure stays internal path-only. The ladder is `arrow/scripts/publish_stardf.py
   frozen-duckdb-sys / frozen-duckdb-builder exact-pinned `=2.0.4` (D19).
 - Current verdict: **BLOCKED** (G8 nonclosure hard deps) pending the operator
   D17 closure re-ratification (PENDING-OPERATOR,
-  `arrow/docs/OPERATOR-DECISIONS.md`, H03 registration). No live publish has
+  `docs/OPERATOR-DECISIONS.md`, H03 registration). No live publish has
   occurred; the registry is untouched.
 
 ## Four first-class targets — the only parity scope (D17)
@@ -240,7 +255,7 @@ closure stays internal path-only. The ladder is `arrow/scripts/publish_stardf.py
 The copied ~80% of the workspace carries **NO courts** (D17, honest scope):
 compile-green at best. Parity claims are scoped to exactly:
 
-| Target | Scope | Standing (as recorded in `arrow/README.md`, 2026-10-31 truth pass) |
+| Target | Scope | Standing (as recorded in `README.md`, 2026-10-31 truth pass) |
 |---|---|---|
 | arrow | Quad64 arena, C Data Interface export, frozen ABI, columnar codec | ALIVE (local) |
 | duckdb | in-process `stardf_scan()` VTab over the columnar profile | ALIVE (local) |
@@ -256,20 +271,23 @@ Full parity is DEFERRED to a later campaign
 
 ## Authored boundaries
 
-### GL-STARDF-001 (ontology contract; `../tickets/GL-STARDF-001.md`)
+### GL-STARDF-001 (ontology contract; `tickets/GL-STARDF-001.md`)
 
-Authority contract + verifiers at parent level: `../authority/stardf/`,
-`../scripts/extract_purrdf_ontology.py`,
-`../scripts/verify_stardf_ontology.py`,
-`../scripts/verify_marketplace_packs.py`, plus the planning pack
+Authority contract + verifiers: canonical register still at the parent
+`ggen-legacy` repo (`/Users/sac/ggen-legacy/authority/stardf/`,
+`/Users/sac/ggen-legacy/scripts/extract_purrdf_ontology.py`,
+`/Users/sac/ggen-legacy/scripts/verify_stardf_ontology.py`,
+`/Users/sac/ggen-legacy/scripts/verify_marketplace_packs.py`) — frozen
+evidence pending re-homing; in-tree snapshot
+`authority/stardf/stardf_contract.ttl`. Plus the planning pack
 `docs/jira/v26.10.31/` and the vendoring plan
 `docs/jira/v26.10.31/08-vendoring-plan.md`.
 
-### GL-STARDF-002 (ABI freeze expansion; `arrow/tickets/GL-STARDF-002-freeze-expansion.md`)
+### GL-STARDF-002 (ABI freeze expansion; `tickets/GL-STARDF-002-freeze-expansion.md`)
 
 Enumerates the 21-export query/UPDATE/serialize option set and its carrier
-drag; ratification lives in `arrow/docs/OPERATOR-DECISIONS.md` (D9 Tier A)
-and `arrow/docs/ABI-FREEZE.md` — the ticket admits no exports by itself.
+drag; ratification lives in `docs/OPERATOR-DECISIONS.md` (D9 Tier A)
+and `docs/ABI-FREEZE.md` — the ticket admits no exports by itself.
 
 ## Repair law
 
@@ -289,8 +307,8 @@ requested.
 
 Every consequential action lands a receipt against schema
 `ggen.legacy.stardf.arrow.receipt.v1` (template:
-`arrow/evidence/RECEIPT_TEMPLATE.json`; conventions:
-`arrow/evidence/README.md`). Report: subject `tree_digest`/`head` computed
+`evidence/RECEIPT_TEMPLATE.json`; conventions:
+`evidence/README.md`). Report: subject `tree_digest`/`head` computed
 at receipt time (not before), every command with its real exit code, checks
 with counts (a failing check stays in `checks[]` with `passed=false` and
 also gets an `errors[]` row — never omitted to read clean), replay status
@@ -300,10 +318,12 @@ standing; never claim planned or inspected work as executed.
 
 ## See Also
 
-- `../AGENTS.md` — repo-level executable-reconstruction authority
-- `arrow/README.md` — standing table, quickstart, one-package state
-- `arrow/docs/ABI-FREEZE.md` — frozen C ABI + enforcement law
-- `arrow/docs/OPERATOR-DECISIONS.md` — D1–D21 register
-- `arrow/docs/DIVERGENCES.md` — KD-row ledger
+- `ggen-legacy` repo `AGENTS.md` (frozen evidence at the parent repo,
+  `/Users/sac/ggen-legacy/AGENTS.md`) — historical repo authority through
+  the move; no longer scopes this tree
+- `README.md` — standing table, quickstart, one-package state
+- `docs/ABI-FREEZE.md` — frozen C ABI + enforcement law
+- `docs/OPERATOR-DECISIONS.md` — D1–D21 register
+- `docs/DIVERGENCES.md` — KD-row ledger
 - `docs/jira/v26.10.31/` — planning pack (01–14)
-- `arrow/docs/RECEIPTS.md`, `arrow/evidence/` — receipts of record
+- `docs/RECEIPTS.md`, `evidence/` — receipts of record

@@ -1,0 +1,1139 @@
+{
+ "schema": "urn:chatman:ggen-legacy:stardf-contract:v26.10.31",
+ "release": "v26.10.31",
+ "standing": "PARTIAL_ALIVE",
+ "equation": "A = mu(O*)",
+ "generated_from": {
+  "capi_src": "stardf/arrow/crates/stardf-arrow-capi/src",
+  "capi_header": "stardf/arrow/crates/stardf-arrow-capi/include/stardf_arrow.h",
+  "header_sha256": "a46ddef5efc04408ca61ddcb92b0491de85bb84cf89e1695f7fc9088fc7d8ddf",
+  "extractor": "scripts/extract_stardf_arrow.py"
+ },
+ "contract": {
+  "target_namespace": "stardf",
+  "predecessor": "purrdf",
+  "execution_model": "BranchlessConstantTime",
+  "memory_model": "ZeroAllocationArena",
+  "downstream_substrate": "avec",
+  "source_digest_sha256": "6ef9b4a0a9d28036b24cc702bca9113e1ab6a7e6cbb708b74ff5b11cf281ad45"
+ },
+ "invariants": {
+  "byte_alignment": 64,
+  "index_width": "u32",
+  "fingerprint_hash": "BLAKE3",
+  "interop_surface": "ArrowArrayStream",
+  "dynamic_allocations": 0,
+  "has_conditional_branches": false
+ },
+ "functions_count": 13,
+ "functions": [
+  {
+   "target_symbol": "stardf_arena_free",
+   "predecessor_symbol": "none",
+   "return_type": "void",
+   "subsystem": "Arena",
+   "downstream_substrate": "stardf-kernel",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": [
+    {
+     "index": 0,
+     "name": "StardfArena",
+     "type": "arena: *mut"
+    }
+   ]
+  },
+  {
+   "target_symbol": "stardf_arena_intern",
+   "predecessor_symbol": "none",
+   "return_type": "uint32_t",
+   "subsystem": "Arena",
+   "downstream_substrate": "stardf-kernel",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": [
+    {
+     "index": 0,
+     "name": "StardfArena",
+     "type": "arena: *mut"
+    },
+    {
+     "index": 1,
+     "name": "u8",
+     "type": "lexical: *const"
+    },
+    {
+     "index": 2,
+     "name": "usize",
+     "type": "len:"
+    }
+   ]
+  },
+  {
+   "target_symbol": "stardf_arena_new",
+   "predecessor_symbol": "none",
+   "return_type": "StardfArena*",
+   "subsystem": "Arena",
+   "downstream_substrate": "stardf-kernel",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": [
+    {
+     "index": 0,
+     "name": "usize",
+     "type": "capacity_bytes:"
+    }
+   ]
+  },
+  {
+   "target_symbol": "stardf_array_addr",
+   "predecessor_symbol": "none",
+   "return_type": "uintptr_t",
+   "subsystem": "General",
+   "downstream_substrate": "avec",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": []
+  },
+  {
+   "target_symbol": "stardf_arrow_version",
+   "predecessor_symbol": "none",
+   "return_type": "const char*",
+   "subsystem": "Version",
+   "downstream_substrate": "stardf-kernel",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": []
+  },
+  {
+   "target_symbol": "stardf_avec_export_stream",
+   "predecessor_symbol": "none",
+   "return_type": "int32_t",
+   "subsystem": "Arrow",
+   "downstream_substrate": "avec",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": [
+    {
+     "index": 0,
+     "name": "StardfBatch",
+     "type": "batch: *mut"
+    },
+    {
+     "index": 1,
+     "name": "ArrowArrayStream",
+     "type": "out_stream: *mut *mut"
+    }
+   ]
+  },
+  {
+   "target_symbol": "stardf_batch_append_quad",
+   "predecessor_symbol": "none",
+   "return_type": "StardfBatch*",
+   "subsystem": "Batch",
+   "downstream_substrate": "avec",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": [
+    {
+     "index": 0,
+     "name": "StardfArena",
+     "type": "arena: *mut"
+    },
+    {
+     "index": 1,
+     "name": "u32",
+     "type": "s:"
+    },
+    {
+     "index": 2,
+     "name": "u32",
+     "type": "p:"
+    },
+    {
+     "index": 3,
+     "name": "u32",
+     "type": "o:"
+    },
+    {
+     "index": 4,
+     "name": "u32",
+     "type": "g:"
+    }
+   ]
+  },
+  {
+   "target_symbol": "stardf_batch_rows",
+   "predecessor_symbol": "none",
+   "return_type": "int64_t",
+   "subsystem": "Batch",
+   "downstream_substrate": "avec",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": []
+  },
+  {
+   "target_symbol": "stardf_i32_batch",
+   "predecessor_symbol": "none",
+   "return_type": "struct ArrowArray*",
+   "subsystem": "Batch",
+   "downstream_substrate": "avec",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": [
+    {
+     "index": 0,
+     "name": "i64",
+     "type": "n:"
+    },
+    {
+     "index": 1,
+     "name": "i64",
+     "type": "null_every:"
+    }
+   ]
+  },
+  {
+   "target_symbol": "stardf_last_error",
+   "predecessor_symbol": "none",
+   "return_type": "const char*",
+   "subsystem": "Error",
+   "downstream_substrate": "stardf-kernel",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": []
+  },
+  {
+   "target_symbol": "stardf_pending_tags",
+   "predecessor_symbol": "none",
+   "return_type": "size_t",
+   "subsystem": "Lifecycle",
+   "downstream_substrate": "stardf-kernel",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": []
+  },
+  {
+   "target_symbol": "stardf_release",
+   "predecessor_symbol": "none",
+   "return_type": "enum stardf_ReleaseOutcome",
+   "subsystem": "Lifecycle",
+   "downstream_substrate": "stardf-kernel",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": [
+    {
+     "index": 0,
+     "name": "ArrowArray",
+     "type": "array: *mut"
+    }
+   ]
+  },
+  {
+   "target_symbol": "stardf_stream_free",
+   "predecessor_symbol": "none",
+   "return_type": "void",
+   "subsystem": "Arrow",
+   "downstream_substrate": "avec",
+   "source_file": "stardf/arrow/crates/stardf-arrow-capi/src/lib.rs",
+   "parameters": [
+    {
+     "index": 0,
+     "name": "ArrowArrayStream",
+     "type": "stream: *mut"
+    }
+   ]
+  }
+ ],
+ "legacy_projection": {
+  "source": "purrdf.h",
+  "predecessor": "purrdf",
+  "functions_count": 128,
+  "functions": [
+   {
+    "target_symbol": "stardf_abi_version",
+    "predecessor_symbol": "purrdf_abi_version",
+    "return_type": "int32_t",
+    "subsystem": "Version",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_avec_export_stream",
+    "predecessor_symbol": "none",
+    "return_type": "int32_t",
+    "subsystem": "Arrow",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_buffer_data",
+    "predecessor_symbol": "purrdf_buffer_data",
+    "return_type": "int32_t",
+    "subsystem": "Buffer",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_buffer_free",
+    "predecessor_symbol": "purrdf_buffer_free",
+    "return_type": "void",
+    "subsystem": "Buffer",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_cancellation_cancel",
+    "predecessor_symbol": "purrdf_cancellation_cancel",
+    "return_type": "int32_t",
+    "subsystem": "Cancellation",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_cancellation_free",
+    "predecessor_symbol": "purrdf_cancellation_free",
+    "return_type": "void",
+    "subsystem": "Cancellation",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_cancellation_is_cancelled",
+    "predecessor_symbol": "purrdf_cancellation_is_cancelled",
+    "return_type": "int32_t",
+    "subsystem": "Cancellation",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_cancellation_new",
+    "predecessor_symbol": "purrdf_cancellation_new",
+    "return_type": "int32_t",
+    "subsystem": "Cancellation",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_capabilities",
+    "predecessor_symbol": "purrdf_capabilities",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_cursor_free",
+    "predecessor_symbol": "purrdf_cursor_free",
+    "return_type": "void",
+    "subsystem": "Cursor",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_cursor_next",
+    "predecessor_symbol": "purrdf_cursor_next",
+    "return_type": "int32_t",
+    "subsystem": "Cursor",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_dataset_division_policy",
+    "predecessor_symbol": "purrdf_dataset_division_policy",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_dataset_free",
+    "predecessor_symbol": "purrdf_dataset_free",
+    "return_type": "void",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_dataset_quad_count",
+    "predecessor_symbol": "purrdf_dataset_quad_count",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_dataset_set_division_policy",
+    "predecessor_symbol": "purrdf_dataset_set_division_policy",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_dataset_term_count",
+    "predecessor_symbol": "purrdf_dataset_term_count",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_entail_certain_answers",
+    "predecessor_symbol": "purrdf_entail_certain_answers",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_check_proof",
+    "predecessor_symbol": "purrdf_entail_check_proof",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_classify",
+    "predecessor_symbol": "purrdf_entail_classify",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_consistency",
+    "predecessor_symbol": "purrdf_entail_consistency",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_entails",
+    "predecessor_symbol": "purrdf_entail_entails",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_explain_conclusion",
+    "predecessor_symbol": "purrdf_entail_explain_conclusion",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_extensions",
+    "predecessor_symbol": "purrdf_entail_extensions",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_extract_module",
+    "predecessor_symbol": "purrdf_entail_extract_module",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_graph_entails",
+    "predecessor_symbol": "purrdf_entail_graph_entails",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_entail_implemented_rules",
+    "predecessor_symbol": "purrdf_entail_implemented_rules",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_instances",
+    "predecessor_symbol": "purrdf_entail_instances",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_justify",
+    "predecessor_symbol": "purrdf_entail_justify",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_materialize_to_nquads",
+    "predecessor_symbol": "purrdf_entail_materialize_to_nquads",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_entail_profile",
+    "predecessor_symbol": "purrdf_entail_profile",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_prove",
+    "predecessor_symbol": "purrdf_entail_prove",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_realize",
+    "predecessor_symbol": "purrdf_entail_realize",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_rules",
+    "predecessor_symbol": "purrdf_entail_rules",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_entail_verify_entailment",
+    "predecessor_symbol": "purrdf_entail_verify_entailment",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_error_code",
+    "predecessor_symbol": "purrdf_error_code",
+    "return_type": "int32_t",
+    "subsystem": "Error",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_error_execution_receipt_json",
+    "predecessor_symbol": "purrdf_error_execution_receipt_json",
+    "return_type": "const char *",
+    "subsystem": "Error",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_error_free",
+    "predecessor_symbol": "purrdf_error_free",
+    "return_type": "void",
+    "subsystem": "Error",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_error_message",
+    "predecessor_symbol": "purrdf_error_message",
+    "return_type": "const char *",
+    "subsystem": "Error",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_error_presentation_json",
+    "predecessor_symbol": "purrdf_error_presentation_json",
+    "return_type": "const char *",
+    "subsystem": "Error",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_from_gts",
+    "predecessor_symbol": "purrdf_from_gts",
+    "return_type": "int32_t",
+    "subsystem": "GTS",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_geo_point_index_call",
+    "predecessor_symbol": "purrdf_geo_point_index_call",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_geo_point_index_create",
+    "predecessor_symbol": "purrdf_geo_point_index_create",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_geo_point_index_free",
+    "predecessor_symbol": "purrdf_geo_point_index_free",
+    "return_type": "void",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_geo_session_call",
+    "predecessor_symbol": "purrdf_geo_session_call",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_geo_session_create",
+    "predecessor_symbol": "purrdf_geo_session_create",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_geo_session_free",
+    "predecessor_symbol": "purrdf_geo_session_free",
+    "return_type": "void",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_graph_free",
+    "predecessor_symbol": "purrdf_graph_free",
+    "return_type": "void",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_graph_freeze",
+    "predecessor_symbol": "purrdf_graph_freeze",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_graph_from_dataset",
+    "predecessor_symbol": "purrdf_graph_from_dataset",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_graph_insert",
+    "predecessor_symbol": "purrdf_graph_insert",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_graph_remove",
+    "predecessor_symbol": "purrdf_graph_remove",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_jsonld_context_compile",
+    "predecessor_symbol": "purrdf_jsonld_context_compile",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_jsonld_context_free",
+    "predecessor_symbol": "purrdf_jsonld_context_free",
+    "return_type": "void",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_lift",
+    "predecessor_symbol": "purrdf_lift",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_parse",
+    "predecessor_symbol": "purrdf_parse",
+    "return_type": "int32_t",
+    "subsystem": "Parsing",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_project",
+    "predecessor_symbol": "purrdf_project",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_project_with_assets",
+    "predecessor_symbol": "purrdf_project_with_assets",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_quads_for_pattern",
+    "predecessor_symbol": "purrdf_quads_for_pattern",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query",
+    "predecessor_symbol": "purrdf_query",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query_canon_arrow",
+    "predecessor_symbol": "purrdf_query_canon_arrow",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query_entailment_governed",
+    "predecessor_symbol": "purrdf_query_entailment_governed",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_query_entailment_governed_with_geo",
+    "predecessor_symbol": "purrdf_query_entailment_governed_with_geo",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_query_entailment_governed_xpath_regex",
+    "predecessor_symbol": "purrdf_query_entailment_governed_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_query_governed",
+    "predecessor_symbol": "purrdf_query_governed",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query_governed_with_geo",
+    "predecessor_symbol": "purrdf_query_governed_with_geo",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query_governed_xpath_regex",
+    "predecessor_symbol": "purrdf_query_governed_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query_governors_init",
+    "predecessor_symbol": "purrdf_query_governors_init",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query_json",
+    "predecessor_symbol": "purrdf_query_json",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query_json_with_geo",
+    "predecessor_symbol": "purrdf_query_json_with_geo",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query_json_xpath_regex",
+    "predecessor_symbol": "purrdf_query_json_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query_with_geo",
+    "predecessor_symbol": "purrdf_query_with_geo",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_query_xpath_regex",
+    "predecessor_symbol": "purrdf_query_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "Query",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_reasoner_classify",
+    "predecessor_symbol": "purrdf_reasoner_classify",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_reasoner_consistency",
+    "predecessor_symbol": "purrdf_reasoner_consistency",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_reasoner_entails",
+    "predecessor_symbol": "purrdf_reasoner_entails",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_reasoner_explain_conclusion",
+    "predecessor_symbol": "purrdf_reasoner_explain_conclusion",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_reasoner_extract_module",
+    "predecessor_symbol": "purrdf_reasoner_extract_module",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_reasoner_free",
+    "predecessor_symbol": "purrdf_reasoner_free",
+    "return_type": "void",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_reasoner_instances",
+    "predecessor_symbol": "purrdf_reasoner_instances",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_reasoner_justify",
+    "predecessor_symbol": "purrdf_reasoner_justify",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_reasoner_open",
+    "predecessor_symbol": "purrdf_reasoner_open",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_reasoner_profile",
+    "predecessor_symbol": "purrdf_reasoner_profile",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_reasoner_realize",
+    "predecessor_symbol": "purrdf_reasoner_realize",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_rowcursor_free",
+    "predecessor_symbol": "purrdf_rowcursor_free",
+    "return_type": "void",
+    "subsystem": "Cursor",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_rowcursor_next",
+    "predecessor_symbol": "purrdf_rowcursor_next",
+    "return_type": "int32_t",
+    "subsystem": "Cursor",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_rowcursor_term",
+    "predecessor_symbol": "purrdf_rowcursor_term",
+    "return_type": "int32_t",
+    "subsystem": "Cursor",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_rowcursor_variable_count",
+    "predecessor_symbol": "purrdf_rowcursor_variable_count",
+    "return_type": "int32_t",
+    "subsystem": "Cursor",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_rowcursor_variable_name",
+    "predecessor_symbol": "purrdf_rowcursor_variable_name",
+    "return_type": "int32_t",
+    "subsystem": "Cursor",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_serialize",
+    "predecessor_symbol": "purrdf_serialize",
+    "return_type": "int32_t",
+    "subsystem": "Serialization",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_serialize_empty_named_graphs_dropped",
+    "predecessor_symbol": "purrdf_serialize_empty_named_graphs_dropped",
+    "return_type": "int32_t",
+    "subsystem": "Dataset",
+    "downstream_substrate": "avec"
+   },
+   {
+    "target_symbol": "stardf_serialize_jsonld_configured",
+    "predecessor_symbol": "purrdf_serialize_jsonld_configured",
+    "return_type": "int32_t",
+    "subsystem": "Serialization",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_serialize_to_callback",
+    "predecessor_symbol": "purrdf_serialize_to_callback",
+    "return_type": "int32_t",
+    "subsystem": "Serialization",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_apply_rules",
+    "predecessor_symbol": "purrdf_shacl_apply_rules",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_apply_rules_xpath_regex",
+    "predecessor_symbol": "purrdf_shacl_apply_rules_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "RegexProfile",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_check_rules",
+    "predecessor_symbol": "purrdf_shacl_check_rules",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_entail_to_ntriples",
+    "predecessor_symbol": "purrdf_shacl_entail_to_ntriples",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_entail_to_ntriples_xpath_regex",
+    "predecessor_symbol": "purrdf_shacl_entail_to_ntriples_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "Entailment",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_eval_node_expr",
+    "predecessor_symbol": "purrdf_shacl_eval_node_expr",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_eval_node_expr_xpath_regex",
+    "predecessor_symbol": "purrdf_shacl_eval_node_expr_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "RegexProfile",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_lint_shapes",
+    "predecessor_symbol": "purrdf_shacl_lint_shapes",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_validate_changes_to_sarif",
+    "predecessor_symbol": "purrdf_shacl_validate_changes_to_sarif",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_validate_changes_to_sarif_xpath_regex",
+    "predecessor_symbol": "purrdf_shacl_validate_changes_to_sarif_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "RegexProfile",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_validate_to_sarif",
+    "predecessor_symbol": "purrdf_shacl_validate_to_sarif",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_validate_to_sarif_law",
+    "predecessor_symbol": "purrdf_shacl_validate_to_sarif_law",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shacl_validate_to_sarif_xpath_regex",
+    "predecessor_symbol": "purrdf_shacl_validate_to_sarif_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "RegexProfile",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_import_error_iri",
+    "predecessor_symbol": "purrdf_shapes_import_error_iri",
+    "return_type": "const char *",
+    "subsystem": "Error",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_import_error_iri_count",
+    "predecessor_symbol": "purrdf_shapes_import_error_iri_count",
+    "return_type": "size_t",
+    "subsystem": "Error",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_import_error_kind",
+    "predecessor_symbol": "purrdf_shapes_import_error_kind",
+    "return_type": "const char *",
+    "subsystem": "Error",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_admit",
+    "predecessor_symbol": "purrdf_shapes_product_admit",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_admit_expecting",
+    "predecessor_symbol": "purrdf_shapes_product_admit_expecting",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_admit_expecting_xpath_regex",
+    "predecessor_symbol": "purrdf_shapes_product_admit_expecting_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "RegexProfile",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_admit_xpath_regex",
+    "predecessor_symbol": "purrdf_shapes_product_admit_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "RegexProfile",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_certify",
+    "predecessor_symbol": "purrdf_shapes_product_certify",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_encode",
+    "predecessor_symbol": "purrdf_shapes_product_encode",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_error_dimension",
+    "predecessor_symbol": "purrdf_shapes_product_error_dimension",
+    "return_type": "const char *",
+    "subsystem": "Error",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_open",
+    "predecessor_symbol": "purrdf_shapes_product_open",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_rebuild",
+    "predecessor_symbol": "purrdf_shapes_product_rebuild",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_rebuild_expecting",
+    "predecessor_symbol": "purrdf_shapes_product_rebuild_expecting",
+    "return_type": "int32_t",
+    "subsystem": "SHACL",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_rebuild_expecting_xpath_regex",
+    "predecessor_symbol": "purrdf_shapes_product_rebuild_expecting_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "RegexProfile",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_shapes_product_rebuild_xpath_regex",
+    "predecessor_symbol": "purrdf_shapes_product_rebuild_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "RegexProfile",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_term_to_ntriples",
+    "predecessor_symbol": "purrdf_term_to_ntriples",
+    "return_type": "int32_t",
+    "subsystem": "Term",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_to_gts",
+    "predecessor_symbol": "purrdf_to_gts",
+    "return_type": "int32_t",
+    "subsystem": "GTS",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_turnstile_admit",
+    "predecessor_symbol": "none",
+    "return_type": "int32_t",
+    "subsystem": "Turnstile",
+    "downstream_substrate": "bcinr"
+   },
+   {
+    "target_symbol": "stardf_update_governed",
+    "predecessor_symbol": "purrdf_update_governed",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_update_governed_with_geo",
+    "predecessor_symbol": "purrdf_update_governed_with_geo",
+    "return_type": "int32_t",
+    "subsystem": "General",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_update_governed_xpath_regex",
+    "predecessor_symbol": "purrdf_update_governed_xpath_regex",
+    "return_type": "int32_t",
+    "subsystem": "RegexProfile",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_xsd_canonical_lexical",
+    "predecessor_symbol": "purrdf_xsd_canonical_lexical",
+    "return_type": "int32_t",
+    "subsystem": "XSD",
+    "downstream_substrate": "stardf-kernel"
+   },
+   {
+    "target_symbol": "stardf_xsd_value_compare",
+    "predecessor_symbol": "purrdf_xsd_value_compare",
+    "return_type": "int32_t",
+    "subsystem": "XSD",
+    "downstream_substrate": "stardf-kernel"
+   }
+  ]
+ }
+}

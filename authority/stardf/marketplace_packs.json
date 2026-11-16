@@ -1,0 +1,127 @@
+{
+  "schema": "urn:chatman:ggen-legacy:marketplace-packs-stardf:v26.10.30",
+  "total_packs_audited": 343,
+  "relevant_packs_count": 15,
+  "packs": [
+    {
+      "name": "avec-pack",
+      "domain": "Substrate: Columnar & Arrow (downstream avec)",
+      "role": "Apache Arrow physical layouts, 64-byte alignment invariants (av:alignmentBytes 64), C Data Interface ABI structs (ArrowArray, ArrowSchema), and layout format codes for stardf_avec_export_stream.",
+      "path": "/Users/sac/ggen-marketplace/packs/avec-pack",
+      "version": "26.10.29",
+      "exists": true
+    },
+    {
+      "name": "praxis-core-pack",
+      "domain": "Substrate: Branchless, Calculus & POWL (downstream bcinr)",
+      "role": "Generates refusal taxonomy and binds directly to bcinr_powl_receipt::denial::DenialPolarity for constant-time rejection paths.",
+      "path": "/Users/sac/ggen-marketplace/packs/praxis-core-pack",
+      "version": "0.3.0",
+      "exists": true
+    },
+    {
+      "name": "ontostar-mustar-powlv2-agent-pack",
+      "domain": "Substrate: Branchless, Calculus & POWL (downstream bcinr)",
+      "role": "Three-layer agent framework combining observation admission with POWL v2 workflow planning, powering stardf turnstile admission.",
+      "path": "/Users/sac/ggen-marketplace/packs/ontostar-mustar-powlv2-agent-pack",
+      "version": "26.9.30",
+      "exists": true
+    },
+    {
+      "name": "mfw-pack",
+      "domain": "Substrate: Branchless, Calculus & POWL (downstream bcinr)",
+      "role": "Transition-dispatch logic and POWL 2.0 proof-carrying execution.",
+      "path": "/Users/sac/ggen-marketplace/packs/mfw-pack",
+      "version": "0.1.0",
+      "exists": true
+    },
+    {
+      "name": "crown-conjecture-pack",
+      "domain": "Substrate: Branchless, Calculus & POWL (downstream bcinr)",
+      "role": "Proof obligations skeleton mirroring bcinr-mfw-ir::contracts.rs formal standing (Proven, Stated, Conjectural, Blocked).",
+      "path": "/Users/sac/ggen-marketplace/packs/crown-conjecture-pack",
+      "version": "0.1.0",
+      "exists": true
+    },
+    {
+      "name": "wasi-json-abi-pack",
+      "domain": "Systems: Freestanding C ABI, FFI & Zero-Import Kernels",
+      "role": "Generates freestanding zero-import C/WASM ABI shells (_alloc, _free, _call, null/oversize guards, caller-allocated buffer contracts) for inc/stardf.h.",
+      "path": "/Users/sac/ggen-marketplace/packs/wasi-json-abi-pack",
+      "version": "26.10.0",
+      "exists": true
+    },
+    {
+      "name": "rust-wasi-wasmex-pack",
+      "domain": "Systems: Freestanding C ABI, FFI & Zero-Import Kernels",
+      "role": "Rust WASI/Wasmex bindings for zero-copy memory interop with native C kernels.",
+      "path": "/Users/sac/ggen-marketplace/packs/rust-wasi-wasmex-pack",
+      "version": "0.1.0",
+      "exists": true
+    },
+    {
+      "name": "clap-noun-verb-crate-pack",
+      "domain": "Rust Scaffolding: Cargo Workspace, Crates & Modules",
+      "role": "Generates compiling Cargo.toml, src/lib.rs, src/main.rs, and custom handlers for crates/stardf-core.",
+      "path": "/Users/sac/ggen-marketplace/packs/clap-noun-verb-crate-pack",
+      "version": "1.0.0",
+      "exists": true
+    },
+    {
+      "name": "cargo-cicd-pack",
+      "domain": "Rust Scaffolding: Cargo Workspace, Crates & Modules",
+      "role": "Generates typed Rust catalogs, call metadata (argCount, args), error variants, and Cargo module wiring.",
+      "path": "/Users/sac/ggen-marketplace/packs/cargo-cicd-pack",
+      "version": "0.1.0",
+      "exists": true
+    },
+    {
+      "name": "shacl-projection-pack",
+      "domain": "Semantics: RDF, SPARQL, SHACL & GraphLaw",
+      "role": "Projects typed Rust structs and validators directly from standard sh:NodeShape definitions in stardf_contract.ttl.",
+      "path": "/Users/sac/ggen-marketplace/packs/shacl-projection-pack",
+      "version": "0.2.0",
+      "exists": true
+    },
+    {
+      "name": "chicago-graphlaw-court-pack",
+      "domain": "Semantics: RDF, SPARQL, SHACL & GraphLaw",
+      "role": "Generates Chicago-style ABI court test files verifying invariant preservation under graph morphisms.",
+      "path": "/Users/sac/ggen-marketplace/packs/chicago-graphlaw-court-pack",
+      "version": "26.9.29",
+      "exists": true
+    },
+    {
+      "name": "chicago-tdd-tools-pack",
+      "domain": "Assurance: Chicago TDD, Witness Courts & Receipts",
+      "role": "Generates CliHarness-based Chicago-style boundary tests crossing real binary boundaries, with systematic negative-witness suites.",
+      "path": "/Users/sac/ggen-marketplace/packs/chicago-tdd-tools-pack",
+      "version": "0.5.0",
+      "exists": true
+    },
+    {
+      "name": "semantic-gate-witness-court-pack",
+      "domain": "Assurance: Chicago TDD, Witness Courts & Receipts",
+      "role": "Mechanizes pass/fail witness pairs for RDF refusal gates (gates/*.rq with witnesses/{pass,fail}).",
+      "path": "/Users/sac/ggen-marketplace/packs/semantic-gate-witness-court-pack",
+      "version": "26.9.30",
+      "exists": true
+    },
+    {
+      "name": "receipt-provenance-unification-pack",
+      "domain": "Assurance: Chicago TDD, Witness Courts & Receipts",
+      "role": "Implements the 5-field receipt equation R = receipt(A) for cryptographic provenance and deterministic replay.",
+      "path": "/Users/sac/ggen-marketplace/packs/receipt-provenance-unification-pack",
+      "version": "0.1.0",
+      "exists": true
+    },
+    {
+      "name": "beam4pm-process-model-pack",
+      "domain": "Process Science & Telemetry: OCEL 2.0 & Columnar Event Logs",
+      "role": "Projects record types into compiling code, OCEL 2.0 tables, event graphs, and columnar event projections matching purrdf-process.",
+      "path": "/Users/sac/ggen-marketplace/packs/beam4pm-process-model-pack",
+      "version": "0.1.23",
+      "exists": true
+    }
+  ]
+}

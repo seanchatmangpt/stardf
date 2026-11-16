@@ -1,0 +1,11 @@
+[package]
+name = "stardf-planner"
+version = "26.11.1"
+edition = "2021"
+description = "Metadata-driven access paths from sealed footers (lane RDF-3 SIP-ALT)"
+license = "Apache-2.0"
+
+[dependencies]
+
+[lints]
+workspace = true

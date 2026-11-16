@@ -18,7 +18,7 @@
     ]
   },
   "x-stardf-annotations": {
-    "_scope": "AUTHORITY LANE C (/Users/sac/ggen-legacy/stardf). Commands are lane-literal forms; the five courts live on disk at stardf/arrow/scripts/ and each cds to the arrow workspace root internally, so run them with cwd = stardf/arrow/. Live registry/push authority is operator-gated (see deny annotations).",
+    "_scope": "AUTHORITY LANE C (/Users/sac/stardf). Commands are lane-literal forms; the five courts live on disk at arrow/scripts/ and each cds to the arrow workspace root internally, so run them with cwd = stardf/arrow/. Live registry/push authority is operator-gated (see deny annotations).",
     "Bash(python3 scripts/verify.py:*)": {
       "drow": "D18",
       "row": "D18 ABI-v2 (PENDING-OPERATOR; arrow stays landed as-is)",
